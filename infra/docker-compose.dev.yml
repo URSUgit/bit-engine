@@ -1,0 +1,16 @@
+version: "3.9"
+
+# Development overrides — mount source code, enable hot-reload.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  timescaledb:
+    environment:
+      POSTGRES_PASSWORD: bitprivat-dev
+
+  redis:
+    command: redis-server --loglevel verbose
+
+  kafka:
+    environment:
+      KAFKA_LOG_RETENTION_HOURS: 1
