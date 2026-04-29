@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Zap, Github } from "lucide-react";
+import { Github } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import { LogoMark } from "@/components/Logo";
 
 const links = [
   { label: "Features", href: "#features" },
@@ -32,9 +33,7 @@ export function LandingNav() {
       )}
     >
       <Link href="/landing" className="flex items-center gap-2.5 mr-auto">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center shadow-[0_0_20px_-2px_rgba(34,211,238,0.5)]">
-          <Zap className="w-4 h-4 text-slate-950" strokeWidth={3} />
-        </div>
+        <LogoMark size={32} />
         <span className="text-base font-bold text-slate-50 tracking-tight">
           BIT<span className="text-cyan-400">privat</span>
         </span>

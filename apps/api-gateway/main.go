@@ -17,10 +17,11 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	r := gin.New()
-	r.Use(gin.Logger(), gin.Recovery())
+	handlers.SetJWTSecret(cfg.JWTSecret)
 
-	// CORS
+	r := gin.New()
+	r.Use(gin.Logger(), gin.Recovery(), middleware.RequestID())
+
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     cfg.AllowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
@@ -29,70 +30,68 @@ func main() {
 		AllowCredentials: true,
 	}))
 
-	// Health
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok", "service": "api-gateway"})
 	})
 
-	// Public API v1
 	v1 := r.Group("/api/v1")
 	{
-		// Auth
+		// SIWE auth
 		auth := v1.Group("/auth")
 		{
+			auth.GET("/nonce",   handlers.GetNonce)
 			auth.POST("/verify", handlers.VerifyWallet)
 			auth.POST("/refresh", handlers.RefreshToken)
 		}
 
-		// Traders (public)
+		// Public: traders
 		traders := v1.Group("/traders")
 		{
-			traders.GET("", handlers.ListTraders)
-			traders.GET("/:id", handlers.GetTrader)
-			traders.GET("/:id/positions", handlers.GetTraderPositions)
-			traders.GET("/:id/history", handlers.GetTraderHistory)
-			traders.GET("/:id/stats", handlers.GetTraderStats)
+			traders.GET("",                  handlers.ListTraders)
+			traders.GET("/leaderboard",      handlers.GetLeaderboard)
+			traders.GET("/:id",              handlers.GetTrader)
+			traders.GET("/:id/positions",    handlers.GetTraderPositions)
+			traders.GET("/:id/history",      handlers.GetTraderHistory)
+			traders.GET("/:id/stats",        handlers.GetTraderStats)
 		}
 
-		// Signals (public)
-		signals := v1.Group("/signals")
-		{
-			signals.GET("", handlers.ListSignals)
-			signals.GET("/latest", handlers.GetLatestSignals)
-		}
+		// Public: signals
+		v1.GET("/signals",        handlers.ListSignals)
+		v1.GET("/signals/latest", handlers.GetLatestSignals)
 
-		// Markets (public)
-		v1.GET("/markets", handlers.ListMarkets)
-		v1.GET("/markets/:symbol", handlers.GetMarket)
+		// Public: markets
+		v1.GET("/markets",                       handlers.ListMarkets)
+		v1.GET("/markets/:symbol",               handlers.GetMarket)
+		v1.GET("/markets/:symbol/orderbook",     handlers.GetOrderBook)
 
-		// Protected routes
+		// Public: backtest (stub)
+		v1.POST("/backtest", handlers.RunBacktest)
+
+		// Protected: portfolio + copy trading + orders
 		protected := v1.Group("")
 		protected.Use(middleware.JWT(cfg.JWTSecret))
 		{
-			// Portfolio
 			portfolio := protected.Group("/portfolio")
 			{
-				portfolio.GET("", handlers.GetPortfolio)
+				portfolio.GET("",           handlers.GetPortfolio)
 				portfolio.GET("/positions", handlers.GetPortfolioPositions)
-				portfolio.GET("/history", handlers.GetPortfolioHistory)
-				portfolio.GET("/stats", handlers.GetPortfolioStats)
+				portfolio.GET("/history",   handlers.GetPortfolioHistory)
+				portfolio.GET("/stats",     handlers.GetPortfolioStats)
 			}
 
-			// Copy trading
-			copy := protected.Group("/copy")
+			copyG := protected.Group("/copy")
 			{
-				copy.GET("", handlers.ListCopyConfigs)
-				copy.POST("", handlers.StartCopy)
-				copy.GET("/:id", handlers.GetCopyConfig)
-				copy.PATCH("/:id", handlers.UpdateCopyConfig)
-				copy.DELETE("/:id", handlers.StopCopy)
+				copyG.GET("",       handlers.ListCopyConfigs)
+				copyG.POST("",      handlers.StartCopy)
+				copyG.GET("/:id",   handlers.GetCopyConfig)
+				copyG.PATCH("/:id", handlers.UpdateCopyConfig)
+				copyG.DELETE("/:id", handlers.StopCopy)
 			}
 
-			// Orders
 			orders := protected.Group("/orders")
 			{
-				orders.GET("", handlers.ListOrders)
-				orders.POST("", handlers.PlaceOrder)
+				orders.GET("",       handlers.ListOrders)
+				orders.POST("",      handlers.PlaceOrder)
 				orders.DELETE("/:id", handlers.CancelOrder)
 			}
 		}

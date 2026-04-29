@@ -22,6 +22,7 @@ import {
   Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { LogoMark } from "@/components/Logo";
 
 interface NavItem {
   label: string;
@@ -80,9 +81,7 @@ export function Sidebar() {
   return (
     <aside className="w-60 shrink-0 flex flex-col bg-slate-950 border-r border-slate-800 h-full overflow-y-auto">
       <Link href="/landing" className="flex items-center gap-2.5 px-5 py-5 border-b border-slate-800">
-        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center shadow-[0_0_18px_-3px_rgba(34,211,238,0.6)]">
-          <Zap className="w-4 h-4 text-slate-950" strokeWidth={3} />
-        </div>
+        <LogoMark size={28} />
         <span className="text-base font-bold tracking-tight text-slate-50">
           BIT<span className="text-cyan-400">privat</span>
         </span>

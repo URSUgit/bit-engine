@@ -46,13 +46,36 @@ bitprivat-platform/
 - **Python** ≥ 3.11 (`pyenv` recommended)
 - **Docker** + **Docker Compose** v2
 
-## Quick Start
+## Quick Start (frontend-only — no backend required)
+
+The Next.js app's API client falls back to seeded mock data when the gateway is offline, so you can play with the full UI immediately:
+
+```bash
+cd apps/web
+pnpm install     # only needed once at the repo root
+pnpm dev
+# open http://localhost:3000
+```
+
+Routes available:
+- `/landing` — public marketing page
+- `/dashboard` — command center
+- `/dashboard/leaderboard` — sortable / filterable trader table
+- `/dashboard/markets` — markets grid with sparklines
+- `/dashboard/markets/[symbol]` — market detail with live-style order book
+- `/dashboard/positions` — full positions table
+- `/dashboard/copy` — copy-trading management with sliders
+- `/lab` — strategy builder + backtester
+
+Connect any wallet (MetaMask / WalletConnect / Coinbase) and click **Sign In** in the navbar to run the full SIWE flow against the gateway, or sign a message locally if the gateway is offline.
+
+## Full-stack Quick Start
 
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/your-org/bitprivat-platform.git
-cd bitprivat-platform
+git clone https://github.com/URSUgit/bit-engine.git
+cd bit-engine
 
 cp .env.example .env
 # edit .env with your secrets

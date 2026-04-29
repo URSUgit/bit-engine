@@ -2,6 +2,7 @@
 
 import { Bell, Search, ChevronDown } from "lucide-react";
 import { WalletConnectButton } from "@/components/wallet/WalletConnectButton";
+import { SignInButton } from "@/components/wallet/SignInButton";
 import { useState } from "react";
 
 export function Navbar() {
@@ -25,6 +26,7 @@ export function Navbar() {
 
         <div className="w-px h-6 bg-slate-800 mx-1" />
 
+        <SignInButton />
         <WalletConnectButton />
 
         <div className="relative">

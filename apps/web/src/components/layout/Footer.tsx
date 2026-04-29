@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Zap } from "lucide-react";
+import { LogoMark } from "@/components/Logo";
 
 const links = [
   { label: "Terms", href: "/terms" },
@@ -14,13 +14,11 @@ export function Footer() {
     <footer className="border-t border-zinc-800 bg-zinc-900 py-8">
       <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded bg-cyan-500 flex items-center justify-center">
-            <Zap className="w-3 h-3 text-zinc-950" strokeWidth={2.5} />
-          </div>
-          <span className="text-sm font-semibold text-zinc-300">
-            Bit<span className="text-cyan-400">Privat</span>
+          <LogoMark size={20} />
+          <span className="text-sm font-semibold text-slate-300">
+            BIT<span className="text-cyan-400">privat</span>
           </span>
-          <span className="text-zinc-600 text-xs ml-2">© {new Date().getFullYear()}</span>
+          <span className="text-slate-600 text-xs ml-2">© {new Date().getFullYear()}</span>
         </div>
         <nav className="flex flex-wrap items-center gap-x-5 gap-y-1">
           {links.map(({ label, href }) => (
