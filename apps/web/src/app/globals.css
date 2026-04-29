@@ -4,7 +4,6 @@
 
 @layer base {
   :root {
-    /* Dark theme is the only theme — values are hard-coded to dark palette */
     --background: 222 47% 4%;
     --foreground: 210 40% 98%;
     --card: 222 47% 6%;
@@ -34,28 +33,30 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-slate-950 text-slate-50;
     font-feature-settings: "rlig" 1, "calt" 1;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(6,182,212,0.12), transparent),
+      radial-gradient(ellipse 60% 50% at 80% 100%, rgba(59,130,246,0.08), transparent);
   }
 
-  /* Scrollbar */
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  ::-webkit-scrollbar-track {
-    @apply bg-zinc-900;
-  }
-  ::-webkit-scrollbar-thumb {
-    @apply bg-zinc-700 rounded-full;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-zinc-600;
-  }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { @apply bg-slate-900; }
+  ::-webkit-scrollbar-thumb { @apply bg-slate-700 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-slate-600; }
 }
 
 @layer utilities {
   .text-gradient-cyan {
+    background: linear-gradient(90deg, #22d3ee 0%, #3b82f6 50%, #22d3ee 100%);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: gradient-shift 6s linear infinite;
+  }
+
+  .text-gradient-static {
     @apply bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent;
   }
 
@@ -64,11 +65,56 @@
   }
 
   .card-dark {
-    @apply bg-zinc-900 border border-zinc-800 rounded-xl;
+    @apply bg-slate-900/60 backdrop-blur border border-slate-800 rounded-xl;
   }
 
   .number-font {
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum";
   }
+
+  .ticker-track {
+    animation: ticker-scroll 40s linear infinite;
+  }
+
+  .grid-pattern {
+    background-image:
+      linear-gradient(to right, rgba(148,163,184,0.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(148,163,184,0.04) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+
+  .glow-card {
+    position: relative;
+  }
+  .glow-card::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, rgba(34,211,238,0.4), rgba(59,130,246,0.1), transparent 60%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .glow-card:hover::before { opacity: 1; }
+}
+
+@keyframes gradient-shift {
+  0% { background-position: 0% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes ticker-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.2); }
 }

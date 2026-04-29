@@ -3,11 +3,26 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"],
-      "@bitprivat/shared-types": ["../../packages/shared-types/src/index.ts"],
-      "@bitprivat/ui": ["../../packages/ui/src/index.ts"]
-    }
+      "@/*": [
+        "./src/*"
+      ],
+      "@bitprivat/shared-types": [
+        "../../packages/shared-types/src/index.ts"
+      ],
+      "@bitprivat/ui": [
+        "../../packages/ui/src/index.ts"
+      ]
+    },
+    "incremental": true,
+    "esModuleInterop": true
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

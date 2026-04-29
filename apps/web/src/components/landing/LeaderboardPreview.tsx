@@ -1,78 +1,149 @@
-import Link from "next/link";
-import { ArrowRight, TrendingUp, TrendingDown } from "lucide-react";
+"use client";
 
-const traders = [
-  { rank: 1, handle: "0xAlpha", address: "0x1a2b…3c4d", roi: "+312%", pnl: "+$84,200", sharpe: "3.8", win: "78%", trend: "up" },
-  { rank: 2, handle: "defi_whale", address: "0x9f8e…7d6c", roi: "+248%", pnl: "+$61,040", sharpe: "3.1", win: "72%", trend: "up" },
-  { rank: 3, handle: "polyking", address: "0x5e4f…1a0b", roi: "+191%", pnl: "+$47,750", sharpe: "2.9", win: "69%", trend: "up" },
-  { rank: 4, handle: "sigma_trader", address: "0x3c2d…9e8f", roi: "+164%", pnl: "+$41,000", sharpe: "2.7", win: "71%", trend: "up" },
-  { rank: 5, handle: "chainmaxi", address: "0x7b6a…5c4d", roi: "+138%", pnl: "+$34,500", sharpe: "2.4", win: "65%", trend: "down" },
+import Link from "next/link";
+import { useState } from "react";
+import { ArrowRight, TrendingUp, Check } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+interface Trader {
+  rank: number;
+  handle: string;
+  address: string;
+  winRate: number;
+  pnl: string;
+  pnlValue: number;
+  followers: number;
+  badge?: "verified" | "elite";
+  avatarColor: string;
+}
+
+const traders: Trader[] = [
+  { rank: 1, handle: "0xAlpha.eth", address: "0x1a2b…3c4d", winRate: 78.4, pnl: "+$842,210", pnlValue: 842210, followers: 4821, badge: "elite", avatarColor: "from-cyan-500 to-blue-600" },
+  { rank: 2, handle: "defiwhale", address: "0x9f8e…7d6c", winRate: 71.8, pnl: "+$610,400", pnlValue: 610400, followers: 3914, badge: "verified", avatarColor: "from-violet-500 to-purple-600" },
+  { rank: 3, handle: "polyking",  address: "0x5e4f…1a0b", winRate: 69.2, pnl: "+$477,500", pnlValue: 477500, followers: 2876, badge: "verified", avatarColor: "from-emerald-500 to-teal-600" },
+  { rank: 4, handle: "sigmatrade.eth", address: "0x3c2d…9e8f", winRate: 73.1, pnl: "+$410,000", pnlValue: 410000, followers: 2143, badge: "verified", avatarColor: "from-amber-500 to-orange-600" },
+  { rank: 5, handle: "chainmaxi", address: "0x7b6a…5c4d", winRate: 65.7, pnl: "+$345,000", pnlValue: 345000, followers: 1789, avatarColor: "from-pink-500 to-rose-600" },
 ];
 
 export function LeaderboardPreview() {
+  const [following, setFollowing] = useState<Set<string>>(new Set());
+
+  const toggle = (handle: string) =>
+    setFollowing((s) => {
+      const next = new Set(s);
+      if (next.has(handle)) next.delete(handle); else next.add(handle);
+      return next;
+    });
+
   return (
-    <section id="leaderboard" className="py-20 px-4 sm:px-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex items-end justify-between mb-10">
+    <section id="leaderboard" className="relative py-24 px-4 sm:px-8 border-t border-slate-800/60">
+      <div className="max-w-5xl mx-auto">
+        <div className="flex items-end justify-between mb-12 flex-wrap gap-4">
           <div>
-            <h2 className="text-3xl sm:text-4xl font-bold text-zinc-50 mb-2">
-              Verified On-Chain <span className="text-gradient-cyan">Leaderboard</span>
+            <p className="text-cyan-400 text-xs font-bold uppercase tracking-[0.2em] mb-3">Leaderboard</p>
+            <h2 className="text-3xl sm:text-5xl font-bold text-slate-50 mb-3 tracking-tight">
+              Top 5 traders <span className="text-gradient-static">this week</span>
             </h2>
-            <p className="text-zinc-400">Performance verified directly from blockchain state — no self-reporting.</p>
+            <p className="text-slate-400">Verified on-chain — no self-reporting, no manipulated stats.</p>
           </div>
           <Link
-            href="/dashboard"
-            className="hidden sm:flex items-center gap-1.5 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+            href="/dashboard/leaderboard"
+            className="hidden sm:flex items-center gap-1.5 text-sm text-cyan-400 hover:text-cyan-300 transition-colors group"
           >
-            Full Leaderboard <ArrowRight className="w-4 h-4" />
+            Full Leaderboard
+            <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
           </Link>
         </div>
 
-        <div className="overflow-x-auto rounded-2xl border border-zinc-800">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900">
-                {["#", "Trader", "30d ROI", "30d P&L", "Sharpe", "Win Rate", ""].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-800/60">
-              {traders.map((t) => (
-                <tr key={t.rank} className="bg-zinc-950 hover:bg-zinc-900/50 transition-colors">
-                  <td className="px-4 py-3.5 text-zinc-500 font-mono text-xs">{t.rank}</td>
-                  <td className="px-4 py-3.5">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-xs font-bold text-white shrink-0">
-                        {t.handle[0].toUpperCase()}
-                      </div>
-                      <div>
-                        <p className="text-zinc-200 font-medium">{t.handle}</p>
-                        <p className="text-zinc-600 text-xs font-mono">{t.address}</p>
-                      </div>
+        <div className="card-dark overflow-hidden">
+          <div className="grid grid-cols-[40px_2fr_1fr_1fr_1fr_auto] gap-4 px-5 py-3 border-b border-slate-800 bg-slate-900/40 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+            <div>#</div>
+            <div>Trader</div>
+            <div className="text-right">Win Rate</div>
+            <div className="text-right">30d P&L</div>
+            <div className="text-right hidden sm:block">Followers</div>
+            <div className="w-24"></div>
+          </div>
+
+          <div className="divide-y divide-slate-800/60">
+            {traders.map((t) => {
+              const isFollowing = following.has(t.handle);
+              return (
+                <div
+                  key={t.handle}
+                  className="grid grid-cols-[40px_2fr_1fr_1fr_1fr_auto] gap-4 px-5 py-4 items-center hover:bg-slate-900/40 transition-colors"
+                >
+                  <div className="text-slate-500 number-font font-mono text-sm">{t.rank}</div>
+
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={cn("w-9 h-9 rounded-full bg-gradient-to-br flex items-center justify-center text-xs font-bold text-white shrink-0", t.avatarColor)}>
+                      {t.handle[0].toUpperCase()}
                     </div>
-                  </td>
-                  <td className="px-4 py-3.5 font-semibold text-green-400 number-font">{t.roi}</td>
-                  <td className="px-4 py-3.5 text-green-400 number-font">{t.pnl}</td>
-                  <td className="px-4 py-3.5 text-zinc-300 number-font">{t.sharpe}</td>
-                  <td className="px-4 py-3.5 text-zinc-300 number-font">{t.win}</td>
-                  <td className="px-4 py-3.5">
-                    {t.trend === "up" ? (
-                      <TrendingUp className="w-4 h-4 text-green-500" />
-                    ) : (
-                      <TrendingDown className="w-4 h-4 text-red-500" />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-semibold text-slate-100 truncate">{t.handle}</p>
+                        {t.badge === "elite" && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950">
+                            ELITE
+                          </span>
+                        )}
+                        {t.badge === "verified" && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400">
+                            ✓
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 font-mono truncate">{t.address}</p>
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <div className="text-sm font-semibold text-slate-200 number-font">{t.winRate.toFixed(1)}%</div>
+                    <div className="hidden sm:block w-full h-1 bg-slate-800 rounded-full mt-1 overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-cyan-500 to-blue-500"
+                        style={{ width: `${t.winRate}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <div className="text-sm font-bold text-emerald-400 number-font flex items-center justify-end gap-1">
+                      <TrendingUp className="w-3 h-3" />
+                      {t.pnl}
+                    </div>
+                  </div>
+
+                  <div className="text-right text-sm text-slate-400 number-font hidden sm:block">
+                    {t.followers.toLocaleString()}
+                  </div>
+
+                  <button
+                    onClick={() => toggle(t.handle)}
+                    className={cn(
+                      "h-8 px-3 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 w-24 justify-center",
+                      isFollowing
+                        ? "bg-slate-800 text-slate-300 border border-slate-700 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30"
+                        : "bg-cyan-500 text-slate-950 hover:bg-cyan-400"
                     )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  >
+                    {isFollowing ? (
+                      <>
+                        <Check className="w-3 h-3" />
+                        Following
+                      </>
+                    ) : (
+                      "+ Follow"
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         <div className="mt-6 text-center sm:hidden">
-          <Link href="/dashboard" className="text-sm text-cyan-400 hover:underline">
+          <Link href="/dashboard/leaderboard" className="text-sm text-cyan-400 hover:underline">
             See full leaderboard →
           </Link>
         </div>

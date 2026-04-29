@@ -1,26 +1,32 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { createChart, ColorType, type IChartApi } from "lightweight-charts";
+import { createChart, ColorType, type IChartApi, type ISeriesApi, type Time } from "lightweight-charts";
 
 interface TradingViewChartProps {
-  data?: Array<{ time: string; value: number }>;
+  data?: Array<{ time: Time; value: number }>;
   height?: number;
+  type?: "area" | "line";
 }
 
-const defaultData = Array.from({ length: 60 }, (_, i) => {
-  const base = 3400;
-  const val = base + Math.sin(i / 8) * 200 + Math.random() * 100 - 50 + i * 4;
-  const date = new Date(Date.now() - (60 - i) * 60_000);
-  return {
-    time: Math.floor(date.getTime() / 1000) as any,
-    value: +val.toFixed(2),
-  };
-});
+function generateSeries(): Array<{ time: Time; value: number }> {
+  const points = 90;
+  const start = Date.now() - points * 60 * 60_000;
+  let v = 48_320;
+  return Array.from({ length: points }, (_, i) => {
+    const drift = (Math.random() - 0.48) * 280;
+    v = Math.max(35_000, v + drift + Math.sin(i / 8) * 90);
+    return {
+      time: Math.floor((start + i * 60 * 60_000) / 1000) as Time,
+      value: +v.toFixed(2),
+    };
+  });
+}
 
-export function TradingViewChart({ data = defaultData, height = 300 }: TradingViewChartProps) {
+export function TradingViewChart({ data, height = 320, type = "area" }: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<"Area" | "Line"> | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -28,29 +34,45 @@ export function TradingViewChart({ data = defaultData, height = 300 }: TradingVi
     const chart = createChart(containerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "#71717a",
+        textColor: "#64748b",
+        fontFamily: "Inter, system-ui, sans-serif",
       },
       grid: {
-        vertLines: { color: "#27272a" },
-        horzLines: { color: "#27272a" },
+        vertLines: { color: "rgba(30,41,59,0.5)" },
+        horzLines: { color: "rgba(30,41,59,0.5)" },
       },
-      crosshair: { mode: 0 },
-      rightPriceScale: { borderColor: "#27272a" },
-      timeScale: { borderColor: "#27272a", timeVisible: true, secondsVisible: false },
+      crosshair: {
+        mode: 1,
+        vertLine: { color: "#22d3ee", style: 3, width: 1, labelBackgroundColor: "#0891b2" },
+        horzLine: { color: "#22d3ee", style: 3, width: 1, labelBackgroundColor: "#0891b2" },
+      },
+      rightPriceScale: { borderColor: "rgba(30,41,59,0.6)" },
+      timeScale: {
+        borderColor: "rgba(30,41,59,0.6)",
+        timeVisible: true,
+        secondsVisible: false,
+      },
       width: containerRef.current.clientWidth,
       height,
+      handleScroll: { vertTouchDrag: false },
     });
 
     chartRef.current = chart;
 
-    const series = chart.addAreaSeries({
-      lineColor: "#06b6d4",
-      topColor: "rgba(6,182,212,0.15)",
-      bottomColor: "rgba(6,182,212,0)",
-      lineWidth: 2,
-    });
+    const series =
+      type === "area"
+        ? chart.addAreaSeries({
+            lineColor: "#22d3ee",
+            topColor: "rgba(34,211,238,0.25)",
+            bottomColor: "rgba(34,211,238,0)",
+            lineWidth: 2,
+            priceLineColor: "#22d3ee",
+            priceLineStyle: 3,
+          })
+        : chart.addLineSeries({ color: "#22d3ee", lineWidth: 2 });
 
-    series.setData(data);
+    seriesRef.current = series;
+    series.setData(data ?? generateSeries());
     chart.timeScale().fitContent();
 
     const ro = new ResizeObserver(() => {
@@ -62,7 +84,7 @@ export function TradingViewChart({ data = defaultData, height = 300 }: TradingVi
       ro.disconnect();
       chart.remove();
     };
-  }, [data, height]);
+  }, [data, height, type]);
 
   return <div ref={containerRef} className="w-full" style={{ height }} />;
 }
