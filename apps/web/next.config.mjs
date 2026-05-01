@@ -11,8 +11,14 @@ const nextConfig = {
   // Wagmi + WalletConnect pull in a few optional peer dependencies that are
   // only used in React Native or optional logger pretty-printing. Mark them
   // as externals so webpack stops complaining during the bundle pass.
-  webpack: (config) => {
+  webpack: (config, { isServer }) => {
     config.externals.push("pino-pretty", "lokijs", "encoding", "@react-native-async-storage/async-storage");
+    if (isServer) {
+      // WalletConnect uses IndexedDB internally; suppress the "indexedDB is not defined"
+      // errors that appear during Next.js static generation by externalising the storage
+      // package on the server. The connector only runs in the browser anyway.
+      config.externals.push("@walletconnect/keyvaluestorage");
+    }
     return config;
   },
   async headers() {

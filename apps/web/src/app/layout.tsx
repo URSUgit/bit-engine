@@ -1,7 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import { headers } from "next/headers";
+import { cookieToInitialState } from "wagmi";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { wagmiConfig } from "@/lib/wallet";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -44,11 +47,14 @@ export const viewport: Viewport = {
   colorScheme: "dark",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const cookie = (await headers()).get("cookie");
+  const initialWagmiState = cookieToInitialState(wagmiConfig, cookie);
+
   return (
     <html lang="en" className={`dark ${inter.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
       <body className="bg-zinc-950 text-zinc-50 antialiased font-[var(--font-inter)] min-h-screen">
-        <Providers>{children}</Providers>
+        <Providers initialWagmiState={initialWagmiState}>{children}</Providers>
       </body>
     </html>
   );

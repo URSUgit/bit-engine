@@ -1,12 +1,17 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { WagmiProvider } from "wagmi";
+import { WagmiProvider, type State } from "wagmi";
 import { SessionProvider } from "next-auth/react";
 import { useState } from "react";
 import { wagmiConfig } from "@/lib/wallet";
 
-export function Providers({ children }: { children: React.ReactNode }) {
+interface ProvidersProps {
+  children: React.ReactNode;
+  initialWagmiState?: State;
+}
+
+export function Providers({ children, initialWagmiState }: ProvidersProps) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -18,7 +23,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <SessionProvider>
-      <WagmiProvider config={wagmiConfig}>
+      <WagmiProvider config={wagmiConfig} initialState={initialWagmiState}>
         <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
       </WagmiProvider>
     </SessionProvider>
