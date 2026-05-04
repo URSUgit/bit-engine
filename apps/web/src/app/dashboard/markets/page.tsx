@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { Search, TrendingUp, TrendingDown } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { AssetSparkline } from "@/components/markets/AssetSparkline";
+import { useLivePrices } from "@/hooks/useLivePrices";
 import { api } from "@/lib/api";
 import { mockAssets } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
@@ -14,8 +15,8 @@ const categories = ["all", "perp", "spot", "prediction"] as const;
 
 function fmtPrice(p: number): string {
   if (p >= 1000) return p.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
-  if (p >= 1) return p.toFixed(2);
-  return p.toFixed(4);
+  if (p >= 1) return p.toFixed(4);
+  return p.toFixed(6);
 }
 function fmtVolume(v: number): string {
   if (v >= 1e9) return `$${(v / 1e9).toFixed(2)}B`;
@@ -24,9 +25,37 @@ function fmtVolume(v: number): string {
   return `$${v.toFixed(0)}`;
 }
 
+function FlashPrice({ price, symbol }: { price: number; symbol: string }) {
+  const [flash, setFlash] = useState<"up" | "down" | null>(null);
+  const prev = useRef(price);
+
+  useEffect(() => {
+    if (prev.current !== price) {
+      setFlash(price > prev.current ? "up" : "down");
+      prev.current = price;
+      const t = setTimeout(() => setFlash(null), 500);
+      return () => clearTimeout(t);
+    }
+  }, [price]);
+
+  return (
+    <span
+      className={cn(
+        "number-font font-semibold transition-colors duration-300",
+        flash === "up" ? "text-emerald-400" : flash === "down" ? "text-red-400" : "text-slate-100"
+      )}
+      aria-label={`${symbol} price`}
+    >
+      ${fmtPrice(price)}
+    </span>
+  );
+}
+
 export default function MarketsPage() {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<(typeof categories)[number]>("all");
+
+  const livePrices = useLivePrices();
 
   const { data: assets } = useQuery({
     queryKey: ["markets"],
@@ -36,12 +65,15 @@ export default function MarketsPage() {
   });
 
   const filtered = useMemo(() => {
-    return ((assets ?? []) as typeof mockAssets)
-      .filter((a) => {
-        if (search && !`${a.symbol} ${a.name}`.toLowerCase().includes(search.toLowerCase())) return false;
-        if (category !== "all" && a.category !== category) return false;
-        return true;
-      });
+    return ((assets ?? []) as typeof mockAssets).filter((a) => {
+      if (
+        search &&
+        !`${a.symbol} ${a.name}`.toLowerCase().includes(search.toLowerCase())
+      )
+        return false;
+      if (category !== "all" && a.category !== category) return false;
+      return true;
+    });
   }, [assets, search, category]);
 
   return (
@@ -50,8 +82,8 @@ export default function MarketsPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-50 tracking-tight">Markets</h1>
           <p className="text-sm text-slate-400 mt-1">
-            <span className="text-slate-200 font-semibold number-font">{filtered.length}</span> markets ·
-            Hyperliquid · Polymarket · Drift
+            <span className="text-slate-200 font-semibold number-font">{filtered.length}</span>{" "}
+            markets · Hyperliquid · Polymarket · Drift
           </p>
         </div>
 
@@ -72,7 +104,9 @@ export default function MarketsPage() {
                 onClick={() => setCategory(c)}
                 className={cn(
                   "px-3 py-1 text-xs font-semibold rounded transition-colors uppercase",
-                  category === c ? "bg-slate-800 text-cyan-300" : "text-slate-500 hover:text-slate-300"
+                  category === c
+                    ? "bg-slate-800 text-cyan-300"
+                    : "text-slate-500 hover:text-slate-300"
                 )}
               >
                 {c}
@@ -97,11 +131,20 @@ export default function MarketsPage() {
               </thead>
               <tbody className="divide-y divide-slate-800/60">
                 {filtered.map((a) => {
-                  const positive = a.priceChange24hPct >= 0;
+                  const liveEntry = livePrices[a.symbol];
+                  const price = liveEntry?.price ?? a.price;
+                  const change = liveEntry?.change24hPct ?? a.priceChange24hPct;
+                  const positive = change >= 0;
                   return (
-                    <tr key={a.symbol} className="hover:bg-slate-900/40 transition-colors group cursor-pointer">
+                    <tr
+                      key={a.symbol}
+                      className="hover:bg-slate-900/40 transition-colors group cursor-pointer"
+                    >
                       <td className="px-4 py-3.5">
-                        <Link href={`/dashboard/markets/${a.symbol}`} className="flex items-center gap-3 min-w-0">
+                        <Link
+                          href={`/dashboard/markets/${a.symbol}`}
+                          className="flex items-center gap-3 min-w-0"
+                        >
                           <div className="w-9 h-9 rounded-full bg-slate-800 border border-slate-700/50 flex items-center justify-center text-[11px] font-bold text-slate-200 shrink-0">
                             {a.symbol.slice(0, 3)}
                           </div>
@@ -110,30 +153,58 @@ export default function MarketsPage() {
                               {a.symbol}
                             </p>
                             <p className="text-[11px] text-slate-500">
-                              {a.name} · <span className="capitalize text-slate-600">{a.protocol}</span>
+                              {a.name} ·{" "}
+                              <span className="capitalize text-slate-600">{a.protocol}</span>
                             </p>
                           </div>
                         </Link>
                       </td>
-                      <td className="px-4 py-3.5 text-right text-slate-100 number-font font-semibold">${fmtPrice(a.price)}</td>
                       <td className="px-4 py-3.5 text-right">
-                        <span className={cn("number-font font-semibold inline-flex items-center gap-1", positive ? "text-emerald-400" : "text-red-400")}>
-                          {positive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                          {positive ? "+" : ""}{a.priceChange24hPct.toFixed(2)}%
+                        <FlashPrice price={price} symbol={a.symbol} />
+                      </td>
+                      <td className="px-4 py-3.5 text-right">
+                        <span
+                          className={cn(
+                            "number-font font-semibold inline-flex items-center gap-1",
+                            positive ? "text-emerald-400" : "text-red-400"
+                          )}
+                        >
+                          {positive ? (
+                            <TrendingUp className="w-3 h-3" />
+                          ) : (
+                            <TrendingDown className="w-3 h-3" />
+                          )}
+                          {positive ? "+" : ""}
+                          {change.toFixed(2)}%
                         </span>
                       </td>
-                      <td className="px-4 py-3.5 text-right text-slate-300 number-font">{fmtVolume(a.volume24hUsd)}</td>
+                      <td className="px-4 py-3.5 text-right text-slate-300 number-font">
+                        {fmtVolume(a.volume24hUsd)}
+                      </td>
                       <td className="px-4 py-3.5 text-right text-slate-400 number-font">
                         {a.openInterestUsd ? fmtVolume(a.openInterestUsd) : "—"}
                       </td>
                       <td className="px-4 py-3.5 text-right text-slate-400 number-font">
-                        {a.fundingRate !== undefined
-                          ? <span className={a.fundingRate >= 0 ? "text-emerald-400/80" : "text-red-400/80"}>{(a.fundingRate * 100).toFixed(3)}%</span>
-                          : "—"}
+                        {a.fundingRate !== undefined ? (
+                          <span
+                            className={
+                              a.fundingRate >= 0 ? "text-emerald-400/80" : "text-red-400/80"
+                            }
+                          >
+                            {(a.fundingRate * 100).toFixed(3)}%
+                          </span>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td className="px-4 py-3.5">
                         <div className="flex items-center justify-center">
-                          <AssetSparkline data={a.sparkline} positive={positive} width={120} height={32} />
+                          <AssetSparkline
+                            data={a.sparkline}
+                            positive={positive}
+                            width={120}
+                            height={32}
+                          />
                         </div>
                       </td>
                     </tr>
