@@ -17,60 +17,69 @@ interface AppNotification {
   href?: string;
 }
 
-const kindConfig: Record<NotificationKind, { icon: React.ComponentType<{ className?: string }>; bg: string; color: string }> = {
-  fill:   { icon: TrendingUp,    bg: "bg-emerald-500/10",   color: "text-emerald-400" },
-  signal: { icon: Activity,      bg: "bg-cyan-500/10",      color: "text-cyan-400" },
-  alert:  { icon: AlertTriangle, bg: "bg-amber-500/10",     color: "text-amber-400" },
-  system: { icon: Zap,           bg: "bg-violet-500/10",    color: "text-violet-400" },
+const kindConfig: Record<
+  NotificationKind,
+  { icon: React.ComponentType<{ className?: string }>; bg: string; color: string }
+> = {
+  fill:   { icon: TrendingUp,    bg: "bg-emerald-500/10", color: "text-emerald-400" },
+  signal: { icon: Activity,      bg: "bg-cyan-500/10",    color: "text-cyan-400"    },
+  alert:  { icon: AlertTriangle, bg: "bg-amber-500/10",   color: "text-amber-400"   },
+  system: { icon: Zap,           bg: "bg-violet-500/10",  color: "text-violet-400"  },
 };
 
 const initialNotifications: AppNotification[] = [
   {
-    id: "n1",
-    kind: "fill",
+    id: "n1", kind: "fill",
     title: "Copy trade filled",
     body: "Mirrored 0xAlpha.eth → +$420 long ETH-USD @ $3,612",
-    createdAt: new Date(Date.now() - 90_000).toISOString(),
-    read: false,
+    createdAt: new Date(Date.now() - 90_000).toISOString(), read: false,
     href: "/dashboard/positions",
   },
   {
-    id: "n2",
-    kind: "signal",
+    id: "n2", kind: "signal",
     title: "High-confidence signal",
     body: "FinBERT scored ETH bullish at 0.92 — narrative shift detected",
-    createdAt: new Date(Date.now() - 6 * 60_000).toISOString(),
-    read: false,
+    createdAt: new Date(Date.now() - 6 * 60_000).toISOString(), read: false,
     href: "/dashboard/signals",
   },
   {
-    id: "n3",
-    kind: "alert",
+    id: "n3", kind: "alert",
     title: "Watchlist alert",
     body: "BTC crossed $68,000 — your alert triggered",
-    createdAt: new Date(Date.now() - 22 * 60_000).toISOString(),
-    read: false,
+    createdAt: new Date(Date.now() - 22 * 60_000).toISOString(), read: false,
     href: "/dashboard/watchlists",
   },
   {
-    id: "n4",
-    kind: "fill",
+    id: "n4", kind: "fill",
     title: "Stop-loss triggered",
     body: "ARB-USD short closed at -4.0% (sigmatrade.eth copy)",
-    createdAt: new Date(Date.now() - 2 * 3600_000).toISOString(),
-    read: true,
+    createdAt: new Date(Date.now() - 2 * 3600_000).toISOString(), read: true,
     href: "/dashboard/history",
   },
   {
-    id: "n5",
-    kind: "system",
+    id: "n5", kind: "system",
     title: "Welcome to Pro",
     body: "Your subscription is active. Live signals and copy trading unlocked.",
-    createdAt: new Date(Date.now() - 48 * 3600_000).toISOString(),
-    read: true,
+    createdAt: new Date(Date.now() - 48 * 3600_000).toISOString(), read: true,
     href: "/dashboard/settings/billing",
   },
 ];
+
+// Templates for streamed notifications
+const STREAM_TEMPLATES: Array<Omit<AppNotification, "id" | "createdAt" | "read">> = [
+  { kind: "signal", title: "New FinBERT signal",         body: "SOL bullish at 0.88 — large inflow detected on-chain",            href: "/dashboard/signals" },
+  { kind: "signal", title: "Whale alert",                body: "$8.2M USDC → BTC swap on 1inch by known accumulator wallet",       href: "/dashboard/signals" },
+  { kind: "fill",   title: "Copy trade opened",          body: "polyking opened +$1,200 long SOL-USD @ $178.20 (10× leverage)",    href: "/dashboard/positions" },
+  { kind: "alert",  title: "Funding rate spike",         body: "ETH-USD funding hit 0.065% — short squeeze risk elevated",         href: "/dashboard/markets/ETH" },
+  { kind: "signal", title: "Technical signal",           body: "ARB MACD bullish cross on 4h with rising volume",                   href: "/dashboard/signals" },
+  { kind: "fill",   title: "TP hit",                     body: "DOGE-USD long closed +8.4% — take-profit order executed",          href: "/dashboard/history" },
+  { kind: "alert",  title: "Price alert triggered",      body: "SOL crossed $180 — your watchlist alert fired",                    href: "/dashboard/watchlists" },
+  { kind: "signal", title: "On-chain signal",            body: "12 smart-money wallets rotated $14M from stables into ETH",        href: "/dashboard/signals" },
+  { kind: "fill",   title: "Copy trade filled",          body: "Mirrored 0xVeritas → +$640 short BTC-USD @ $67,840",              href: "/dashboard/positions" },
+  { kind: "system", title: "Gateway sync",               body: "Connected to Hyperliquid mainnet — 12ms latency",                  href: undefined },
+];
+
+let streamIdx = 0;
 
 function timeAgo(iso: string): string {
   const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -84,19 +93,49 @@ function timeAgo(iso: string): string {
 
 export function NotificationsDropdown() {
   const [open, setOpen] = useState(false);
-  const [items, setItems] = useState(initialNotifications);
+  const [items, setItems] = useState<AppNotification[]>(initialNotifications);
+  const [, forceRender] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
 
+  // Close on outside click
   useEffect(() => {
-    const onClick = (e: MouseEvent) => {
+    const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Force re-render every 30s to refresh "time ago" labels
+  useEffect(() => {
+    const id = setInterval(() => forceRender((n) => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Stream new notifications
+  useEffect(() => {
+    let timeout: ReturnType<typeof setTimeout>;
+    function scheduleNext() {
+      // Random interval between 28–50 seconds
+      const delay = 28_000 + Math.random() * 22_000;
+      timeout = setTimeout(() => {
+        const template = STREAM_TEMPLATES[streamIdx % STREAM_TEMPLATES.length]!;
+        streamIdx++;
+        const notif: AppNotification = {
+          ...template,
+          id: `stream-${Date.now()}`,
+          createdAt: new Date().toISOString(),
+          read: false,
+        };
+        setItems((prev) => [notif, ...prev].slice(0, 20));
+        scheduleNext();
+      }, delay);
+    }
+    scheduleNext();
+    return () => clearTimeout(timeout);
   }, []);
 
   const unread = items.filter((n) => !n.read).length;
-
   const markAllRead = () => setItems((prev) => prev.map((n) => ({ ...n, read: true })));
   const markRead = (id: string) =>
     setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
@@ -148,25 +187,44 @@ export function NotificationsDropdown() {
                 <Wrapper
                   key={n.id}
                   {...(n.href ? { href: n.href } : {})}
-                  onClick={() => { markRead(n.id); if (n.href) setOpen(false); }}
+                  onClick={() => {
+                    markRead(n.id);
+                    if (n.href) setOpen(false);
+                  }}
                   className={cn(
                     "flex items-start gap-3 px-4 py-3 transition-colors cursor-pointer block",
                     n.read ? "hover:bg-slate-800/40" : "bg-slate-800/30 hover:bg-slate-800/60"
                   )}
                 >
-                  <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0", cfg.bg)}>
+                  <div
+                    className={cn(
+                      "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
+                      cfg.bg
+                    )}
+                  >
                     <Icon className={cn("w-4 h-4", cfg.color)} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline gap-2">
-                      <p className={cn("text-sm font-semibold", n.read ? "text-slate-300" : "text-slate-100")}>
+                      <p
+                        className={cn(
+                          "text-sm font-semibold",
+                          n.read ? "text-slate-300" : "text-slate-100"
+                        )}
+                      >
                         {n.title}
                       </p>
-                      <span className="text-[10px] text-slate-500 ml-auto shrink-0">{timeAgo(n.createdAt)}</span>
+                      <span className="text-[10px] text-slate-500 ml-auto shrink-0">
+                        {timeAgo(n.createdAt)}
+                      </span>
                     </div>
-                    <p className="text-xs text-slate-400 leading-relaxed mt-0.5 line-clamp-2">{n.body}</p>
+                    <p className="text-xs text-slate-400 leading-relaxed mt-0.5 line-clamp-2">
+                      {n.body}
+                    </p>
                   </div>
-                  {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 mt-2 shrink-0" />}
+                  {!n.read && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 mt-2 shrink-0" />
+                  )}
                 </Wrapper>
               );
             })}
