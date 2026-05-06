@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, Star, Bell, Trash2, TrendingUp, TrendingDown } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { AssetSparkline } from "@/components/markets/AssetSparkline";
 import { mockAssets } from "@/lib/mock-data";
+import { useLivePrices } from "@/hooks/useLivePrices";
 import { cn } from "@/lib/utils";
 
 interface Watchlist {
@@ -26,6 +27,7 @@ export default function WatchlistsPage() {
   const [activeId, setActiveId] = useState(lists[0]!.id);
   const active = lists.find((l) => l.id === activeId);
   const assetsInList = active ? mockAssets.filter((a) => active.symbols.includes(a.symbol)) : [];
+  const livePrices = useLivePrices();
 
   return (
     <DashboardLayout>
@@ -99,7 +101,10 @@ export default function WatchlistsPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
                     {assetsInList.map((a) => {
-                      const positive = a.priceChange24hPct >= 0;
+                      const live = livePrices[a.symbol];
+                      const price = live?.price ?? a.price;
+                      const change = live?.change24hPct ?? a.priceChange24hPct;
+                      const positive = change >= 0;
                       return (
                         <tr key={a.symbol} className="hover:bg-slate-900/40 transition-colors">
                           <td className="px-4 py-3.5">
@@ -113,13 +118,13 @@ export default function WatchlistsPage() {
                               </div>
                             </div>
                           </td>
-                          <td className="px-4 py-3.5 text-right text-slate-100 number-font font-semibold">
-                            ${a.price >= 1 ? a.price.toFixed(2) : a.price.toFixed(4)}
+                          <td className="px-4 py-3.5 text-right number-font font-semibold">
+                            <FlashPrice price={price} />
                           </td>
                           <td className="px-4 py-3.5 text-right">
                             <span className={cn("number-font font-semibold inline-flex items-center gap-1 text-sm", positive ? "text-emerald-400" : "text-red-400")}>
                               {positive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                              {positive ? "+" : ""}{a.priceChange24hPct.toFixed(2)}%
+                              {positive ? "+" : ""}{change.toFixed(2)}%
                             </span>
                           </td>
                           <td className="px-4 py-3.5 text-right text-slate-400 number-font">
@@ -146,5 +151,26 @@ export default function WatchlistsPage() {
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+function FlashPrice({ price }: { price: number }) {
+  const [flash, setFlash] = useState<"up" | "down" | null>(null);
+  const prev = useRef(price);
+  useEffect(() => {
+    if (Math.abs(price - prev.current) > 0.0001) {
+      setFlash(price > prev.current ? "up" : "down");
+      prev.current = price;
+      const t = setTimeout(() => setFlash(null), 500);
+      return () => clearTimeout(t);
+    }
+  }, [price]);
+  return (
+    <span className={cn(
+      "transition-colors duration-300",
+      flash === "up" ? "text-emerald-300" : flash === "down" ? "text-red-300" : "text-slate-100"
+    )}>
+      ${price >= 1 ? price.toFixed(2) : price.toFixed(4)}
+    </span>
   );
 }
