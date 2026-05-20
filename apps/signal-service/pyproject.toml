@@ -21,6 +21,7 @@ dependencies = [
     "torch>=2.3.0",
     "numpy>=1.26.0",
     "python-dotenv>=1.0.1",
+    "openai>=1.35.0",
     "pydantic[email]>=2.7.0",
 ]
 

@@ -20,6 +20,7 @@ import {
   UserCircle,
   ChevronRight,
   Activity,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoMark } from "@/components/Logo";
@@ -54,6 +55,7 @@ const navGroups: NavGroup[] = [
       { label: "Backtester", href: "/lab/backtester", icon: Zap },
       { label: "Signal Builder", href: "/lab/signals", icon: Layers },
       { label: "Notebooks", href: "/lab/notebooks", icon: BookOpen },
+      { label: "AI Agent", href: "/lab/agent", icon: Sparkles, badge: "new" },
     ],
   },
   {

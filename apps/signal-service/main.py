@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import signals, traders, analytics
+from app.routers import signals, traders, analytics, agent
 
 
 @asynccontextmanager
@@ -38,3 +38,4 @@ async def health():
 app.include_router(signals.router, prefix="/api/v1/signals", tags=["signals"])
 app.include_router(traders.router, prefix="/api/v1/traders", tags=["traders"])
 app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["analytics"])
+app.include_router(agent.router, prefix="/api/v1/agent", tags=["agent"])

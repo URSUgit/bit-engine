@@ -126,4 +126,21 @@ export const api = {
   backtest: {
     run: () => withFallback("/api/v1/backtest", mockBacktestResult, { method: "POST" }),
   },
+
+  // ─── AI Agent (signal-service direct) ───────────────────────────────────────
+  agent: {
+    chat: (message: string, sessionId?: string) => {
+      const SIGNAL_BASE = process.env.NEXT_PUBLIC_SIGNAL_SERVICE_URL ?? "http://localhost:8001";
+      const body: Record<string, string> = { message };
+      if (sessionId) body.session_id = sessionId;
+      return request<{ session_id: string; answer: string; thoughts: string[]; tool_calls: unknown[] }>(
+        `${SIGNAL_BASE}/api/v1/agent/chat`.replace(BASE, ""),
+        { method: "POST", body: JSON.stringify(body) }
+      );
+    },
+    clearSession: (sessionId: string) => {
+      const SIGNAL_BASE = process.env.NEXT_PUBLIC_SIGNAL_SERVICE_URL ?? "http://localhost:8001";
+      return fetch(`${SIGNAL_BASE}/api/v1/agent/session/${sessionId}`, { method: "DELETE" });
+    },
+  },
 };
