@@ -25,7 +25,7 @@ You operate in a ReAct loop:
 
 ## Format rules
 - Start reasoning with "Thought: <your reasoning>"
-- To call a tool: "Action: <tool_name> <json_args>"  (args as compact JSON, {} if none)
+- To call a tool: "Action: <tool_name> <json_args>"  (args as compact JSON, {{}} if none)
 - After a tool result arrives you will see "Observation: <result>"
 - When ready to respond: "Answer: <your final response>"
 - Keep thoughts concise. The Answer is shown to the user — make it clear, data-driven, and actionable.
