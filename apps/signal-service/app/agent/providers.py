@@ -6,7 +6,7 @@ from typing import AsyncIterator
 
 import httpx
 
-PROVIDER = os.getenv("LLM_PROVIDER", "openai").lower()
+PROVIDER = os.getenv("LLM_PROVIDER", "anthropic").lower()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
