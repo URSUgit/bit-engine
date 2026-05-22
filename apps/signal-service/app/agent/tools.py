@@ -44,6 +44,30 @@ TOOL_DESCRIPTIONS = [
         "description": "Get on-chain metrics: whale flows, funding rate, open interest for an asset.",
         "parameters": {"asset": "str — ticker symbol"},
     },
+    {
+        "name": "polymarket_search",
+        "description": "Search active Polymarket prediction markets by keyword.",
+        "parameters": {"keyword": "str — search term", "limit": "int — max results (default 10)"},
+    },
+    {
+        "name": "polymarket_start_bot",
+        "description": "Start a Polymarket bot on a market. Always starts in dry_run mode.",
+        "parameters": {
+            "market_id": "str — condition_id from polymarket_search",
+            "entry_threshold": "float — max price to pay (default 0.40)",
+            "size_usdc": "float — bet size in USDC (default 10.0)",
+        },
+    },
+    {
+        "name": "polymarket_bot_status",
+        "description": "Get status, P&L, and feed health of a running Polymarket bot.",
+        "parameters": {"market_id": "str — condition_id"},
+    },
+    {
+        "name": "polymarket_ledger",
+        "description": "Get the trade ledger summary and recent trades for the Polymarket bot.",
+        "parameters": {},
+    },
 ]
 
 TOOL_SCHEMAS_TEXT = json.dumps(TOOL_DESCRIPTIONS, indent=2)
@@ -191,6 +215,47 @@ async def get_on_chain(asset: str) -> dict[str, Any]:
 
 # ─── Dispatcher ───────────────────────────────────────────────────────────────
 
+async def polymarket_search(keyword: str = "", limit: int = 10) -> list[dict[str, Any]]:
+    try:
+        from app.polymarket.clob import get_markets
+        markets = await get_markets(keyword=keyword, limit=limit)
+        return [{"condition_id": m.condition_id, "question": m.question,
+                 "volume": m.volume, "end_date": m.end_date_iso} for m in markets]
+    except Exception as exc:
+        return [{"error": str(exc)}]
+
+
+async def polymarket_start_bot(market_id: str, entry_threshold: float = 0.40,
+                                size_usdc: float = 10.0) -> dict[str, Any]:
+    try:
+        from app.polymarket.bot import BotConfig, create_bot
+        config = BotConfig(market_id=market_id, entry_threshold=entry_threshold,
+                           size_usdc=size_usdc, mode="dry_run")
+        bot = await create_bot(config)
+        s = bot.status()
+        return {"started": True, "market_id": market_id, "mode": "dry_run",
+                "question": s.market_question}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+async def polymarket_bot_status(market_id: str) -> dict[str, Any]:
+    from app.polymarket.bot import get_bot
+    bot = get_bot(market_id)
+    if not bot:
+        return {"error": "No bot running for this market"}
+    s = bot.status()
+    return {"mode": s.mode, "ticks": s.ticks_processed, "trades": s.trades_attempted,
+            "last_price": s.last_tick_price, "last_decision": s.last_decision,
+            "feeds": s.feed_stats, "uptime_s": round(s.uptime_seconds, 1)}
+
+
+async def polymarket_ledger() -> dict[str, Any]:
+    from app.polymarket.ledger import get_ledger
+    ledger = get_ledger()
+    return {"summary": ledger.summary(), "recent_trades": ledger.recent(10)}
+
+
 TOOLS: dict[str, Any] = {
     "get_price": get_price,
     "get_sentiment": get_sentiment,
@@ -198,6 +263,10 @@ TOOLS: dict[str, Any] = {
     "run_backtest": run_backtest,
     "market_overview": market_overview,
     "get_on_chain": get_on_chain,
+    "polymarket_search": polymarket_search,
+    "polymarket_start_bot": polymarket_start_bot,
+    "polymarket_bot_status": polymarket_bot_status,
+    "polymarket_ledger": polymarket_ledger,
 }
 
 
