@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { TradingViewChart } from "@/components/charts/TradingViewChart";
 import { OrderPanel } from "@/components/trading/OrderPanel";
+import { AssetFundamentals } from "@/components/markets/AssetFundamentals";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import { api } from "@/lib/api";
 import { mockAssets, generateOrderBook } from "@/lib/mock-data";
@@ -291,6 +292,8 @@ export default function MarketDetailPage() {
             </div>
           </div>
         </div>
+
+        <AssetFundamentals symbol={symbol} />
       </div>
     </DashboardLayout>
   );

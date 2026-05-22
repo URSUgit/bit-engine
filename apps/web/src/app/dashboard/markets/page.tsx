@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Search, TrendingUp, TrendingDown } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { AssetSparkline } from "@/components/markets/AssetSparkline";
+import { MarketsOverview } from "@/components/markets/MarketsOverview";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import { api } from "@/lib/api";
 import { mockAssets } from "@/lib/mock-data";
@@ -86,6 +87,8 @@ export default function MarketsPage() {
             markets · Hyperliquid · Polymarket · Drift
           </p>
         </div>
+
+        <MarketsOverview />
 
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 flex-1 min-w-[260px] max-w-md">
