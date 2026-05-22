@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import signals, traders, analytics, agent, polymarket
+from app.routers import signals, traders, analytics, agent, polymarket, backtest
 from app.feeds import signal_engine, price_cache
 
 
@@ -55,3 +55,4 @@ app.include_router(traders.router, prefix="/api/v1/traders", tags=["traders"])
 app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["analytics"])
 app.include_router(agent.router, prefix="/api/v1/agent", tags=["agent"])
 app.include_router(polymarket.router, prefix="/api/v1/polymarket", tags=["polymarket"])
+app.include_router(backtest.router, prefix="/api/v1/backtest", tags=["backtest"])
