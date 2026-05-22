@@ -50,14 +50,12 @@ def compute_rsi(closes: list[float], period: int = 14) -> float:
 def _generate_signal(record: PriceRecord, sentiment: float) -> dict | None:
     """
     Generate a signal dict for a price record + sentiment score.
-    Returns None if no actionable signal exists.
+    Returns None only if asset is truly neutral.
 
-    Rules:
-      RSI < 28 OR (RSI < 35 AND sentiment > 0.1)  → BUY
-      RSI > 72 OR (RSI > 65 AND sentiment < -0.1) → SELL
-      Otherwise → None (no signal)
-
-    Confidence = blend of RSI extremity + abs(sentiment) + abs(price_change)
+    Tiers:
+      strong   — RSI < 28 / > 72, OR moderate RSI with confirming sentiment, OR ±7% move
+      watch    — RSI < 40 / > 60 (early signal, lower confidence)
+      None     — RSI 40-60 with no strong directional bias
     """
     rsi = record.rsi
     pct_change = record.price_change_pct_24h
@@ -65,45 +63,58 @@ def _generate_signal(record: PriceRecord, sentiment: float) -> dict | None:
     asset = CRYPTO_TO_TICKER.get(symbol, symbol)
 
     direction = None
+    tier = None
     reasoning_parts = []
 
+    # ── STRONG signals ────────────────────────────────────────────────────────
     if rsi < 28 or (rsi < 35 and sentiment > 0.1):
-        direction = "buy"
+        direction, tier = "buy", "strong"
         reasoning_parts.append(f"RSI={rsi:.1f} (oversold)")
     elif rsi > 72 or (rsi > 65 and sentiment < -0.1):
-        direction = "sell"
+        direction, tier = "sell", "strong"
         reasoning_parts.append(f"RSI={rsi:.1f} (overbought)")
-
-    if direction is None and abs(pct_change) >= 7:
+    elif abs(pct_change) >= 7:
         direction = "buy" if pct_change > 0 else "sell"
+        tier = "strong"
         reasoning_parts.append(f"Strong momentum {pct_change:+.1f}% in 24h")
+
+    # ── WATCH signals (early/weak) ────────────────────────────────────────────
+    if direction is None:
+        if rsi < 40:
+            direction, tier = "buy", "watch"
+            reasoning_parts.append(f"RSI={rsi:.1f} (approaching oversold)")
+        elif rsi > 60:
+            direction, tier = "sell", "watch"
+            reasoning_parts.append(f"RSI={rsi:.1f} (approaching overbought)")
+        elif abs(pct_change) >= 3:
+            direction = "buy" if pct_change > 0 else "sell"
+            tier = "watch"
+            reasoning_parts.append(f"Momentum {pct_change:+.1f}% in 24h")
 
     if direction is None:
         return None
 
     if sentiment > 0.15:
-        reasoning_parts.append(f"bullish news sentiment ({sentiment:+.2f})")
+        reasoning_parts.append(f"bullish news ({sentiment:+.2f})")
     elif sentiment < -0.15:
-        reasoning_parts.append(f"bearish news sentiment ({sentiment:+.2f})")
+        reasoning_parts.append(f"bearish news ({sentiment:+.2f})")
 
-    # Confidence: 0.40 base + RSI contribution + sentiment contribution
+    # Confidence calculation
     rsi_extreme = max(0, (50 - rsi) / 50 if direction == "buy" else (rsi - 50) / 50)
     sentiment_boost = min(0.2, abs(sentiment) * 0.4)
     momentum_boost = min(0.15, abs(pct_change) / 40)
-    confidence = round(min(0.97, 0.40 + rsi_extreme * 0.35 + sentiment_boost + momentum_boost), 2)
-
-    source = "technical"
-    if abs(sentiment) > 0.1:
-        source = "finbert" if record.asset_class == "crypto" else "finbert"
+    base = 0.40 if tier == "strong" else 0.25
+    confidence = round(min(0.97, base + rsi_extreme * 0.35 + sentiment_boost + momentum_boost), 2)
 
     return {
         "id": str(uuid.uuid4()),
         "asset": asset,
         "direction": direction,
         "confidence": confidence,
-        "source": source,
+        "source": "technical" if abs(sentiment) < 0.1 else "finbert",
         "reasoning": "; ".join(reasoning_parts),
         "metadata": {
+            "tier": tier,
             "rsi": rsi,
             "price": record.price,
             "price_change_pct_24h": pct_change,
