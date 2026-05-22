@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Optional
 
 from .data import HistoricalDataLoader, SYMBOL_CATALOG
+from .history import backtest_history
 from .metrics import build_equity_curve, compute_metrics
 from .models import (
     Bar, BacktestParams, BacktestResult, Position, Signal,
@@ -224,7 +225,7 @@ async def run_backtest(params: BacktestParams) -> BacktestResult:
 
     runtime_ms = (time.perf_counter() - t0) * 1000
 
-    return BacktestResult(
+    result = BacktestResult(
         id=str(uuid.uuid4()),
         symbol=params.symbol,
         strategy=params.strategy,
@@ -252,3 +253,11 @@ async def run_backtest(params: BacktestParams) -> BacktestResult:
         bars_processed=len(bars),
         runtime_ms=round(runtime_ms, 1),
     )
+
+    # Persist for history / sharing
+    try:
+        backtest_history.save(result)
+    except Exception as e:
+        log.warning("Failed to save backtest to history: %s", e)
+
+    return result

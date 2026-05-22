@@ -1,20 +1,29 @@
 """REST API for the historical backtesting engine."""
 from __future__ import annotations
 
+import asyncio
+import logging
 from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from app.backtest import HistoricalDataLoader
 from app.backtest.data import SYMBOL_CATALOG, all_symbols
 from app.backtest.engine import run_backtest
+from app.backtest.history import backtest_history
+from app.backtest.metadata import metadata_loader
 from app.backtest.models import BacktestParams, BacktestResult, StrategyInfo
+from app.backtest.optimizer import OptimizeRequest, OptimizeResult, run_optimization
 from app.backtest.storage import bar_storage
 from app.backtest.strategies import STRATEGIES
 
+log = logging.getLogger(__name__)
 router = APIRouter()
 
+
+# ── Discovery ──────────────────────────────────────────────────────────────────
 
 @router.get("/symbols")
 async def list_symbols(category: Optional[str] = Query(None)):
@@ -38,6 +47,26 @@ async def list_strategies():
     ]
 
 
+@router.get("/intervals")
+async def list_intervals():
+    """Supported bar intervals + which data sources / asset classes support each."""
+    return {
+        "intervals": [
+            {"value": "1s",  "label": "1 second",  "sources": ["binance"],          "asset_classes": ["crypto"]},
+            {"value": "1m",  "label": "1 minute",  "sources": ["binance", "yahoo"], "asset_classes": ["crypto", "stocks"], "yahoo_max_days": 7},
+            {"value": "5m",  "label": "5 minutes", "sources": ["binance", "yahoo"], "asset_classes": ["crypto", "stocks"], "yahoo_max_days": 60},
+            {"value": "15m", "label": "15 minutes","sources": ["binance", "yahoo"], "asset_classes": ["crypto", "stocks"], "yahoo_max_days": 60},
+            {"value": "30m", "label": "30 minutes","sources": ["binance", "yahoo"], "asset_classes": ["crypto", "stocks"], "yahoo_max_days": 60},
+            {"value": "1h",  "label": "1 hour",    "sources": ["binance", "yahoo"], "asset_classes": ["crypto", "stocks"], "yahoo_max_days": 730},
+            {"value": "4h",  "label": "4 hours",   "sources": ["binance"],          "asset_classes": ["crypto"]},
+            {"value": "1d",  "label": "1 day",     "sources": ["yahoo", "binance"], "asset_classes": ["all"]},
+            {"value": "1wk", "label": "1 week",    "sources": ["yahoo", "binance"], "asset_classes": ["all"]},
+        ]
+    }
+
+
+# ── Single backtest ────────────────────────────────────────────────────────────
+
 @router.post("/run", response_model=BacktestResult)
 async def run(params: BacktestParams):
     """Execute a backtest. Returns full result with metrics, trades, equity curve."""
@@ -46,8 +75,82 @@ async def run(params: BacktestParams):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        log.exception("Backtest failed")
         raise HTTPException(status_code=500, detail=f"Backtest failed: {e}")
 
+
+# ── Multi-pair comparison ──────────────────────────────────────────────────────
+
+class CompareRequest(BaseModel):
+    symbols: list[str]
+    strategy: str
+    start_date: str = "2019-01-01"
+    end_date: Optional[str] = None
+    interval: str = "1d"
+    initial_capital: float = 10000
+    commission_pct: float = 0.001
+    slippage_pct: float = 0.0005
+    position_size_pct: float = 1.0
+    strategy_params: dict = {}
+
+
+class CompareResult(BaseModel):
+    symbol: str
+    success: bool
+    result: BacktestResult | None = None
+    error: str | None = None
+
+
+@router.post("/compare", response_model=list[CompareResult])
+async def compare(req: CompareRequest):
+    """Run the same strategy on multiple symbols in parallel. Returns one row per symbol."""
+    if len(req.symbols) > 20:
+        raise HTTPException(status_code=400, detail="Max 20 symbols per comparison")
+
+    async def _one(sym: str) -> CompareResult:
+        try:
+            params = BacktestParams(
+                symbol=sym, strategy=req.strategy,
+                start_date=req.start_date, end_date=req.end_date,
+                interval=req.interval, initial_capital=req.initial_capital,
+                commission_pct=req.commission_pct, slippage_pct=req.slippage_pct,
+                position_size_pct=req.position_size_pct,
+                strategy_params=req.strategy_params,
+            )
+            r = await run_backtest(params)
+            return CompareResult(symbol=sym, success=True, result=r)
+        except Exception as e:
+            return CompareResult(symbol=sym, success=False, error=str(e))
+
+    return await asyncio.gather(*[_one(s) for s in req.symbols])
+
+
+# ── Parameter optimization ─────────────────────────────────────────────────────
+
+@router.post("/optimize", response_model=OptimizeResult)
+async def optimize(req: OptimizeRequest):
+    """Grid-search across parameter ranges to find the best strategy settings."""
+    try:
+        return await run_optimization(req)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        log.exception("Optimization failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Asset metadata ─────────────────────────────────────────────────────────────
+
+@router.get("/metadata/{symbol}")
+async def get_metadata(symbol: str):
+    """Comprehensive metadata: market cap, ATH, P/E, fundamentals, sentiment indices."""
+    try:
+        return await metadata_loader.get(symbol)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Historical OHLCV (for charting) ────────────────────────────────────────────
 
 @router.get("/data/{symbol}")
 async def get_historical(
@@ -56,7 +159,7 @@ async def get_historical(
     end_date: Optional[str] = Query(None),
     interval: str = Query("1d"),
 ):
-    """Fetch historical OHLCV bars for a symbol — useful for charting."""
+    """Fetch historical OHLCV bars for a symbol — used for charting."""
     try:
         loader = HistoricalDataLoader()
         bars = await loader.load(symbol, start_date, end_date, interval)
@@ -85,24 +188,48 @@ async def prefetch(
     categories: list[str] = Query(default=["crypto", "stocks", "etfs", "forex", "commodities"]),
     years_back: int = Query(10, ge=1, le=30),
 ):
-    """
-    Warm the local cache with 10 years of data for the requested categories.
-    Run this once after install for instant subsequent backtests.
-    """
+    """Warm the local cache with N years of daily data for all symbols in the categories."""
     loader = HistoricalDataLoader()
     results = await loader.prefetch_universe(categories=categories, years_back=years_back)
-    summary = {
+    return {
         "fetched_at": datetime.utcnow().isoformat() + "Z",
         "total_symbols": len(results),
         "successful": sum(1 for n in results.values() if n > 50),
         "by_symbol": results,
     }
-    return summary
+
+
+# ── History / sharing ──────────────────────────────────────────────────────────
+
+@router.get("/history")
+async def list_history(
+    limit: int = Query(50, ge=1, le=500),
+    symbol: Optional[str] = Query(None),
+):
+    """Recent backtest runs with summary metrics."""
+    return {"runs": backtest_history.list(limit=limit, symbol=symbol)}
+
+
+@router.get("/history/{run_id}", response_model=BacktestResult)
+async def get_history_run(run_id: str):
+    """Re-open a saved backtest result by id."""
+    data = backtest_history.get(run_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return data
+
+
+@router.delete("/history/{run_id}")
+async def delete_history_run(run_id: str):
+    deleted = backtest_history.delete(run_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {"deleted": True, "id": run_id}
 
 
 @router.get("/cache")
 async def cache_status():
-    """Show what's currently cached locally."""
+    """Show what historical OHLCV is cached locally."""
     rows = bar_storage.list_symbols()
     return {
         "total_series": len(rows),
