@@ -4,8 +4,25 @@ from typing import Optional
 from fastapi import APIRouter, Query, HTTPException
 
 from app.models.signal import Signal, SignalCreate, SignalDirection, SignalSource
+from app.feeds import signal_engine
 
 router = APIRouter()
+
+
+def _to_signal(raw: dict) -> Signal:
+    """Convert engine dict to Signal model."""
+    from datetime import datetime
+    return Signal(
+        id=raw["id"],
+        asset=raw["asset"],
+        direction=raw["direction"],
+        confidence=raw["confidence"],
+        source=raw.get("source", "technical"),
+        reasoning=raw.get("reasoning"),
+        metadata=raw.get("metadata", {}),
+        created_at=datetime.fromisoformat(raw["created_at"].replace("Z", "+00:00")) if isinstance(raw["created_at"], str) else raw["created_at"],
+        is_active=raw.get("is_active", True),
+    )
 
 
 @router.get("", response_model=list[Signal])
@@ -17,32 +34,41 @@ async def list_signals(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
-    """List signals with optional filters. Results are sorted by confidence desc."""
-    # TODO: query MongoDB for signals
-    return []
+    """Live signals from RSI + momentum + news sentiment engine."""
+    raws = signal_engine.get_signals(
+        asset=asset,
+        direction=direction.value if direction else None,
+        source=source.value if source else None,
+        min_confidence=min_confidence,
+        limit=limit,
+        offset=offset,
+    )
+    return [_to_signal(r) for r in raws]
 
 
 @router.get("/latest", response_model=list[Signal])
 async def get_latest_signals(limit: int = Query(20, ge=1, le=100)):
-    """Return the most recent active signals across all assets."""
-    return []
+    """Most recent active signals sorted by confidence."""
+    raws = signal_engine.get_signals(limit=limit)
+    return [_to_signal(r) for r in raws]
 
 
 @router.get("/{signal_id}", response_model=Signal)
 async def get_signal(signal_id: str):
-    # TODO: fetch from MongoDB
-    raise HTTPException(status_code=404, detail="Signal not found")
+    raw = signal_engine.get_signal_by_id(signal_id)
+    if not raw:
+        raise HTTPException(status_code=404, detail="Signal not found")
+    return _to_signal(raw)
 
 
 @router.post("", response_model=Signal, status_code=201)
 async def create_signal(payload: SignalCreate):
-    """Internal endpoint to ingest a new signal from scrapers or FinBERT pipeline."""
+    """Ingest a manually created signal."""
     import uuid
-    from datetime import datetime
+    from datetime import datetime, timezone
     signal = Signal(
         **payload.model_dump(),
         id=str(uuid.uuid4()),
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
-    # TODO: persist to MongoDB and publish to Kafka
     return signal

@@ -16,7 +16,9 @@ from typing import Any
 
 import httpx
 
-BASE = os.getenv("POLYMARKET_API_URL", "https://clob.polymarket.com")
+GAMMA_BASE = "https://gamma-api.polymarket.com"
+CLOB_BASE = os.getenv("POLYMARKET_API_URL", "https://clob.polymarket.com")
+BASE = GAMMA_BASE  # public market search uses Gamma API
 API_KEY = os.getenv("POLYMARKET_API_KEY", "")
 API_SECRET = os.getenv("POLYMARKET_API_SECRET", "")
 DRY_RUN = os.getenv("POLYMARKET_DRY_RUN", "true").lower() != "false"
@@ -57,11 +59,15 @@ def _sign(method: str, path: str, body: str = "") -> dict[str, str]:
 
 
 async def get_markets(keyword: str = "", limit: int = 20) -> list[Market]:
-    params: dict[str, Any] = {"limit": limit, "active": "true"}
+    params: dict[str, Any] = {"limit": limit, "active": "true", "closed": "false"}
     if keyword:
         params["search"] = keyword
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (compatible; BitPrivat/1.0)",
+    }
     async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(f"{BASE}/markets", params=params)
+        resp = await client.get(f"{GAMMA_BASE}/markets", params=params, headers=headers)
         resp.raise_for_status()
         raw = resp.json()
     results = raw.get("data", raw) if isinstance(raw, dict) else raw
