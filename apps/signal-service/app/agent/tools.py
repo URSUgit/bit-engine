@@ -1,9 +1,8 @@
-"""Trading tools available to the ReAct agent."""
+"""Trading tools available to the ReAct agent — wired to real data feeds."""
 from __future__ import annotations
 
 import asyncio
 import json
-import random
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -17,7 +16,7 @@ TOOL_DESCRIPTIONS = [
     },
     {
         "name": "get_sentiment",
-        "description": "Get aggregated FinBERT sentiment score for an asset over the last 24h.",
+        "description": "Get aggregated sentiment (news + signal-based) for an asset.",
         "parameters": {"asset": "str — ticker symbol"},
     },
     {
@@ -27,10 +26,10 @@ TOOL_DESCRIPTIONS = [
     },
     {
         "name": "run_backtest",
-        "description": "Backtest a strategy on historical data. Returns key metrics.",
+        "description": "Backtest a strategy on historical data. Strategies: rsi, ma_cross, momentum, bollinger, buy_and_hold.",
         "parameters": {
-            "asset": "str — e.g. 'ETH'",
-            "strategy": "str — strategy name, e.g. 'momentum', 'mean_reversion'",
+            "asset": "str — e.g. 'BTC'",
+            "strategy": "str — strategy name",
             "period_days": "int — lookback period in days (default 90)",
         },
     },
@@ -41,7 +40,7 @@ TOOL_DESCRIPTIONS = [
     },
     {
         "name": "get_on_chain",
-        "description": "Get on-chain metrics: whale flows, funding rate, open interest for an asset.",
+        "description": "Get on-chain metrics: funding rate, open interest for an asset.",
         "parameters": {"asset": "str — ticker symbol"},
     },
     {
@@ -73,147 +72,227 @@ TOOL_DESCRIPTIONS = [
 TOOL_SCHEMAS_TEXT = json.dumps(TOOL_DESCRIPTIONS, indent=2)
 
 
-# ─── Individual tools ─────────────────────────────────────────────────────────
+# ─── Helpers to get real data ────────────────────────────────────────────────
 
-_PRICES: dict[str, float] = {
-    "BTC": 68_420.0,
-    "ETH": 3_510.0,
-    "SOL": 172.0,
-    "ARB": 1.12,
-    "BNB": 592.0,
-    "MATIC": 0.71,
-    "AVAX": 38.4,
-    "LINK": 14.2,
+def _get_price_cache():
+    from app.feeds import price_cache
+    return price_cache
+
+def _get_signal_engine():
+    from app.feeds import signal_engine
+    return signal_engine
+
+
+# ─── Individual tools — wired to real feeds ──────────────────────────────────
+
+SYMBOL_MAP = {
+    "BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", "BNB": "binancecoin",
+    "XRP": "ripple", "ADA": "cardano", "DOGE": "dogecoin", "AVAX": "avalanche-2",
+    "MATIC": "matic-network", "DOT": "polkadot", "LINK": "chainlink", "LTC": "litecoin",
+    "ATOM": "cosmos", "UNI": "uniswap", "ARB": "arbitrum", "OP": "optimism",
 }
-
-_rng = random.Random(42)
 
 
 async def get_price(asset: str) -> dict[str, Any]:
     asset = asset.upper().replace("-USD", "").replace("USDT", "")
-    base = _PRICES.get(asset, 100.0)
-    jitter = 1 + _rng.uniform(-0.005, 0.005)
-    price = round(base * jitter, 2)
-    change_24h = round(_rng.uniform(-8, 8), 2)
-    volume_24h = round(base * _rng.uniform(50_000, 500_000), 0)
-    return {
-        "asset": asset,
-        "price_usd": price,
-        "change_24h_pct": change_24h,
-        "volume_24h_usd": volume_24h,
-        "market_cap_usd": round(price * _rng.uniform(1e9, 1e12), 0),
-        "timestamp": datetime.utcnow().isoformat(),
-    }
+    cache = _get_price_cache()
+    record = cache.get(asset)
+    if record:
+        return {
+            "asset": asset,
+            "price_usd": record.price,
+            "change_24h_pct": record.change_24h,
+            "volume_24h_usd": record.volume_24h,
+            "market_cap_usd": record.market_cap,
+            "source": record.source,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    # Fallback: try CoinGecko directly
+    try:
+        import httpx
+        cg_id = SYMBOL_MAP.get(asset)
+        if cg_id:
+            async with httpx.AsyncClient(timeout=5) as client:
+                r = await client.get(
+                    f"https://api.coingecko.com/api/v3/simple/price?ids={cg_id}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true"
+                )
+                d = r.json().get(cg_id, {})
+                return {
+                    "asset": asset,
+                    "price_usd": d.get("usd", 0),
+                    "change_24h_pct": d.get("usd_24h_change", 0),
+                    "volume_24h_usd": d.get("usd_24h_vol", 0),
+                    "market_cap_usd": d.get("usd_market_cap", 0),
+                    "source": "coingecko",
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+    except Exception:
+        pass
+    return {"asset": asset, "error": "price not available"}
 
 
 async def get_sentiment(asset: str) -> dict[str, Any]:
     asset = asset.upper()
-    try:
-        from app.scoring.finbert import get_scorer
-        scorer = get_scorer()
-        sample_text = f"{asset} showing strong momentum with increasing institutional interest"
-        direction, confidence = scorer.to_direction(sample_text)
-    except Exception:
-        direction = _rng.choice(["buy", "sell", "hold"])
-        confidence = round(_rng.uniform(0.55, 0.95), 3)
+    cache = _get_price_cache()
+    sentiment_data = cache.get_sentiment(asset)
 
-    positive = round(_rng.uniform(0.3, 0.7), 3)
-    negative = round(_rng.uniform(0.1, 0.4), 3)
-    neutral = round(1 - positive - negative, 3)
+    score = 0.0
+    label = "neutral"
+    if sentiment_data:
+        score = sentiment_data.get("score", 0)
+        label = sentiment_data.get("label", "neutral")
+
+    engine = _get_signal_engine()
+    signals = engine.get_signals(asset=asset)
+    buy_count = sum(1 for s in signals if s.get("direction") == "buy")
+    sell_count = sum(1 for s in signals if s.get("direction") == "sell")
+    signal_bias = (buy_count - sell_count) / max(len(signals), 1)
+
+    combined = round((score + signal_bias) / 2, 3) if sentiment_data else round(signal_bias, 3)
 
     return {
         "asset": asset,
         "period": "24h",
-        "score": round(positive - negative, 3),
-        "dominant_sentiment": direction,
-        "confidence": confidence,
-        "positive_pct": positive,
-        "negative_pct": negative,
-        "neutral_pct": neutral,
-        "signal_count": _rng.randint(120, 2500),
+        "score": combined,
+        "dominant_sentiment": "bullish" if combined > 0.1 else "bearish" if combined < -0.1 else "neutral",
+        "news_sentiment_score": score,
+        "news_sentiment_label": label,
+        "signal_count": len(signals),
+        "signal_buy_count": buy_count,
+        "signal_sell_count": sell_count,
     }
 
 
 async def get_signals(asset: str = "all", limit: int = 5) -> list[dict[str, Any]]:
-    assets = [asset.upper()] if asset.lower() != "all" else list(_PRICES.keys())
-    directions = ["buy", "sell", "hold"]
-    sources = ["finbert", "on_chain", "technical", "whale_alert"]
-    results = []
-    for i in range(min(limit, 10)):
-        a = assets[i % len(assets)]
-        direction = _rng.choice(directions)
-        confidence = round(_rng.uniform(0.6, 0.97), 3)
-        results.append({
-            "id": f"sig-{i:04d}",
-            "asset": a,
-            "direction": direction,
-            "confidence": confidence,
-            "source": _rng.choice(sources),
-            "reasoning": f"{a} {direction.upper()} signal — confidence {confidence:.0%}",
-            "created_at": (datetime.utcnow() - timedelta(minutes=_rng.randint(1, 240))).isoformat(),
-        })
-    return sorted(results, key=lambda x: x["confidence"], reverse=True)
+    engine = _get_signal_engine()
+    asset_filter = None if asset.lower() == "all" else asset.upper()
+    signals = engine.get_signals(asset=asset_filter, limit=limit)
+    return [
+        {
+            "id": s.get("id", f"sig-{i}"),
+            "asset": s.get("asset", ""),
+            "direction": s.get("direction", "hold"),
+            "confidence": s.get("confidence", 0),
+            "source": s.get("source", "engine"),
+            "reasoning": s.get("reasoning", ""),
+            "tier": s.get("metadata", {}).get("tier", "strong"),
+            "created_at": s.get("created_at", datetime.utcnow().isoformat()),
+        }
+        for i, s in enumerate(signals[:limit])
+    ]
 
 
-async def run_backtest(asset: str = "ETH", strategy: str = "momentum", period_days: int = 90) -> dict[str, Any]:
-    await asyncio.sleep(0.1)
+async def run_backtest(asset: str = "BTC", strategy: str = "rsi", period_days: int = 90) -> dict[str, Any]:
     asset = asset.upper()
-    strategies = {
-        "momentum": {"win_rate": 0.62, "sharpe": 1.8, "total_return": 34.5},
-        "mean_reversion": {"win_rate": 0.58, "sharpe": 1.4, "total_return": 22.1},
-        "funding_arb": {"win_rate": 0.71, "sharpe": 2.3, "total_return": 18.7},
-        "whale_mirror": {"win_rate": 0.55, "sharpe": 1.1, "total_return": 41.2},
-    }
-    base = strategies.get(strategy, strategies["momentum"])
-    noise = _rng.uniform(0.85, 1.15)
-    return {
-        "asset": asset,
-        "strategy": strategy,
-        "period_days": period_days,
-        "total_return_pct": round(base["total_return"] * noise, 2),
-        "annualized_return_pct": round(base["total_return"] * noise * (365 / period_days), 1),
-        "sharpe_ratio": round(base["sharpe"] * noise, 2),
-        "max_drawdown_pct": round(_rng.uniform(8, 25), 1),
-        "win_rate_pct": round(base["win_rate"] * 100 * noise, 1),
-        "total_trades": _rng.randint(40, 180),
-        "profit_factor": round(_rng.uniform(1.2, 2.8), 2),
-    }
+    try:
+        from app.backtest.engine import run_backtest as _run_backtest
+        from app.backtest.models import BacktestParams
+        from datetime import date
+
+        end = date.today()
+        start = end - timedelta(days=period_days)
+
+        strategy_map = {"rsi": "rsi", "ma_cross": "ma_cross", "momentum": "momentum",
+                        "bollinger": "bollinger", "buy_and_hold": "buy_and_hold",
+                        "mean_reversion": "bollinger"}
+        strat = strategy_map.get(strategy.lower(), "rsi")
+
+        suffix = "-USD" if asset in SYMBOL_MAP else ""
+        params = BacktestParams(
+            symbol=f"{asset}{suffix}",
+            strategy=strat,
+            start_date=start.isoformat(),
+            end_date=end.isoformat(),
+            interval="1d",
+            initial_capital=10000,
+            commission_pct=0.1,
+            slippage_pct=0.05,
+            position_size_pct=95,
+            strategy_params={},
+        )
+        result = await _run_backtest(params)
+        m = result.metrics
+        return {
+            "asset": asset,
+            "strategy": strat,
+            "period_days": period_days,
+            "total_return_pct": round(m.total_return_pct, 2),
+            "cagr_pct": round(m.cagr_pct, 2),
+            "sharpe_ratio": round(m.sharpe_ratio, 2),
+            "sortino_ratio": round(m.sortino_ratio, 2),
+            "max_drawdown_pct": round(m.max_drawdown_pct, 1),
+            "win_rate_pct": round(m.win_rate_pct, 1),
+            "total_trades": m.total_trades,
+            "profit_factor": round(m.profit_factor, 2),
+            "calmar_ratio": round(m.calmar_ratio, 2),
+            "final_equity": round(m.final_equity, 2),
+        }
+    except Exception as exc:
+        return {"asset": asset, "strategy": strategy, "error": str(exc)}
 
 
 async def market_overview() -> dict[str, Any]:
-    btc_dom = round(_rng.uniform(48, 58), 1)
-    fear_greed = _rng.randint(30, 75)
-    trend = "bullish" if fear_greed > 55 else "bearish" if fear_greed < 40 else "neutral"
-    prices = {a: (await get_price(a))["price_usd"] for a in ["BTC", "ETH", "SOL"]}
+    cache = _get_price_cache()
+    crypto_prices = cache.by_asset_class("crypto")
+
+    top_assets = {}
+    total_mcap = 0.0
+    total_vol = 0.0
+    for r in crypto_prices:
+        top_assets[r.symbol] = r.price
+        total_mcap += r.market_cap
+        total_vol += r.volume_24h
+
+    btc_mcap = next((r.market_cap for r in crypto_prices if r.symbol == "BTC"), 0)
+    btc_dom = round(btc_mcap / total_mcap * 100, 1) if total_mcap > 0 else 0
+
+    # Get Fear & Greed if available
+    fear_greed = None
+    try:
+        from app.backtest.metadata import metadata_loader
+        fng = await metadata_loader.fetch_fear_greed_index()
+        if fng:
+            fear_greed = fng.get("value", None)
+    except Exception:
+        pass
+
+    trend = "neutral"
+    if fear_greed is not None:
+        trend = "bullish" if fear_greed > 55 else "bearish" if fear_greed < 40 else "neutral"
+
     return {
         "btc_dominance_pct": btc_dom,
         "fear_greed_index": fear_greed,
         "market_trend": trend,
-        "total_market_cap_usd": round(_rng.uniform(2.1e12, 2.8e12), 0),
-        "total_volume_24h_usd": round(_rng.uniform(80e9, 150e9), 0),
-        "top_assets": prices,
-        "funding_rates_elevated": _rng.random() > 0.5,
+        "total_market_cap_usd": round(total_mcap, 0),
+        "total_volume_24h_usd": round(total_vol, 0),
+        "top_assets": {k: v for k, v in list(top_assets.items())[:6]},
+        "asset_count": len(crypto_prices),
         "timestamp": datetime.utcnow().isoformat(),
     }
 
 
 async def get_on_chain(asset: str) -> dict[str, Any]:
     asset = asset.upper()
-    return {
-        "asset": asset,
-        "whale_inflow_usd": round(_rng.uniform(1e6, 200e6), 0),
-        "whale_outflow_usd": round(_rng.uniform(1e6, 200e6), 0),
-        "net_whale_flow_usd": round(_rng.uniform(-50e6, 50e6), 0),
-        "funding_rate_pct": round(_rng.uniform(-0.1, 0.15), 4),
-        "open_interest_usd": round(_rng.uniform(500e6, 5e9), 0),
-        "long_short_ratio": round(_rng.uniform(0.8, 1.5), 3),
-        "liquidations_24h_usd": round(_rng.uniform(10e6, 500e6), 0),
-        "exchange_netflow_usd": round(_rng.uniform(-100e6, 100e6), 0),
-        "timestamp": datetime.utcnow().isoformat(),
-    }
+    try:
+        from app.feeds.crypto import fetch_binance_funding_rate, fetch_binance_open_interest
+        funding, oi = await asyncio.gather(
+            fetch_binance_funding_rate(asset),
+            fetch_binance_open_interest(asset),
+        )
+        return {
+            "asset": asset,
+            "funding_rate_pct": funding.get("funding_rate", 0) if funding else 0,
+            "next_funding_time": funding.get("next_funding_time") if funding else None,
+            "open_interest_usd": oi.get("open_interest_usd", 0) if oi else 0,
+            "source": "binance",
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    except Exception as exc:
+        return {"asset": asset, "error": str(exc)}
 
 
-# ─── Dispatcher ───────────────────────────────────────────────────────────────
+# ─── Polymarket tools (already real) ─────────────────────────────────────────
 
 async def polymarket_search(keyword: str = "", limit: int = 10) -> list[dict[str, Any]]:
     try:
