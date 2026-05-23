@@ -11,7 +11,7 @@ import { OrderPanel } from "@/components/trading/OrderPanel";
 import { AssetFundamentals } from "@/components/markets/AssetFundamentals";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import { api } from "@/lib/api";
-import { mockAssets, generateOrderBook } from "@/lib/mock-data";
+import { mockAssets, generateOrderBook, type OrderBookLevel } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
 const TIMEFRAMES = ["1m", "5m", "1h", "4h", "1D"] as const;
@@ -57,9 +57,20 @@ export default function MarketDetailPage() {
 
   const { data: orderBook } = useQuery({
     queryKey: ["orderbook", symbol],
-    queryFn: () => api.markets.orderBook(symbol),
+    queryFn: async () => {
+      const res = await fetch(`/api/exchange/orderbook?symbol=${symbol}&limit=20`);
+      const json = await res.json();
+      if (!json.data) return generateOrderBook(currentPrice || 100);
+      const ob = json.data as { bids: { price: number; qty: number }[]; asks: { price: number; qty: number }[] };
+      let bidTotal = 0;
+      let askTotal = 0;
+      return {
+        bids: ob.bids.map(({ price, qty }): OrderBookLevel => { bidTotal += qty; return { price, size: qty, total: +bidTotal.toFixed(4) }; }),
+        asks: ob.asks.map(({ price, qty }): OrderBookLevel => { askTotal += qty; return { price, size: qty, total: +askTotal.toFixed(4) }; }),
+      };
+    },
     initialData: generateOrderBook(asset?.price ?? 100),
-    refetchInterval: 5_000,
+    refetchInterval: 3_000,
   });
 
   if (!asset) return null;

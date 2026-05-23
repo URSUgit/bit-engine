@@ -3,6 +3,7 @@ import { Download, ChevronDown, Plus } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { DashboardLive } from "@/components/dashboard/DashboardLive";
+import { DashboardSubtitle } from "@/components/dashboard/DashboardSubtitle";
 import { PositionsTable } from "@/components/dashboard/PositionsTable";
 import { CopyTradingPanel } from "@/components/dashboard/CopyTradingPanel";
 
@@ -23,9 +24,7 @@ export default function DashboardPage() {
               <span className="text-xs text-slate-500">Prices update every tick</span>
             </div>
             <h1 className="text-2xl font-bold text-slate-50 tracking-tight">Command Center</h1>
-            <p className="text-sm text-slate-400 mt-0.5">
-              7 open positions · 3 traders being copied
-            </p>
+            <DashboardSubtitle />
           </div>
 
           <div className="flex items-center gap-2">

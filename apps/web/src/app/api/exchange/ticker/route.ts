@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withCache } from "@/lib/financial-cache";
-import { toBinanceSymbol } from "@/app/api/exchange/orderbook/route";
+import { toBinanceSymbol } from "@/lib/binance-utils";
 
 export const dynamic = "force-dynamic";
 
