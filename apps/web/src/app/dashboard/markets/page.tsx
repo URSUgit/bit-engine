@@ -8,7 +8,6 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { AssetSparkline } from "@/components/markets/AssetSparkline";
 import { MarketsOverview } from "@/components/markets/MarketsOverview";
 import { useLivePrices } from "@/hooks/useLivePrices";
-import { api } from "@/lib/api";
 import { mockAssets } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
@@ -60,9 +59,28 @@ export default function MarketsPage() {
 
   const { data: assets } = useQuery({
     queryKey: ["markets"],
-    queryFn: () => api.markets.list(),
+    queryFn: () => Promise.resolve(mockAssets),
     initialData: mockAssets,
-    staleTime: 15_000,
+    staleTime: Infinity,
+  });
+
+  // Real volume + 24h data from Binance ticker
+  const { data: tickerMap } = useQuery({
+    queryKey: ["markets-ticker"],
+    queryFn: async () => {
+      const symbols = mockAssets.map((a) => a.symbol).join(",");
+      const res = await fetch(`/api/exchange/ticker?symbols=${symbols}`);
+      const json = await res.json();
+      const map: Record<string, { volume: number; quoteVolume: number }> = {};
+      if (json.data && Array.isArray(json.data)) {
+        for (const t of json.data as { symbol: string; quote_volume: number; volume: number }[]) {
+          map[t.symbol] = { volume: t.volume, quoteVolume: t.quote_volume };
+        }
+      }
+      return map;
+    },
+    initialData: {} as Record<string, { volume: number; quoteVolume: number }>,
+    refetchInterval: 30_000,
   });
 
   const filtered = useMemo(() => {
@@ -182,7 +200,7 @@ export default function MarketsPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3.5 text-right text-slate-300 number-font">
-                        {fmtVolume(a.volume24hUsd)}
+                        {fmtVolume(tickerMap[a.symbol]?.quoteVolume ?? a.volume24hUsd)}
                       </td>
                       <td className="px-4 py-3.5 text-right text-slate-400 number-font">
                         {a.openInterestUsd ? fmtVolume(a.openInterestUsd) : "—"}
