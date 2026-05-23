@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TrendingUp, TrendingDown, Activity, Globe2, LineChart } from "lucide-react";
-import { marketApi, type Movers, type ForexRates, type MacroSeries } from "@/lib/market-api";
+import { TrendingUp, TrendingDown, Activity, Globe2, LineChart, Flame, Calendar } from "lucide-react";
+import { marketApi, type Movers, type ForexRates, type MacroSeries, type CommoditySeries, type IpoEntry } from "@/lib/market-api";
 
 function fmtNum(n: number, decimals = 2): string {
   if (!isFinite(n)) return "—";
@@ -15,10 +15,16 @@ function fmtNum(n: number, decimals = 2): string {
 
 export function MarketsOverview() {
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <MoversPanel />
-      <ForexPanel />
-      <MacroPanel />
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <MoversPanel />
+        <ForexPanel />
+        <MacroPanel />
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <CommoditiesPanel />
+        <IpoPanel />
+      </div>
     </div>
   );
 }
@@ -42,6 +48,8 @@ function PanelShell({ title, icon, source, error, children }: {
   );
 }
 
+// ─── Movers ──────────────────────────────────────────────────────────────────
+
 function MoversPanel() {
   const [data, setData] = useState<Movers | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,12 +62,7 @@ function MoversPanel() {
   }, []);
 
   return (
-    <PanelShell
-      title="Top movers (US)"
-      icon={<Activity className="w-4 h-4" />}
-      source="alpha vantage"
-      error={error ?? undefined}
-    >
+    <PanelShell title="Top movers (US)" icon={<Activity className="w-4 h-4" />} source="alpha vantage" error={error ?? undefined}>
       {!data ? (
         <p className="text-xs text-slate-600">Loading…</p>
       ) : (
@@ -91,6 +94,8 @@ function MoverRow({ label, rows, positive }: { label: string; rows: Movers["top_
   );
 }
 
+// ─── Forex ───────────────────────────────────────────────────────────────────
+
 function ForexPanel() {
   const [data, setData] = useState<ForexRates | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -105,12 +110,7 @@ function ForexPanel() {
   const majors = ["EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "CNY", "RON"];
 
   return (
-    <PanelShell
-      title="Forex (vs USD)"
-      icon={<Globe2 className="w-4 h-4" />}
-      source="open exchange rates"
-      error={error ?? undefined}
-    >
+    <PanelShell title="Forex (vs USD)" icon={<Globe2 className="w-4 h-4" />} source="open exchange rates" error={error ?? undefined}>
       {!data ? (
         <p className="text-xs text-slate-600">Loading…</p>
       ) : (
@@ -131,6 +131,8 @@ function ForexPanel() {
   );
 }
 
+// ─── Macro ───────────────────────────────────────────────────────────────────
+
 function MacroPanel() {
   const [data, setData] = useState<MacroSeries[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -143,12 +145,7 @@ function MacroPanel() {
   }, []);
 
   return (
-    <PanelShell
-      title="US macro"
-      icon={<LineChart className="w-4 h-4" />}
-      source="fred"
-      error={error ?? undefined}
-    >
+    <PanelShell title="US macro" icon={<LineChart className="w-4 h-4" />} source="fred" error={error ?? undefined}>
       {!data ? (
         <p className="text-xs text-slate-600">Loading…</p>
       ) : (
@@ -182,6 +179,91 @@ function MacroPanel() {
               </div>
             );
           })}
+        </div>
+      )}
+    </PanelShell>
+  );
+}
+
+// ─── Commodities ─────────────────────────────────────────────────────────────
+
+function CommoditiesPanel() {
+  const [data, setData] = useState<CommoditySeries[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    marketApi.commodities().then((r) => {
+      if (r.error) setError(r.error);
+      else setData(r.data);
+    });
+  }, []);
+
+  return (
+    <PanelShell title="Commodities" icon={<Flame className="w-4 h-4" />} source="alpha vantage" error={error ?? undefined}>
+      {!data ? (
+        <p className="text-xs text-slate-600">Loading…</p>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+          {data.map((c) => {
+            const last = c.observations[c.observations.length - 1];
+            const prev = c.observations[c.observations.length - 2];
+            const delta = last && prev ? last.value - prev.value : 0;
+            const up = delta >= 0;
+            return (
+              <div key={c.id} className="bg-slate-950 rounded px-2 py-1.5 border border-slate-800/60">
+                <p className="text-[10px] uppercase tracking-wider text-slate-500 truncate">{c.name}</p>
+                <p className="text-slate-200 number-font font-medium">{last ? fmtNum(last.value, 2) : "—"}</p>
+                {last && prev && (
+                  <p className={`text-[10px] number-font ${up ? "text-emerald-400" : "text-red-400"}`}>
+                    {up ? "+" : ""}{delta.toFixed(2)}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </PanelShell>
+  );
+}
+
+// ─── IPO Calendar ────────────────────────────────────────────────────────────
+
+function IpoPanel() {
+  const [data, setData] = useState<IpoEntry[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    marketApi.ipo().then((r) => {
+      if (r.error) setError(r.error);
+      else setData(r.data);
+    });
+  }, []);
+
+  return (
+    <PanelShell title="Upcoming IPOs" icon={<Calendar className="w-4 h-4" />} source="alpha vantage" error={error ?? undefined}>
+      {!data ? (
+        <p className="text-xs text-slate-600">Loading…</p>
+      ) : data.length === 0 ? (
+        <p className="text-xs text-slate-600">No upcoming IPOs.</p>
+      ) : (
+        <div className="space-y-1.5 text-xs">
+          {data.slice(0, 8).map((ipo) => (
+            <div key={`${ipo.symbol}-${ipo.ipo_date}`} className="flex justify-between items-center bg-slate-950 rounded px-2 py-1.5 border border-slate-800/60">
+              <div>
+                <p className="text-slate-200 font-medium">{ipo.symbol}</p>
+                <p className="text-[10px] text-slate-500 truncate max-w-[140px]">{ipo.name}</p>
+              </div>
+              <div className="text-right shrink-0 pl-2">
+                <p className="text-slate-300 number-font">{ipo.ipo_date}</p>
+                {(ipo.price_range_low > 0 || ipo.price_range_high > 0) && (
+                  <p className="text-[10px] text-slate-500 number-font">
+                    ${ipo.price_range_low}–${ipo.price_range_high}
+                  </p>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </PanelShell>
