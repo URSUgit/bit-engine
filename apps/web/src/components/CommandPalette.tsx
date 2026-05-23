@@ -17,7 +17,18 @@ import {
   ArrowRight,
   type LucideIcon,
 } from "lucide-react";
-import { mockTraders, mockAssets } from "@/lib/mock-data";
+import { mockTraders } from "@/lib/mock-data";
+
+const CRYPTO_MARKETS = [
+  { symbol: "BTC", name: "Bitcoin" }, { symbol: "ETH", name: "Ethereum" },
+  { symbol: "SOL", name: "Solana" }, { symbol: "BNB", name: "BNB" },
+  { symbol: "XRP", name: "XRP" }, { symbol: "ADA", name: "Cardano" },
+  { symbol: "DOGE", name: "Dogecoin" }, { symbol: "AVAX", name: "Avalanche" },
+  { symbol: "MATIC", name: "Polygon" }, { symbol: "DOT", name: "Polkadot" },
+  { symbol: "LINK", name: "Chainlink" }, { symbol: "LTC", name: "Litecoin" },
+  { symbol: "ATOM", name: "Cosmos" }, { symbol: "UNI", name: "Uniswap" },
+  { symbol: "ARB", name: "Arbitrum" }, { symbol: "OP", name: "Optimism" },
+];
 import { cn } from "@/lib/utils";
 
 interface NavCommand {
@@ -97,10 +108,10 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   const marketCommands: MarketCommand[] = useMemo(
     () =>
-      mockAssets.map((a) => ({
+      CRYPTO_MARKETS.map((a) => ({
         type: "market",
-        label: `${a.symbol}`,
-        description: `${a.name} · $${a.price >= 1 ? a.price.toLocaleString() : a.price.toFixed(4)}`,
+        label: a.symbol,
+        description: `${a.name} · Binance perpetual`,
         href: `/dashboard/markets/${a.symbol}`,
         symbol: a.symbol,
       })),

@@ -135,6 +135,48 @@ export function NotificationsDropdown() {
     return () => clearTimeout(timeout);
   }, []);
 
+  // Watch paper trading state for real position close events
+  useEffect(() => {
+    const seenIds = new Set<string>();
+    let initialized = false;
+
+    function check() {
+      try {
+        const raw = localStorage.getItem("bitprivat_paper_trading");
+        if (!raw) return;
+        const state = JSON.parse(raw) as { positions?: Array<{ id: string; status: string; symbol: string; side: string; pnl: number | null; pnl_pct: number | null }> };
+        const closed = (state.positions ?? []).filter((p) => p.status === "closed");
+        if (!initialized) {
+          // Seed known IDs without notifying (positions already there on mount)
+          closed.forEach((p) => seenIds.add(p.id));
+          initialized = true;
+          return;
+        }
+        for (const pos of closed) {
+          if (seenIds.has(pos.id)) continue;
+          seenIds.add(pos.id);
+          const pnl = pos.pnl ?? 0;
+          const pct = pos.pnl_pct ?? 0;
+          const won = pnl >= 0;
+          const notif: AppNotification = {
+            id: `pt-${pos.id}`,
+            kind: won ? "fill" : "alert",
+            title: won ? `Paper trade closed +$${pnl.toFixed(2)}` : `Paper trade closed -$${Math.abs(pnl).toFixed(2)}`,
+            body: `${pos.symbol} ${pos.side} closed at ${won ? "+" : ""}${pct.toFixed(2)}%`,
+            createdAt: new Date().toISOString(),
+            read: false,
+            href: "/dashboard/history",
+          };
+          setItems((prev) => [notif, ...prev].slice(0, 20));
+        }
+      } catch { /* ignore */ }
+    }
+
+    check();
+    const id = setInterval(check, 5_000);
+    return () => clearInterval(id);
+  }, []);
+
   const unread = items.filter((n) => !n.read).length;
   const markAllRead = () => setItems((prev) => prev.map((n) => ({ ...n, read: true })));
   const markRead = (id: string) =>
