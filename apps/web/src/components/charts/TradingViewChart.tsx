@@ -3,8 +3,8 @@
 import { useEffect, useRef } from "react";
 import { createChart, ColorType, type IChartApi, type Time } from "lightweight-charts";
 
-type CandleBar = { time: Time; open: number; high: number; low: number; close: number };
-type LineBar = { time: Time; value: number };
+export type CandleBar = { time: Time; open: number; high: number; low: number; close: number };
+export type LineBar = { time: Time; value: number };
 
 interface TradingViewChartProps {
   data?: LineBar[];

@@ -6,7 +6,7 @@ import Link from "next/link";
 import { ArrowLeft, BarChart2, TrendingDown, TrendingUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { TradingViewChart } from "@/components/charts/TradingViewChart";
+import { TradingViewChart, type CandleBar, type LineBar } from "@/components/charts/TradingViewChart";
 import { OrderPanel } from "@/components/trading/OrderPanel";
 import { AssetFundamentals } from "@/components/markets/AssetFundamentals";
 import { useLivePrices } from "@/hooks/useLivePrices";
@@ -16,6 +16,10 @@ import { cn } from "@/lib/utils";
 
 const TIMEFRAMES = ["1m", "5m", "1h", "4h", "1D"] as const;
 type ChartType = "area" | "candlestick";
+
+const KLINE_MAP: Record<string, string> = {
+  "1m": "1m", "5m": "5m", "1h": "1h", "4h": "4h", "1D": "1d",
+};
 
 function fmtPrice(p: number) {
   if (p >= 1000) return p.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -54,6 +58,29 @@ export default function MarketDetailPage() {
       return () => clearTimeout(t);
     }
   }, [currentPrice]);
+
+  // Real klines from Binance
+  const { data: klines } = useQuery({
+    queryKey: ["klines", symbol, timeframe],
+    queryFn: async () => {
+      const interval = KLINE_MAP[timeframe] ?? "1h";
+      const res = await fetch(`/api/exchange/klines?symbol=${symbol}&interval=${interval}&limit=200`);
+      const json = await res.json();
+      if (!json.data) return null;
+      return json.data as Array<{ t: number; o: number; high: number; low: number; close: number }>;
+    },
+    refetchInterval: 30_000,
+  });
+
+  const candleData: CandleBar[] | undefined = klines?.map((k) => ({
+    time: Math.floor(k.t / 1000) as CandleBar["time"],
+    open: k.o, high: k.high, low: k.low, close: k.close,
+  }));
+
+  const areaData: LineBar[] | undefined = klines?.map((k) => ({
+    time: Math.floor(k.t / 1000) as LineBar["time"],
+    value: k.close,
+  }));
 
   const { data: orderBook } = useQuery({
     queryKey: ["orderbook", symbol],
@@ -216,8 +243,10 @@ export default function MarketDetailPage() {
             <TradingViewChart
               type={chartType}
               timeframe={timeframe}
-              basePrice={asset.price}
+              basePrice={currentPrice || asset.price}
               height={420}
+              candleData={chartType === "candlestick" ? candleData : undefined}
+              data={chartType !== "candlestick" ? areaData : undefined}
             />
           </div>
 
