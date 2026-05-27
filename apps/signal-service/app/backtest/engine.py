@@ -137,6 +137,9 @@ class Backtest:
         if not bars:
             return [], []
 
+        # Allow oracle / look-ahead strategies to precompute signals from full bar data
+        strategy.prepare(bars)
+
         for i, bar in enumerate(bars):
             # 1. Strategy decides using history up to and including current bar
             ctx = StrategyContext(history=bars[: i + 1], position=self.position)

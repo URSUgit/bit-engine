@@ -40,6 +40,13 @@ class Strategy(ABC):
         merged.update({k: v for k, v in params.items() if v is not None})
         self.params = merged
 
+    def prepare(self, bars: list[Bar]) -> None:
+        """
+        Optional hook called once with the FULL bar series before the engine loop.
+        Standard strategies leave this as a no-op.
+        Oracle / look-ahead strategies override this to precompute signals.
+        """
+
     @abstractmethod
     def on_bar(self, ctx: StrategyContext) -> Signal:
         """Return 'buy', 'sell', 'close', or 'hold'."""
