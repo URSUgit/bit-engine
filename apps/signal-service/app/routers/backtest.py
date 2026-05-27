@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.backtest import HistoricalDataLoader
@@ -18,6 +21,8 @@ from app.backtest.models import BacktestParams, BacktestResult, StrategyInfo
 from app.backtest.optimizer import OptimizeRequest, OptimizeResult, run_optimization
 from app.backtest.storage import bar_storage
 from app.backtest.strategies import STRATEGIES
+
+_stream_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="bt-stream")
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -77,6 +82,68 @@ async def run(params: BacktestParams):
     except Exception as e:
         log.exception("Backtest failed")
         raise HTTPException(status_code=500, detail=f"Backtest failed: {e}")
+
+
+@router.post("/run/stream")
+async def run_stream(params: BacktestParams):
+    """
+    Execute a backtest with real-time SSE progress streaming.
+    Events: {type:"progress", phase, current, total, pct}
+             {type:"result",  data: BacktestResult}
+             {type:"error",   message}
+    """
+    queue: asyncio.Queue[dict] = asyncio.Queue()
+    main_loop = asyncio.get_running_loop()
+
+    def on_progress(phase: str, current: int, total: int) -> None:
+        pct = round(current / max(total, 1) * 100.0, 1)
+        main_loop.call_soon_threadsafe(queue.put_nowait, {
+            "type": "progress", "phase": phase,
+            "current": current, "total": total, "pct": pct,
+        })
+
+    def run_in_thread() -> None:
+        thread_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(thread_loop)
+        try:
+            result = thread_loop.run_until_complete(
+                run_backtest(params, progress_cb=on_progress)
+            )
+            main_loop.call_soon_threadsafe(queue.put_nowait, {
+                "type": "result",
+                "data": result.model_dump(mode="json"),
+            })
+        except ValueError as exc:
+            main_loop.call_soon_threadsafe(queue.put_nowait, {
+                "type": "error", "message": str(exc),
+            })
+        except Exception as exc:
+            log.exception("Streaming backtest failed")
+            main_loop.call_soon_threadsafe(queue.put_nowait, {
+                "type": "error", "message": f"Backtest failed: {exc}",
+            })
+        finally:
+            thread_loop.close()
+
+    main_loop.run_in_executor(_stream_executor, run_in_thread)
+
+    async def event_stream():
+        yield f"data: {json.dumps({'type': 'progress', 'phase': 'started', 'pct': 0.0})}\n\n"
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=300.0)
+            except asyncio.TimeoutError:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'Timeout after 5 min'})}\n\n"
+                break
+            yield f"data: {json.dumps(event)}\n\n"
+            if event.get("type") in ("result", "error"):
+                break
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ── Multi-pair comparison ──────────────────────────────────────────────────────

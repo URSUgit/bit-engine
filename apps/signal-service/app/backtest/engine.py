@@ -129,6 +129,7 @@ class Backtest:
         bars: list[Bar],
         strategy: Strategy,
         symbol: str = "",
+        progress_cb=None,
     ) -> tuple[list[Trade], list[tuple[datetime, float]]]:
         """
         Iterate bars, ask strategy for signals, simulate fills.
@@ -138,9 +139,14 @@ class Backtest:
             return [], []
 
         # Allow oracle / look-ahead strategies to precompute signals from full bar data
-        strategy.prepare(bars)
+        strategy.prepare(bars, progress_cb=progress_cb)
+
+        n = len(bars)
+        report_every = max(1, n // 40)   # ~40 progress ticks
 
         for i, bar in enumerate(bars):
+            if progress_cb and i % report_every == 0:
+                progress_cb("backtest", i, n)
             # 1. Strategy decides using history up to and including current bar
             ctx = StrategyContext(history=bars[: i + 1], position=self.position)
             signal: Signal = strategy.on_bar(ctx)
@@ -163,17 +169,22 @@ class Backtest:
             # 3. Record equity AFTER any execution at this bar
             self.equity.append((bar.timestamp, self._mark_to_market(bar)))
 
+        if progress_cb:
+            progress_cb("backtest", n, n)
         return self.trades, self.equity
 
 
 # ── High-level orchestrator ───────────────────────────────────────────────────
 
-async def run_backtest(params: BacktestParams) -> BacktestResult:
+async def run_backtest(params: BacktestParams, progress_cb=None) -> BacktestResult:
     """End-to-end: load data, instantiate strategy, run, compute metrics."""
     t0 = time.perf_counter()
 
     if params.strategy not in STRATEGIES:
         raise ValueError(f"Unknown strategy '{params.strategy}'. Available: {list(STRATEGIES)}")
+
+    if progress_cb:
+        progress_cb("loading", 0, 1)
 
     loader = HistoricalDataLoader()
     bars = await loader.load(
@@ -188,6 +199,9 @@ async def run_backtest(params: BacktestParams) -> BacktestResult:
             f"Got {len(bars)} bars. Try a longer date range or a different symbol."
         )
 
+    if progress_cb:
+        progress_cb("loaded", len(bars), len(bars))
+
     strategy_cls = STRATEGIES[params.strategy]
     strategy = strategy_cls(**params.strategy_params)
 
@@ -197,7 +211,10 @@ async def run_backtest(params: BacktestParams) -> BacktestResult:
         slippage_pct=params.slippage_pct,
         position_size_pct=params.position_size_pct,
     )
-    trades, equity = bt.run(bars, strategy, symbol=params.symbol)
+    trades, equity = bt.run(bars, strategy, symbol=params.symbol, progress_cb=progress_cb)
+
+    if progress_cb:
+        progress_cb("metrics", 0, 1)
 
     asset_cls = _asset_class(params.symbol)
     metrics = compute_metrics(

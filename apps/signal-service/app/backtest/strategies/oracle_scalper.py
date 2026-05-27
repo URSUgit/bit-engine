@@ -54,10 +54,12 @@ class OracleScalperStrategy(Strategy):
 
     # ── oracle hook ───────────────────────────────────────────────────────────
 
-    def prepare(self, bars: list[Bar]) -> None:
+    def prepare(self, bars: list[Bar], progress_cb=None) -> None:
         entry_bars: list[int] = []
+        if progress_cb:
+            progress_cb("signals", 0, len(bars))
         self._signals = self._compute_oracle_signals(bars, entry_bars)
-        self.entry_analysis = self._build_entry_analysis(bars, entry_bars)
+        self.entry_analysis = self._build_entry_analysis(bars, entry_bars, progress_cb)
 
     def on_bar(self, ctx: StrategyContext) -> Signal:
         return self._signals.get(len(ctx.history) - 1, "hold")
@@ -147,20 +149,28 @@ class OracleScalperStrategy(Strategy):
         self,
         bars: list[Bar],
         entry_bar_indices: list[int],
+        progress_cb=None,
     ) -> EntryAnalysis:
         """Build EntryAnalysis from all oracle entry bar indices."""
         entries: list[EntryDataPoint] = []
+        n_entries = len(entry_bar_indices)
+        report_every = max(1, n_entries // 20)
 
-        for idx in entry_bar_indices:
+        for entry_k, idx in enumerate(entry_bar_indices):
+            if progress_cb and entry_k % report_every == 0:
+                progress_cb("features", entry_k, max(1, n_entries))
             snap   = compute_features_at(bars, idx)
             series = compute_feature_series(bars, idx, length=_SERIES_LENGTH)
             entries.append(EntryDataPoint(
                 bar_index   = idx,
                 timestamp   = bars[idx].timestamp.isoformat(),
                 entry_price = bars[idx].close,
-                features    = {k: snap.get(k) for k in FEATURE_NAMES},
-                series      = {k: series.get(k, [None] * _SERIES_LENGTH) for k in FEATURE_NAMES},
+                features    = {feat: snap.get(feat) for feat in FEATURE_NAMES},
+                series      = {feat: series.get(feat, [None] * _SERIES_LENGTH) for feat in FEATURE_NAMES},
             ))
+
+        if progress_cb:
+            progress_cb("features", n_entries, max(1, n_entries))
 
         feature_stats = self._aggregate_stats(entries)
 

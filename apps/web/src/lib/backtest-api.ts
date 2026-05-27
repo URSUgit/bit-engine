@@ -230,6 +230,26 @@ export type HistoryRow = {
   total_trades: number;
 };
 
+export type StreamProgressEvent = {
+  type: "progress";
+  phase: "started" | "loading" | "loaded" | "signals" | "features" | "backtest" | "metrics";
+  current?: number;
+  total?: number;
+  pct: number;
+};
+
+export type StreamResultEvent = {
+  type: "result";
+  data: BacktestResult;
+};
+
+export type StreamErrorEvent = {
+  type: "error";
+  message: string;
+};
+
+export type StreamEvent = StreamProgressEvent | StreamResultEvent | StreamErrorEvent;
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BACKTEST_BASE}${path}`, {
     ...init,
@@ -240,6 +260,36 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(`${res.status}: ${body || res.statusText}`);
   }
   return (await res.json()) as T;
+}
+
+export async function* runBacktestStream(
+  params: BacktestParams,
+): AsyncGenerator<StreamEvent> {
+  const res = await fetch(`${BACKTEST_BASE}/api/v1/backtest/run/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`${res.status}: ${text}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        const payload = line.slice(6).trim();
+        if (payload) yield JSON.parse(payload) as StreamEvent;
+      }
+    }
+  }
 }
 
 export const backtestApi = {

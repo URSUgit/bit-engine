@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   backtestApi,
+  runBacktestStream,
   type BacktestParams,
   type BacktestResult,
   type CompareResult,
@@ -10,6 +11,7 @@ import {
   type StrategyInfo,
   type SymbolEntry,
   type HistoryRow,
+  type StreamProgressEvent,
 } from "@/lib/backtest-api";
 import {
   CostInputs, IntervalPicker, PeriodPicker, StrategyParamsForm,
@@ -56,6 +58,9 @@ export default function BacktesterPage() {
 
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<StreamProgressEvent | null>(null);
+  const startTimeRef = useRef<number | null>(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
 
   // Load symbols + strategies on mount
   useEffect(() => {
@@ -101,10 +106,21 @@ export default function BacktesterPage() {
 
   // ─── Run handlers ──────────────────────────────────────────────────────
 
+  // Elapsed timer — ticks every 100ms while running
+  useEffect(() => {
+    if (!running) { setElapsedMs(0); return; }
+    startTimeRef.current = Date.now();
+    const id = setInterval(() => {
+      setElapsedMs(startTimeRef.current ? Date.now() - startTimeRef.current : 0);
+    }, 100);
+    return () => clearInterval(id);
+  }, [running]);
+
   async function runSingle() {
     setRunning(true);
     setError(null);
     setSingleResult(null);
+    setProgress(null);
     try {
       const params: BacktestParams = {
         symbol: singleSymbol, strategy: strategyName,
@@ -117,11 +133,21 @@ export default function BacktesterPage() {
         position_size_pct: positionPct / 100,
         strategy_params: strategyParams,
       };
-      const r = await backtestApi.run(params);
-      setSingleResult(r);
+      for await (const event of runBacktestStream(params)) {
+        if (event.type === "progress") {
+          setProgress(event);
+        } else if (event.type === "result") {
+          setSingleResult(event.data);
+        } else if (event.type === "error") {
+          setError(event.message);
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally { setRunning(false); }
+    } finally {
+      setRunning(false);
+      setProgress(null);
+    }
   }
 
   async function runCompare() {
@@ -348,7 +374,13 @@ export default function BacktesterPage() {
             {/* ─── Results pane ─── */}
             <main className="space-y-6">
               {mode === "single" && (
-                <SingleResultsView symbol={singleSymbol} result={singleResult} running={running} />
+                <SingleResultsView
+                  symbol={singleSymbol}
+                  result={singleResult}
+                  running={running}
+                  progress={progress}
+                  elapsedMs={elapsedMs}
+                />
               )}
               {mode === "compare" && (
                 <CompareResultsView results={compareResults} running={running} />
@@ -359,6 +391,97 @@ export default function BacktesterPage() {
             </main>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Progress display ────────────────────────────────────────────────────────
+
+const PHASE_LABELS: Record<string, string> = {
+  started:  "Starting…",
+  loading:  "Loading historical data…",
+  loaded:   "Data loaded",
+  signals:  "Computing oracle signals…",
+  features: "Computing entry features…",
+  backtest: "Running backtest…",
+  metrics:  "Computing metrics…",
+};
+
+function ProgressDisplay({
+  progress,
+  elapsedMs,
+}: {
+  progress: StreamProgressEvent;
+  elapsedMs: number;
+}) {
+  const pct = progress.pct ?? 0;
+  const label = PHASE_LABELS[progress.phase] ?? progress.phase;
+  const detail =
+    progress.current != null && progress.total != null && progress.total > 1
+      ? ` (${progress.current.toLocaleString()} / ${progress.total.toLocaleString()})`
+      : "";
+  const elapsed = (elapsedMs / 1000).toFixed(1);
+
+  return (
+    <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-5 space-y-3">
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-zinc-300 font-medium">
+          {label}
+          <span className="text-zinc-500 font-normal">{detail}</span>
+        </span>
+        <div className="flex items-center gap-3 text-zinc-500 text-xs tabular-nums">
+          <span>{elapsed}s</span>
+          <span className="text-zinc-300 font-semibold">{pct.toFixed(1)}%</span>
+        </div>
+      </div>
+
+      {/* Track */}
+      <div className="relative h-2 bg-zinc-800 rounded-full overflow-hidden">
+        {/* Glowing fill */}
+        <div
+          className="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
+          style={{
+            width: `${pct}%`,
+            background: "linear-gradient(90deg, #06b6d4, #3b82f6)",
+            boxShadow: pct > 0 ? "0 0 8px rgba(6,182,212,0.6)" : "none",
+          }}
+        />
+        {/* Shimmer overlay */}
+        {pct < 100 && (
+          <div
+            className="absolute inset-y-0 left-0 rounded-full animate-pulse"
+            style={{
+              width: `${pct}%`,
+              background: "linear-gradient(90deg, transparent 60%, rgba(255,255,255,0.15) 100%)",
+            }}
+          />
+        )}
+      </div>
+
+      {/* Phase steps */}
+      <div className="flex gap-1 flex-wrap">
+        {(["loading", "signals", "features", "backtest", "metrics"] as const).map((ph) => {
+          const phases = ["loading", "signals", "features", "backtest", "metrics"];
+          const currentIdx = phases.indexOf(progress.phase);
+          const phIdx = phases.indexOf(ph);
+          const done = phIdx < currentIdx;
+          const active = ph === progress.phase;
+          return (
+            <span
+              key={ph}
+              className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-all ${
+                active
+                  ? "border-cyan-500 bg-cyan-500/10 text-cyan-300"
+                  : done
+                  ? "border-zinc-700 bg-zinc-800 text-zinc-400"
+                  : "border-zinc-800 text-zinc-600"
+              }`}
+            >
+              {done ? "✓ " : ""}{ph}
+            </span>
+          );
+        })}
       </div>
     </div>
   );
@@ -395,7 +518,15 @@ function ModeTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void 
 
 // ─── Result view components ───────────────────────────────────────────────────
 
-function SingleResultsView({ symbol, result, running }: { symbol: string; result: BacktestResult | null; running: boolean }) {
+function SingleResultsView({
+  symbol, result, running, progress, elapsedMs,
+}: {
+  symbol: string;
+  result: BacktestResult | null;
+  running: boolean;
+  progress: StreamProgressEvent | null;
+  elapsedMs: number;
+}) {
   return (
     <>
       <MetadataPanel symbol={symbol} />
@@ -407,9 +538,12 @@ function SingleResultsView({ symbol, result, running }: { symbol: string; result
           </p>
         </div>
       )}
-      {running && (
-        <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-12 text-center text-zinc-400">
-          Running backtest… first run takes ~10s for data fetch.
+      {running && progress && (
+        <ProgressDisplay progress={progress} elapsedMs={elapsedMs} />
+      )}
+      {running && !progress && (
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-8 text-center text-zinc-400 text-sm">
+          Connecting…
         </div>
       )}
       {result && (

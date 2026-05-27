@@ -40,11 +40,12 @@ class Strategy(ABC):
         merged.update({k: v for k, v in params.items() if v is not None})
         self.params = merged
 
-    def prepare(self, bars: list[Bar]) -> None:
+    def prepare(self, bars: list[Bar], progress_cb=None) -> None:
         """
         Optional hook called once with the FULL bar series before the engine loop.
         Standard strategies leave this as a no-op.
         Oracle / look-ahead strategies override this to precompute signals.
+        progress_cb(phase, current, total) is an optional thread-safe callback.
         """
 
     @abstractmethod
