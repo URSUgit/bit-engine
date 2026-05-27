@@ -228,6 +228,8 @@ async def run_backtest(params: BacktestParams) -> BacktestResult:
 
     runtime_ms = (time.perf_counter() - t0) * 1000
 
+    entry_analysis = getattr(strategy, "entry_analysis", None)
+
     result = BacktestResult(
         id=str(uuid.uuid4()),
         symbol=params.symbol,
@@ -255,6 +257,7 @@ async def run_backtest(params: BacktestParams) -> BacktestResult:
         equity_curve=build_equity_curve(equity),
         bars_processed=len(bars),
         runtime_ms=round(runtime_ms, 1),
+        entry_analysis=entry_analysis,
     )
 
     # Persist for history / sharing

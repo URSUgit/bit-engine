@@ -18,8 +18,14 @@ Trailing stop rules:
 """
 from __future__ import annotations
 
+import math
+from typing import Optional
+
 from .base import Strategy, StrategyContext
-from ..models import Bar, Signal
+from ..features import FEATURE_NAMES, compute_features_at, compute_feature_series
+from ..models import Bar, EntryAnalysis, EntryDataPoint, FeatureStats, Signal
+
+_SERIES_LENGTH = 20   # bars of history captured per entry
 
 
 class OracleScalperStrategy(Strategy):
@@ -44,18 +50,25 @@ class OracleScalperStrategy(Strategy):
     def __init__(self, **params) -> None:
         super().__init__(**params)
         self._signals: dict[int, Signal] = {}
+        self.entry_analysis: Optional[EntryAnalysis] = None
 
     # ── oracle hook ───────────────────────────────────────────────────────────
 
     def prepare(self, bars: list[Bar]) -> None:
-        self._signals = self._compute_oracle_signals(bars)
+        entry_bars: list[int] = []
+        self._signals = self._compute_oracle_signals(bars, entry_bars)
+        self.entry_analysis = self._build_entry_analysis(bars, entry_bars)
 
     def on_bar(self, ctx: StrategyContext) -> Signal:
         return self._signals.get(len(ctx.history) - 1, "hold")
 
     # ── core computation ──────────────────────────────────────────────────────
 
-    def _compute_oracle_signals(self, bars: list[Bar]) -> dict[int, Signal]:
+    def _compute_oracle_signals(
+        self,
+        bars: list[Bar],
+        entry_bars_out: list[int],
+    ) -> dict[int, Signal]:
         """
         Scan all bars with full look-ahead and precompute buy/close signals.
 
@@ -94,42 +107,101 @@ class OracleScalperStrategy(Strategy):
                 high = bar.high
                 low  = bar.low
 
-                # Update running peak
                 if high > peak:
                     peak = high
 
-                # Check if minimum profit target reached
                 if high >= target_price:
                     reached_target = True
 
-                # Compute trailing stop once target is activated
                 if reached_target:
                     tp_activated  = True
-                    # Floor at min_profit, trails 2% below peak above that
                     trailing_stop = max(
-                        entry_price * (1.0 + min_profit),  # minimum profit floor
-                        peak        * (1.0 - trail),        # 2% below running peak
+                        entry_price * (1.0 + min_profit),
+                        peak        * (1.0 - trail),
                     )
 
-                # Hard stop: exit for loss before target — oracle avoids this entry
+                # Hard stop: oracle avoids entries that would stop out
                 if not tp_activated and low <= stop_price:
                     reached_target = False
-                    exit_signal_bar = None  # sentinel: do not trade
+                    exit_signal_bar = None
                     break
 
                 # Trailing stop hit — exit here
                 if tp_activated and low <= trailing_stop:
-                    # Signal "close" one bar before so engine fills at this bar's open
                     exit_signal_bar = max(i + 1, k - 1)
                     break
 
-            # Only place the trade if it reached the profit target
             if reached_target and exit_signal_bar is not None:
-                signals[i]              = "buy"
+                signals[i]               = "buy"
                 signals[exit_signal_bar] = "close"
-                # Advance past the exit fill bar to avoid overlapping positions
+                entry_bars_out.append(i)
                 i = exit_signal_bar + 2
             else:
                 i += 1
 
         return signals
+
+    # ── feature / time-series analysis ───────────────────────────────────────
+
+    def _build_entry_analysis(
+        self,
+        bars: list[Bar],
+        entry_bar_indices: list[int],
+    ) -> EntryAnalysis:
+        """Build EntryAnalysis from all oracle entry bar indices."""
+        entries: list[EntryDataPoint] = []
+
+        for idx in entry_bar_indices:
+            snap   = compute_features_at(bars, idx)
+            series = compute_feature_series(bars, idx, length=_SERIES_LENGTH)
+            entries.append(EntryDataPoint(
+                bar_index   = idx,
+                timestamp   = bars[idx].timestamp.isoformat(),
+                entry_price = bars[idx].close,
+                features    = {k: snap.get(k) for k in FEATURE_NAMES},
+                series      = {k: series.get(k, [None] * _SERIES_LENGTH) for k in FEATURE_NAMES},
+            ))
+
+        feature_stats = self._aggregate_stats(entries)
+
+        return EntryAnalysis(
+            entry_count   = len(entries),
+            series_length = _SERIES_LENGTH,
+            feature_names = FEATURE_NAMES,
+            entries       = entries,
+            feature_stats = feature_stats,
+        )
+
+    @staticmethod
+    def _aggregate_stats(entries: list[EntryDataPoint]) -> list[FeatureStats]:
+        stats: list[FeatureStats] = []
+        if not entries:
+            return stats
+
+        all_features = entries[0].features.keys()
+        for feat in all_features:
+            vals = [
+                e.features[feat]
+                for e in entries
+                if e.features.get(feat) is not None
+            ]
+            if not vals:
+                stats.append(FeatureStats(
+                    feature=feat, count=0,
+                    mean=None, std=None, min=None, max=None,
+                ))
+                continue
+
+            n    = len(vals)
+            mean = sum(vals) / n
+            std  = math.sqrt(sum((v - mean) ** 2 for v in vals) / n) if n > 1 else 0.0
+            stats.append(FeatureStats(
+                feature = feat,
+                count   = n,
+                mean    = round(mean, 6),
+                std     = round(std, 6),
+                min     = round(min(vals), 6),
+                max     = round(max(vals), 6),
+            ))
+
+        return stats

@@ -85,6 +85,31 @@ export type Metrics = {
   initial_capital: number;
 };
 
+export type FeatureStats = {
+  feature: string;
+  count: number;
+  mean: number | null;
+  std: number | null;
+  min: number | null;
+  max: number | null;
+};
+
+export type EntryDataPoint = {
+  bar_index: number;
+  timestamp: string;
+  entry_price: number;
+  features: Record<string, number | null>;
+  series: Record<string, (number | null)[]>;
+};
+
+export type EntryAnalysis = {
+  entry_count: number;
+  series_length: number;
+  feature_names: string[];
+  entries: EntryDataPoint[];
+  feature_stats: FeatureStats[];
+};
+
 export type BacktestResult = {
   id: string;
   symbol: string;
@@ -99,6 +124,7 @@ export type BacktestResult = {
   equity_curve: EquityPoint[];
   bars_processed: number;
   runtime_ms: number;
+  entry_analysis: EntryAnalysis | null;
 };
 
 export type CompareResult = {

@@ -117,6 +117,34 @@ class PerformanceMetrics(BaseModel):
     initial_capital: float
 
 
+class FeatureStats(BaseModel):
+    """Aggregate stats for one feature across all oracle entry bars."""
+    feature: str
+    count: int           # entries where this feature was available (not None)
+    mean: Optional[float]
+    std: Optional[float]
+    min: Optional[float]
+    max: Optional[float]
+
+
+class EntryDataPoint(BaseModel):
+    """All analysis data for one oracle entry bar."""
+    bar_index: int
+    timestamp: str
+    entry_price: float
+    features: dict[str, Optional[float]]          # point-in-time snapshot
+    series: dict[str, list[Optional[float]]]      # last N bars before entry
+
+
+class EntryAnalysis(BaseModel):
+    """Aggregated time-series and feature analysis for all oracle entry signals."""
+    entry_count: int
+    series_length: int
+    feature_names: list[str]
+    entries: list[EntryDataPoint]
+    feature_stats: list[FeatureStats]
+
+
 class BacktestResult(BaseModel):
     id: str
     symbol: str
@@ -131,6 +159,7 @@ class BacktestResult(BaseModel):
     equity_curve: list[EquityPoint]
     bars_processed: int
     runtime_ms: float
+    entry_analysis: Optional[EntryAnalysis] = None   # oracle strategies only
 
 
 class StrategyInfo(BaseModel):

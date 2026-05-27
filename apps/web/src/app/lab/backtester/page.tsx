@@ -16,7 +16,7 @@ import {
   StrategyPicker, NumberInput, isoDaysAgo,
 } from "./components/shared";
 import { SymbolPicker, MultiSymbolPicker } from "./components/symbol-picker";
-import { MetricsGrid, PriceChart, EquityChart, TradesTable } from "./components/results";
+import { MetricsGrid, PriceChart, EquityChart, TradesTable, EntryAnalysisPanel } from "./components/results";
 import { MetadataPanel } from "./components/metadata-panel";
 import { CompareTable } from "./components/compare-table";
 import { OptimizeHeatmap } from "./components/optimize-heatmap";
@@ -418,6 +418,9 @@ function SingleResultsView({ symbol, result, running }: { symbol: string; result
           <PriceChart result={result} />
           <EquityChart result={result} />
           <TradesTable trades={result.trades} />
+          {result.entry_analysis && (
+            <EntryAnalysisPanel analysis={result.entry_analysis} />
+          )}
         </>
       )}
     </>
