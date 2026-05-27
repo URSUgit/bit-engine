@@ -67,6 +67,21 @@ TOOL_DESCRIPTIONS = [
         "description": "Get the trade ledger summary and recent trades for the Polymarket bot.",
         "parameters": {},
     },
+    {
+        "name": "search_symbols",
+        "description": "Search the backtest symbol catalog for tradeable assets.",
+        "parameters": {"query": "str — partial symbol or category name (empty = return all, up to 20)"},
+    },
+    {
+        "name": "get_backtest_history",
+        "description": "Get recent backtest runs from the history store.",
+        "parameters": {"limit": "int — max results (default 5)"},
+    },
+    {
+        "name": "navigate_to",
+        "description": "Navigate the user to a page in the platform. Valid paths: /dashboard, /dashboard/positions, /dashboard/markets, /dashboard/history, /dashboard/markets/{SYMBOL} (e.g. /dashboard/markets/BTC-USD), /lab/backtester, /lab/agent, /dashboard/signals, /lab/polymarket",
+        "parameters": {"path": "str — platform path to navigate to"},
+    },
 ]
 
 TOOL_SCHEMAS_TEXT = json.dumps(TOOL_DESCRIPTIONS, indent=2)
@@ -335,6 +350,27 @@ async def polymarket_ledger() -> dict[str, Any]:
     return {"summary": ledger.summary(), "recent_trades": ledger.recent(10)}
 
 
+async def search_symbols(query: str = "") -> list[dict]:
+    """Search the backtest symbol catalog."""
+    from app.backtest.data import all_symbols
+    results = all_symbols()
+    q = query.lower()
+    if q:
+        results = [r for r in results if q in r["symbol"].lower() or q in r.get("category", "").lower()]
+    return results[:20]
+
+
+async def get_backtest_history(limit: int = 5) -> list[dict]:
+    """Get recent backtest runs from history."""
+    from app.backtest.history import backtest_history
+    return backtest_history.list(limit=limit)
+
+
+async def navigate_to(path: str) -> dict:
+    """Navigate the user to a page in the platform. Valid paths: /dashboard, /dashboard/positions, /dashboard/markets, /dashboard/history, /dashboard/markets/{SYMBOL} (e.g. /dashboard/markets/BTC-USD), /lab/backtester, /lab/agent, /dashboard/signals, /lab/polymarket"""
+    return {"__navigate__": True, "path": path}
+
+
 TOOLS: dict[str, Any] = {
     "get_price": get_price,
     "get_sentiment": get_sentiment,
@@ -346,6 +382,9 @@ TOOLS: dict[str, Any] = {
     "polymarket_start_bot": polymarket_start_bot,
     "polymarket_bot_status": polymarket_bot_status,
     "polymarket_ledger": polymarket_ledger,
+    "search_symbols": search_symbols,
+    "get_backtest_history": get_backtest_history,
+    "navigate_to": navigate_to,
 }
 
 

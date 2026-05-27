@@ -31,6 +31,7 @@ You operate in a ReAct loop:
 - Keep thoughts concise. The Answer is shown to the user — make it clear, data-driven, and actionable.
 - Use markdown formatting in your Answer for readability.
 - Never fabricate prices or data — always call the appropriate tool first.
+- You can also navigate users to platform pages with the navigate_to tool.
 """
 
 
@@ -101,6 +102,9 @@ async def run(session_id: str, user_message: str) -> AsyncIterator[dict]:
         yield {"type": "action", "tool": tool_name, "args": tool_args}
 
         observation = await dispatch(tool_name, tool_args)
+        # Emit navigate event if the tool requested navigation
+        if isinstance(observation, dict) and observation.get("__navigate__"):
+            yield {"type": "navigate", "path": observation["path"]}
         obs_text = json.dumps(observation, indent=2)
         yield {"type": "observation", "content": obs_text}
 
