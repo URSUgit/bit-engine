@@ -7,6 +7,7 @@ import { WalletConnectButton } from "@/components/wallet/WalletConnectButton";
 import { SignInButton } from "@/components/wallet/SignInButton";
 import { NotificationsDropdown } from "@/components/NotificationsDropdown";
 import { useCommandPalette } from "@/components/CommandPalette";
+import { DataStatusIndicator } from "@/components/DataStatusIndicator";
 
 export function Navbar() {
   const [userOpen, setUserOpen] = useState(false);
@@ -27,6 +28,8 @@ export function Navbar() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          <DataStatusIndicator />
+          <div className="w-px h-6 bg-slate-800" />
           <NotificationsDropdown />
 
           <div className="w-px h-6 bg-slate-800 mx-1" />
