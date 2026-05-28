@@ -1,5 +1,32 @@
 import asyncio
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
+
+
+def _load_env_file() -> None:
+    """Load KEY=VALUE pairs from the local .env into os.environ.
+
+    Dependency-free so it works no matter how uvicorn is launched (the
+    `--env-file` flag needs python-dotenv installed; this does not). Runs
+    before the routers import so module-level os.getenv() calls see the
+    values. Real environment variables always win over the file, which
+    keeps cloud deployments (where vars are injected) unaffected.
+    """
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.exists():
+        return
+    for raw in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key, value = key.strip(), value.strip()
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_env_file()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
