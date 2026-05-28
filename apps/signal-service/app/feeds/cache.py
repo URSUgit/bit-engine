@@ -17,6 +17,7 @@ class PriceRecord:
     closes: list[float] = field(default_factory=list)
     rsi: float = 50.0
     asset_class: str = "crypto"
+    market_cap: float = 0.0
     updated_at: float = field(default_factory=time.time)
 
     @property

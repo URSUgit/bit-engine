@@ -178,6 +178,7 @@ class SignalEngine:
                     closes=closes,
                     rsi=rsi,
                     asset_class="crypto",
+                    market_cap=data.get("market_cap", 0),
                 )
                 self._cache.set(symbol, rec)
 

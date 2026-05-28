@@ -111,15 +111,18 @@ SYMBOL_MAP = {
 async def get_price(asset: str) -> dict[str, Any]:
     asset = asset.upper().replace("-USD", "").replace("USDT", "")
     cache = _get_price_cache()
-    record = cache.get(asset)
+    # Cache keys are stored as "BTCUSDT" style; try both forms
+    record = cache.get(asset + "USDT") or cache.get(asset)
     if record:
         return {
             "asset": asset,
             "price_usd": record.price,
-            "change_24h_pct": record.change_24h,
-            "volume_24h_usd": record.volume_24h,
+            "change_24h_pct": record.price_change_pct_24h,
+            "volume_24h_usd": record.volume_usdt_24h,
             "market_cap_usd": record.market_cap,
-            "source": record.source,
+            "rsi": record.rsi,
+            "high_24h": record.high_24h,
+            "low_24h": record.low_24h,
             "timestamp": datetime.utcnow().isoformat(),
         }
     # Fallback: try CoinGecko directly
@@ -149,13 +152,8 @@ async def get_price(asset: str) -> dict[str, Any]:
 async def get_sentiment(asset: str) -> dict[str, Any]:
     asset = asset.upper()
     cache = _get_price_cache()
-    sentiment_data = cache.get_sentiment(asset)
-
-    score = 0.0
-    label = "neutral"
-    if sentiment_data:
-        score = sentiment_data.get("score", 0)
-        label = sentiment_data.get("label", "neutral")
+    # get_sentiment returns a float score directly
+    news_score: float = cache.get_sentiment(asset)
 
     engine = _get_signal_engine()
     signals = engine.get_signals(asset=asset)
@@ -163,15 +161,14 @@ async def get_sentiment(asset: str) -> dict[str, Any]:
     sell_count = sum(1 for s in signals if s.get("direction") == "sell")
     signal_bias = (buy_count - sell_count) / max(len(signals), 1)
 
-    combined = round((score + signal_bias) / 2, 3) if sentiment_data else round(signal_bias, 3)
+    combined = round((news_score + signal_bias) / 2, 3)
 
     return {
         "asset": asset,
         "period": "24h",
         "score": combined,
         "dominant_sentiment": "bullish" if combined > 0.1 else "bearish" if combined < -0.1 else "neutral",
-        "news_sentiment_score": score,
-        "news_sentiment_label": label,
+        "news_sentiment_score": round(news_score, 3),
         "signal_count": len(signals),
         "signal_buy_count": buy_count,
         "signal_sell_count": sell_count,
@@ -256,9 +253,9 @@ async def market_overview() -> dict[str, Any]:
     for r in crypto_prices:
         top_assets[r.symbol] = r.price
         total_mcap += r.market_cap
-        total_vol += r.volume_24h
+        total_vol += r.volume_usdt_24h
 
-    btc_mcap = next((r.market_cap for r in crypto_prices if r.symbol == "BTC"), 0)
+    btc_mcap = next((r.market_cap for r in crypto_prices if r.symbol == "BTCUSDT"), 0)
     btc_dom = round(btc_mcap / total_mcap * 100, 1) if total_mcap > 0 else 0
 
     # Get Fear & Greed if available
