@@ -1,11 +1,102 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  createChart, ColorType,
-  type IChartApi, type CandlestickData, type SeriesMarker, type Time,
+  createChart, ColorType, CrosshairMode,
+  type IChartApi, type SeriesMarker, type Time,
 } from "lightweight-charts";
-import { backtestApi, type BacktestResult, type EntryAnalysis, type FeatureStats } from "@/lib/backtest-api";
+import { backtestApi, type BacktestResult, type EntryAnalysis, type FeatureStats, type Bar } from "@/lib/backtest-api";
+
+// ── Indicator computation ─────────────────────────────────────────────────────
+
+type Pt = { time: Time; value: number };
+
+function computeSMA(bars: Bar[], period: number): Pt[] {
+  const result: Pt[] = [];
+  let sum = 0;
+  for (let i = 0; i < bars.length; i++) {
+    sum += bars[i].c;
+    if (i >= period) sum -= bars[i - period].c;
+    if (i >= period - 1) result.push({ time: bars[i].t as Time, value: sum / period });
+  }
+  return result;
+}
+
+function computeRSI(bars: Bar[], period = 14): Pt[] {
+  if (bars.length <= period) return [];
+  const result: Pt[] = [];
+  let avgGain = 0, avgLoss = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = bars[i].c - bars[i - 1].c;
+    if (d > 0) avgGain += d; else avgLoss -= d;
+  }
+  avgGain /= period; avgLoss /= period;
+  const rsiVal = (g: number, l: number) => l === 0 ? 100 : 100 - 100 / (1 + g / l);
+  result.push({ time: bars[period].t as Time, value: rsiVal(avgGain, avgLoss) });
+  for (let i = period + 1; i < bars.length; i++) {
+    const d = bars[i].c - bars[i - 1].c;
+    avgGain = (avgGain * (period - 1) + Math.max(d, 0)) / period;
+    avgLoss = (avgLoss * (period - 1) + Math.abs(Math.min(d, 0))) / period;
+    result.push({ time: bars[i].t as Time, value: rsiVal(avgGain, avgLoss) });
+  }
+  return result;
+}
+
+type BBPt = { time: Time; upper: number; middle: number; lower: number };
+function computeBB(bars: Bar[], period = 20): BBPt[] {
+  const result: BBPt[] = [];
+  for (let i = period - 1; i < bars.length; i++) {
+    const slice = bars.slice(i - period + 1, i + 1).map((b) => b.c);
+    const mid = slice.reduce((s, v) => s + v, 0) / period;
+    const std = Math.sqrt(slice.reduce((s, v) => s + (v - mid) ** 2, 0) / period);
+    result.push({ time: bars[i].t as Time, upper: mid + 2 * std, middle: mid, lower: mid - 2 * std });
+  }
+  return result;
+}
+
+type MACDPt = { time: Time; macd: number; signal: number; histogram: number };
+function computeMACD(bars: Bar[], fast = 12, slow = 26, sig = 9): MACDPt[] {
+  if (bars.length < slow + sig) return [];
+  const ema = (vals: number[], p: number): number[] => {
+    const k = 2 / (p + 1);
+    let e = vals.slice(0, p).reduce((s, v) => s + v, 0) / p;
+    const out = [e];
+    for (let i = p; i < vals.length; i++) { e = vals[i] * k + e * (1 - k); out.push(e); }
+    return out;
+  };
+  const closes = bars.map((b) => b.c);
+  const fe = ema(closes, fast);
+  const se = ema(closes, slow);
+  const macdLine: number[] = [];
+  const times: Time[] = [];
+  for (let i = 0; i < se.length; i++) {
+    const fi = i + (slow - fast);
+    if (fi >= fe.length) break;
+    macdLine.push(fe[fi] - se[i]);
+    times.push(bars[slow - 1 + i].t as Time);
+  }
+  const sigLine = ema(macdLine, sig);
+  const result: MACDPt[] = [];
+  for (let i = sig - 1; i < macdLine.length; i++) {
+    const m = macdLine[i], s = sigLine[i - (sig - 1)];
+    result.push({ time: times[i], macd: m, signal: s, histogram: m - s });
+  }
+  return result;
+}
+
+// ── Indicator toggle metadata ─────────────────────────────────────────────────
+
+type IndicatorKey = "sma20" | "sma50" | "sma200" | "bb" | "volume" | "rsi" | "macd";
+
+const INDICATORS: { key: IndicatorKey; label: string; color: string }[] = [
+  { key: "sma20",  label: "SMA 20",  color: "#eab308" },
+  { key: "sma50",  label: "SMA 50",  color: "#f97316" },
+  { key: "sma200", label: "SMA 200", color: "#a855f7" },
+  { key: "bb",     label: "BB(20)",  color: "#22d3ee" },
+  { key: "volume", label: "Volume",  color: "#60a5fa" },
+  { key: "rsi",    label: "RSI 14",  color: "#f472b6" },
+  { key: "macd",   label: "MACD",    color: "#34d399" },
+];
 
 export function MetricsGrid({ result }: { result: BacktestResult }) {
   const m = result.metrics;
@@ -59,95 +150,274 @@ function MetricCard({ label, value, positive, muted }: { label: string; value: s
 }
 
 export function PriceChart({ result }: { result: BacktestResult }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const [bars, setBars] = useState<CandlestickData[] | null>(null);
+  const priceRef   = useRef<HTMLDivElement | null>(null);
+  const volumeRef  = useRef<HTMLDivElement | null>(null);
+  const rsiRef     = useRef<HTMLDivElement | null>(null);
+  const macdRef    = useRef<HTMLDivElement | null>(null);
 
+  // Callback refs so conditional-render mounts/unmounts update the ref before the effect fires
+  const volumeCb = useCallback((el: HTMLDivElement | null) => { volumeRef.current  = el; }, []);
+  const rsiCb    = useCallback((el: HTMLDivElement | null) => { rsiRef.current     = el; }, []);
+  const macdCb   = useCallback((el: HTMLDivElement | null) => { macdRef.current    = el; }, []);
+
+  const [bars, setBars]       = useState<Bar[] | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [active, setActive]   = useState<Set<IndicatorKey>>(
+    new Set(["sma20", "sma50", "volume", "rsi"] as IndicatorKey[]),
+  );
+
+  const toggle = useCallback((key: IndicatorKey) => {
+    setActive((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
+
+  // Fetch OHLCV bars
   useEffect(() => {
     let cancelled = false;
+    setLoadErr(null);
     backtestApi
       .data(result.symbol, result.start_date, result.end_date, result.interval)
-      .then((d) => {
-        if (cancelled) return;
-        setBars(
-          d.bars.map((b) => ({
-            time: b.t as Time,
-            open: b.o, high: b.h, low: b.l, close: b.c,
-          })),
-        );
-      })
-      .catch((e) => console.error("PriceChart data fetch failed", e));
+      .then((d) => { if (!cancelled) setBars(d.bars); })
+      .catch((e) => { if (!cancelled) setLoadErr(String(e)); });
     return () => { cancelled = true; };
   }, [result.symbol, result.start_date, result.end_date, result.interval]);
 
+  // Build + sync charts
   useEffect(() => {
-    if (!containerRef.current || !bars) return;
+    if (!priceRef.current || !bars || bars.length === 0) return;
 
-    const chart = createChart(containerRef.current, {
-      width: containerRef.current.clientWidth,
-      height: 420,
-      layout: {
-        background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "#a1a1aa",
-      },
-      grid: {
-        vertLines: { color: "#27272a" },
-        horzLines: { color: "#27272a" },
-      },
-      timeScale: { borderColor: "#27272a", timeVisible: true },
-      rightPriceScale: { borderColor: "#27272a" },
-    });
-    chartRef.current = chart;
+    const charts: IChartApi[] = [];
+    const containerMap = new Map<IChartApi, HTMLDivElement>();
 
-    const series = chart.addCandlestickSeries({
+    const mkChart = (el: HTMLDivElement, height: number, timeVisible: boolean) =>
+      createChart(el, {
+        width: el.clientWidth,
+        height,
+        layout: {
+          background: { type: ColorType.Solid, color: "transparent" },
+          textColor: "#a1a1aa",
+        },
+        grid: { vertLines: { color: "#1f2937" }, horzLines: { color: "#1f2937" } },
+        crosshair: { mode: CrosshairMode.Normal },
+        rightPriceScale: { borderColor: "#374151" },
+        timeScale: { borderColor: "#374151", timeVisible, visible: timeVisible },
+        handleScroll: true,
+        handleScale: true,
+      });
+
+    const hasVolume = active.has("volume") && volumeRef.current !== null;
+    const hasRsi    = active.has("rsi")    && rsiRef.current    !== null;
+    const hasMacd   = active.has("macd")   && macdRef.current   !== null;
+    const hasSubpanels = hasVolume || hasRsi || hasMacd;
+
+    // ── Price chart ───────────────────────────────────────────────────────────
+    const pc = mkChart(priceRef.current, 400, !hasSubpanels);
+    charts.push(pc);
+    containerMap.set(pc, priceRef.current);
+
+    const candles = pc.addCandlestickSeries({
       upColor: "#10b981", downColor: "#ef4444",
       borderUpColor: "#10b981", borderDownColor: "#ef4444",
       wickUpColor: "#10b981", wickDownColor: "#ef4444",
     });
-    series.setData(bars);
+    candles.setData(bars.map((b) => ({ time: b.t as Time, open: b.o, high: b.h, low: b.l, close: b.c })));
 
+    // Moving averages
+    if (active.has("sma20")) {
+      const s = pc.addLineSeries({ color: "#eab308", lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
+      s.setData(computeSMA(bars, 20));
+    }
+    if (active.has("sma50")) {
+      const s = pc.addLineSeries({ color: "#f97316", lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
+      s.setData(computeSMA(bars, 50));
+    }
+    if (active.has("sma200")) {
+      const s = pc.addLineSeries({ color: "#a855f7", lineWidth: 2, lastValueVisible: false, priceLineVisible: false });
+      s.setData(computeSMA(bars, 200));
+    }
+
+    // Bollinger Bands
+    if (active.has("bb")) {
+      const bbData = computeBB(bars);
+      const opts = { lastValueVisible: false, priceLineVisible: false, lineWidth: 1 as const, lineStyle: 1 as const };
+      pc.addLineSeries({ ...opts, color: "rgba(34,211,238,0.65)" }).setData(bbData.map((p) => ({ time: p.time, value: p.upper })));
+      pc.addLineSeries({ ...opts, color: "rgba(34,211,238,0.30)", lineStyle: 2 as const }).setData(bbData.map((p) => ({ time: p.time, value: p.middle })));
+      pc.addLineSeries({ ...opts, color: "rgba(34,211,238,0.65)" }).setData(bbData.map((p) => ({ time: p.time, value: p.lower })));
+    }
+
+    // Entry / Exit trade markers
     const markers: SeriesMarker<Time>[] = [];
     for (const t of result.trades) {
       const entryTs = Math.floor(new Date(t.entry_time).getTime() / 1000) as Time;
-      const exitTs = Math.floor(new Date(t.exit_time).getTime() / 1000) as Time;
+      const exitTs  = Math.floor(new Date(t.exit_time).getTime()  / 1000) as Time;
       markers.push({
-        time: entryTs,
-        position: "belowBar",
-        color: "#06b6d4",
-        shape: "arrowUp",
-        text: `BUY ${t.entry_price.toFixed(2)}`,
+        time: entryTs, position: "belowBar",
+        color: "#06b6d4", shape: "arrowUp", size: 2,
+        text: `▲ ${t.entry_price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
       });
       markers.push({
-        time: exitTs,
-        position: "aboveBar",
+        time: exitTs, position: "aboveBar",
         color: t.pnl >= 0 ? "#10b981" : "#ef4444",
-        shape: "arrowDown",
-        text: `SELL ${t.exit_price.toFixed(2)} (${t.pnl_pct >= 0 ? "+" : ""}${t.pnl_pct.toFixed(1)}%)`,
+        shape: "arrowDown", size: 2,
+        text: `${t.pnl >= 0 ? "+" : ""}${t.pnl_pct.toFixed(1)}%`,
       });
     }
     markers.sort((a, b) => Number(a.time) - Number(b.time));
-    series.setMarkers(markers);
-    chart.timeScale().fitContent();
+    candles.setMarkers(markers);
+    pc.timeScale().fitContent();
 
-    const onResize = () => {
-      if (containerRef.current && chartRef.current) {
-        chartRef.current.applyOptions({ width: containerRef.current.clientWidth });
+    // ── Volume chart ──────────────────────────────────────────────────────────
+    if (hasVolume) {
+      const isLast = !hasRsi && !hasMacd;
+      const vc = mkChart(volumeRef.current!, 100, isLast);
+      charts.push(vc);
+      containerMap.set(vc, volumeRef.current!);
+      vc.priceScale("right").applyOptions({ scaleMargins: { top: 0.1, bottom: 0 } });
+      vc.addHistogramSeries({
+        priceFormat: { type: "volume" },
+        lastValueVisible: false,
+        priceLineVisible: false,
+      }).setData(
+        bars.map((b) => ({
+          time: b.t as Time,
+          value: b.v,
+          color: b.c >= b.o ? "rgba(16,185,129,0.5)" : "rgba(239,68,68,0.45)",
+        })),
+      );
+    }
+
+    // ── RSI chart ─────────────────────────────────────────────────────────────
+    if (hasRsi) {
+      const isLast = !hasMacd;
+      const rc = mkChart(rsiRef.current!, 130, isLast);
+      charts.push(rc);
+      containerMap.set(rc, rsiRef.current!);
+      rc.priceScale("right").applyOptions({ scaleMargins: { top: 0.1, bottom: 0.1 } });
+
+      const rsiData = computeRSI(bars);
+      if (rsiData.length >= 2) {
+        const t0 = rsiData[0].time, tN = rsiData[rsiData.length - 1].time;
+        const refOpts = { lastValueVisible: false, priceLineVisible: false, lineWidth: 1 as const, lineStyle: 2 as const };
+        rc.addLineSeries({ ...refOpts, color: "rgba(239,68,68,0.45)"  }).setData([{ time: t0, value: 70 }, { time: tN, value: 70 }]);
+        rc.addLineSeries({ ...refOpts, color: "rgba(16,185,129,0.45)" }).setData([{ time: t0, value: 30 }, { time: tN, value: 30 }]);
+        rc.addLineSeries({ ...refOpts, color: "rgba(255,255,255,0.1)" }).setData([{ time: t0, value: 50 }, { time: tN, value: 50 }]);
       }
+      rc.addLineSeries({ color: "#f472b6", lineWidth: 2, lastValueVisible: true, priceLineVisible: false }).setData(rsiData);
+    }
+
+    // ── MACD chart ────────────────────────────────────────────────────────────
+    if (hasMacd) {
+      const mc = mkChart(macdRef.current!, 120, true);
+      charts.push(mc);
+      containerMap.set(mc, macdRef.current!);
+      const macdData = computeMACD(bars);
+      if (macdData.length > 0) {
+        mc.addLineSeries({ color: "#34d399", lineWidth: 2, lastValueVisible: false, priceLineVisible: false })
+          .setData(macdData.map((p) => ({ time: p.time, value: p.macd })));
+        mc.addLineSeries({ color: "#f97316", lineWidth: 2, lastValueVisible: false, priceLineVisible: false })
+          .setData(macdData.map((p) => ({ time: p.time, value: p.signal })));
+        mc.addHistogramSeries({ lastValueVisible: false, priceLineVisible: false })
+          .setData(macdData.map((p) => ({
+            time: p.time, value: p.histogram,
+            color: p.histogram >= 0 ? "rgba(16,185,129,0.6)" : "rgba(239,68,68,0.55)",
+          })));
+      }
+    }
+
+    // ── Sync all charts on scroll/zoom ────────────────────────────────────────
+    let syncing = false;
+    const syncRange = (source: IChartApi) => {
+      if (syncing) return;
+      syncing = true;
+      const range = source.timeScale().getVisibleLogicalRange();
+      if (range !== null) {
+        charts.forEach((c) => { if (c !== source) c.timeScale().setVisibleLogicalRange(range); });
+      }
+      syncing = false;
+    };
+    charts.forEach((c) => c.timeScale().subscribeVisibleLogicalRangeChange(() => syncRange(c)));
+
+    // ── Resize ────────────────────────────────────────────────────────────────
+    const onResize = () => {
+      containerMap.forEach((el, c) => { if (el) c.applyOptions({ width: el.clientWidth }); });
     };
     window.addEventListener("resize", onResize);
 
     return () => {
       window.removeEventListener("resize", onResize);
-      chart.remove();
-      chartRef.current = null;
+      charts.forEach((c) => c.remove());
     };
-  }, [bars, result.trades]);
+  }, [bars, active, result.trades]);
 
   return (
     <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
-      <h3 className="font-semibold mb-3">Price + Trades</h3>
-      <div ref={containerRef} className="w-full" />
-      {!bars && <div className="text-zinc-500 text-sm py-8 text-center">Loading price data…</div>}
+      {/* Header + indicator toggles */}
+      <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+        <div>
+          <h3 className="font-semibold text-zinc-100">Price · Signals · Indicators</h3>
+          <div className="flex gap-3 mt-1 flex-wrap text-[11px] text-zinc-500">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 inline-block" />Entry (buy)
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block" />Exit (win)
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-400 inline-block" />Exit (loss)
+            </span>
+          </div>
+        </div>
+        <div className="flex gap-1 flex-wrap">
+          {INDICATORS.map(({ key, label, color }) => (
+            <button
+              key={key}
+              onClick={() => toggle(key)}
+              style={active.has(key) ? { color, borderColor: color } : undefined}
+              className={`px-2 py-0.5 rounded text-[11px] font-semibold border transition-all ${
+                active.has(key)
+                  ? "bg-current/10"
+                  : "border-zinc-700 text-zinc-600 hover:border-zinc-500 hover:text-zinc-400"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Price chart (always present) */}
+      <div ref={priceRef} className="w-full" />
+
+      {/* Sub-panels rendered conditionally; callback refs update before effects fire */}
+      {active.has("volume") && (
+        <div ref={volumeCb} className="w-full border-t border-zinc-800/70" />
+      )}
+      {active.has("rsi") && (
+        <div ref={rsiCb} className="w-full border-t border-zinc-800/70" />
+      )}
+      {active.has("macd") && (
+        <div ref={macdCb} className="w-full border-t border-zinc-800/70" />
+      )}
+
+      {/* Inline legend for active overlays */}
+      <div className="flex gap-3 mt-2 text-[11px] flex-wrap text-zinc-500">
+        {active.has("sma20")  && <span style={{ color: "#eab308" }}>SMA 20</span>}
+        {active.has("sma50")  && <span style={{ color: "#f97316" }}>SMA 50</span>}
+        {active.has("sma200") && <span style={{ color: "#a855f7" }}>SMA 200</span>}
+        {active.has("bb")     && <span style={{ color: "#22d3ee" }}>BB±2σ (20)</span>}
+        {active.has("rsi")    && <span style={{ color: "#f472b6" }}>RSI 14 — 70/30 levels</span>}
+        {active.has("macd")   && <span><span style={{ color: "#34d399" }}>MACD</span> / <span style={{ color: "#f97316" }}>Signal</span> / histogram</span>}
+      </div>
+
+      {!bars && !loadErr && (
+        <div className="text-zinc-500 text-sm py-8 text-center">Loading price data…</div>
+      )}
+      {loadErr && (
+        <div className="text-red-400 text-sm py-4 text-center">Failed to load bars: {loadErr}</div>
+      )}
     </div>
   );
 }
