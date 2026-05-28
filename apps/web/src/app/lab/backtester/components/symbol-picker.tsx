@@ -49,7 +49,7 @@ export function SymbolPicker(props: {
       >
         {props.symbols.map((s) => (
           <option key={s.symbol} value={s.symbol}>
-            {s.symbol} · {s.category}
+            {s.symbol} · {s.category === "custom" ? "★ custom" : s.category}
           </option>
         ))}
       </select>
@@ -126,7 +126,13 @@ export function MultiSymbolPicker(props: {
                 className="accent-cyan-500"
               />
               <span>{s.symbol}</span>
-              <span className="text-zinc-500 ml-auto">{s.category}</span>
+              {s.category === "custom" ? (
+                <span className="ml-auto px-1.5 py-0.5 rounded text-[9px] font-semibold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                  custom
+                </span>
+              ) : (
+                <span className="text-zinc-500 ml-auto">{s.category}</span>
+              )}
             </button>
           );
         })}
