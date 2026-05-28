@@ -178,6 +178,7 @@ export function PriceChart({ result }: { result: BacktestResult }) {
   useEffect(() => {
     let cancelled = false;
     setLoadErr(null);
+    setBars(null); // clear stale bars so a failed fetch can't show the prior symbol's chart
     backtestApi
       .data(result.symbol, result.start_date, result.end_date, result.interval)
       .then((d) => { if (!cancelled) setBars(d.bars); })

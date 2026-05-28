@@ -93,6 +93,12 @@ export default function BacktesterPage() {
     }
   }, [mode]);
 
+  // Drop a stale result when the selected symbol no longer matches it, so the
+  // chart never shows a previous symbol's backtest (e.g. BTC while AAPL is picked).
+  useEffect(() => {
+    setSingleResult((prev) => (prev && prev.symbol !== singleSymbol ? null : prev));
+  }, [singleSymbol]);
+
   const currentStrategy = strategies.find((s) => s.name === strategyName);
 
   const visibleSymbols = useMemo(() => {
