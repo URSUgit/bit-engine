@@ -216,6 +216,21 @@ export type AssetMetadata = {
   source: string;
 };
 
+export type CachedSeries = {
+  symbol: string;
+  interval: string;
+  earliest: string | null;
+  latest: string | null;
+  bar_count: number;
+  last_fetched_at: number | null;  // unix seconds
+};
+
+export type CacheStatus = {
+  total_series: number;
+  total_bars: number;
+  series: CachedSeries[];
+};
+
 export type HistoryRow = {
   id: string;
   created_at: number;
@@ -337,7 +352,15 @@ export const backtestApi = {
     call<{ deleted: boolean; id: string }>(`/api/v1/backtest/history/${id}`, {
       method: "DELETE",
     }),
-  cache: () => call<{ total_series: number; total_bars: number; series: unknown[] }>(
-    "/api/v1/backtest/cache",
-  ),
+  cache: () => call<CacheStatus>("/api/v1/backtest/cache"),
+  clearCache: (symbol: string, interval?: string) =>
+    call<{ cleared: boolean; symbol: string; interval?: string }>(
+      `/api/v1/backtest/cache/${symbol}${interval ? `?interval=${interval}` : ""}`,
+      { method: "DELETE" },
+    ),
+  refreshData: (symbol: string, start_date: string, end_date: string | undefined, interval: string) => {
+    const q = new URLSearchParams({ start_date, interval, force_refresh: "true" });
+    if (end_date) q.set("end_date", end_date);
+    return call<HistoricalData>(`/api/v1/backtest/data/${symbol}?${q}`);
+  },
 };

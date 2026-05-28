@@ -115,7 +115,8 @@ class BarStorage:
             cur = con.execute(
                 """
                 SELECT symbol, interval, earliest_ts, latest_ts,
-                       (SELECT COUNT(*) FROM bars b WHERE b.symbol=m.symbol AND b.interval=m.interval) AS bar_count
+                       (SELECT COUNT(*) FROM bars b WHERE b.symbol=m.symbol AND b.interval=m.interval) AS bar_count,
+                       last_fetched_at
                 FROM meta m
                 ORDER BY symbol, interval
                 """
@@ -127,9 +128,26 @@ class BarStorage:
                     "earliest": datetime.fromtimestamp(r[2]).date().isoformat() if r[2] else None,
                     "latest": datetime.fromtimestamp(r[3]).date().isoformat() if r[3] else None,
                     "bar_count": r[4],
+                    "last_fetched_at": int(r[5]) if r[5] is not None else None,
                 }
                 for r in cur.fetchall()
             ]
+
+    def delete_bars(self, symbol: str, interval: str | None = None) -> None:
+        """Remove cached bars (and meta) for a symbol, optionally filtered by interval."""
+        with self._conn() as con:
+            if interval is not None:
+                con.execute(
+                    "DELETE FROM bars WHERE symbol = ? AND interval = ?",
+                    (symbol, interval),
+                )
+                con.execute(
+                    "DELETE FROM meta WHERE symbol = ? AND interval = ?",
+                    (symbol, interval),
+                )
+            else:
+                con.execute("DELETE FROM bars WHERE symbol = ?", (symbol,))
+                con.execute("DELETE FROM meta WHERE symbol = ?", (symbol,))
 
     # ── writes ───────────────────────────────────────────────────────────────
 

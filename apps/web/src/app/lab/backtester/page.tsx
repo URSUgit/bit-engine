@@ -22,8 +22,9 @@ import { MetricsGrid, PriceChart, EquityChart, TradesTable, EntryAnalysisPanel }
 import { MetadataPanel } from "./components/metadata-panel";
 import { CompareTable } from "./components/compare-table";
 import { OptimizeHeatmap } from "./components/optimize-heatmap";
+import { DataStatusTab } from "./components/data-status";
 
-type Mode = "single" | "compare" | "optimize" | "history";
+type Mode = "single" | "compare" | "optimize" | "history" | "data";
 
 export default function BacktesterPage() {
   const [mode, setMode] = useState<Mode>("single");
@@ -45,6 +46,9 @@ export default function BacktesterPage() {
   const [compareSymbols, setCompareSymbols] = useState<string[]>(["BTC-USD", "ETH-USD", "SOL-USD"]);
   const [optimizeSymbol, setOptimizeSymbol] = useState("BTC-USD");
   const [optimizeMetric, setOptimizeMetric] = useState("sharpe_ratio");
+
+  // Custom symbols added via Data tab
+  const [customSymbols, setCustomSymbols] = useState<string[]>([]);
 
   // Picker UI state
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -90,14 +94,15 @@ export default function BacktesterPage() {
   const currentStrategy = strategies.find((s) => s.name === strategyName);
 
   const visibleSymbols = useMemo(() => {
-    let out = symbols;
+    const customEntries = customSymbols.map((sym) => ({ symbol: sym, category: "custom" }));
+    let out = [...customEntries, ...symbols];
     if (categoryFilter !== "all") out = out.filter((s) => s.category === categoryFilter);
     if (symbolSearch.trim()) {
       const q = symbolSearch.toLowerCase();
       out = out.filter((s) => s.symbol.toLowerCase().includes(q));
     }
     return out;
-  }, [symbols, categoryFilter, symbolSearch]);
+  }, [symbols, customSymbols, categoryFilter, symbolSearch]);
 
   const categories = useMemo(
     () => Array.from(new Set(symbols.map((s) => s.category))),
@@ -260,6 +265,16 @@ export default function BacktesterPage() {
             rows={history}
             onOpen={openHistoryRun}
             onDelete={deleteHistoryRun}
+          />
+        ) : mode === "data" ? (
+          <DataStatusTab
+            onSymbolAdded={(sym) => {
+              setCustomSymbols((prev) =>
+                prev.includes(sym) ? prev : [...prev, sym],
+              );
+              setSingleSymbol(sym);
+              setMode("single");
+            }}
           />
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
@@ -495,6 +510,7 @@ function ModeTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void 
     { value: "compare", label: "Compare", hint: "Up to 20 pairs side-by-side" },
     { value: "optimize", label: "Optimize", hint: "Find best parameters" },
     { value: "history", label: "History", hint: "Past runs" },
+    { value: "data", label: "Data", hint: "Cache · Custom symbols" },
   ];
   return (
     <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">

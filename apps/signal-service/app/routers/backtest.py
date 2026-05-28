@@ -225,11 +225,12 @@ async def get_historical(
     start_date: str = Query("2014-01-01"),
     end_date: Optional[str] = Query(None),
     interval: str = Query("1d"),
+    force_refresh: bool = Query(False),
 ):
     """Fetch historical OHLCV bars for a symbol — used for charting."""
     try:
         loader = HistoricalDataLoader()
-        bars = await loader.load(symbol, start_date, end_date, interval)
+        bars = await loader.load(symbol, start_date, end_date, interval, force_refresh=force_refresh)
         return {
             "symbol": symbol,
             "interval": interval,
@@ -303,3 +304,10 @@ async def cache_status():
         "total_bars": sum(r["bar_count"] for r in rows),
         "series": rows,
     }
+
+
+@router.delete("/cache/{symbol}")
+async def clear_cached_symbol(symbol: str, interval: Optional[str] = Query(None)):
+    """Remove cached bars for a symbol (forces re-fetch next time)."""
+    bar_storage.delete_bars(symbol, interval)
+    return {"cleared": True, "symbol": symbol, "interval": interval}
