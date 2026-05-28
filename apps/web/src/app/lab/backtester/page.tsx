@@ -23,8 +23,10 @@ import { MetadataPanel } from "./components/metadata-panel";
 import { CompareTable } from "./components/compare-table";
 import { OptimizeHeatmap } from "./components/optimize-heatmap";
 import { DataStatusTab } from "./components/data-status";
+import { StrategyScannerView } from "./components/strategy-scanner";
+import { BacktesterChat } from "./components/chat-panel";
 
-type Mode = "single" | "compare" | "optimize" | "history" | "data";
+type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data";
 
 export default function BacktesterPage() {
   const [mode, setMode] = useState<Mode>("single");
@@ -36,8 +38,8 @@ export default function BacktesterPage() {
   const [periodDays, setPeriodDays] = useState(365 * 5);
   const [interval, setIntervalValue] = useState("1d");
   const [initialCapital, setInitialCapital] = useState(10000);
-  const [commissionBps, setCommissionBps] = useState(10);
-  const [slippageBps, setSlippageBps] = useState(5);
+  const [commissionPct, setCommissionPct] = useState(0.1);
+  const [slippagePct, setSlippagePct] = useState(0.05);
   const [positionPct, setPositionPct] = useState(100);
   const [strategyParams, setStrategyParams] = useState<Record<string, number>>({});
 
@@ -59,6 +61,7 @@ export default function BacktesterPage() {
   const [compareResults, setCompareResults] = useState<CompareResult[] | null>(null);
   const [optimizeResult, setOptimizeResult] = useState<OptimizeResult | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
+  const [scanResults, setScanResults] = useState<{strategy: string; result: BacktestResult | null; error: string | null}[]>([]);
 
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -133,8 +136,8 @@ export default function BacktesterPage() {
         end_date: isoDaysAgo(0),
         interval,
         initial_capital: initialCapital,
-        commission_pct: commissionBps / 10000,
-        slippage_pct: slippageBps / 10000,
+        commission_pct: commissionPct / 100,
+        slippage_pct: slippagePct / 100,
         position_size_pct: positionPct / 100,
         strategy_params: strategyParams,
       };
@@ -168,8 +171,8 @@ export default function BacktesterPage() {
         end_date: isoDaysAgo(0),
         interval,
         initial_capital: initialCapital,
-        commission_pct: commissionBps / 10000,
-        slippage_pct: slippageBps / 10000,
+        commission_pct: commissionPct / 100,
+        slippage_pct: slippagePct / 100,
         position_size_pct: positionPct / 100,
         strategy_params: strategyParams,
       });
@@ -202,8 +205,8 @@ export default function BacktesterPage() {
         end_date: isoDaysAgo(0),
         interval,
         initial_capital: initialCapital,
-        commission_pct: commissionBps / 10000,
-        slippage_pct: slippageBps / 10000,
+        commission_pct: commissionPct / 100,
+        slippage_pct: slippagePct / 100,
         position_size_pct: positionPct / 100,
         param_ranges: paramRanges,
         metric: optimizeMetric,
@@ -363,8 +366,8 @@ export default function BacktesterPage() {
 
               <CostInputs
                 capital={initialCapital} setCapital={setInitialCapital}
-                commissionBps={commissionBps} setCommissionBps={setCommissionBps}
-                slippageBps={slippageBps} setSlippageBps={setSlippageBps}
+                commissionPct={commissionPct} setCommissionPct={setCommissionPct}
+                slippagePct={slippagePct} setSlippagePct={setSlippagePct}
                 positionPct={positionPct} setPositionPct={setPositionPct}
               />
 

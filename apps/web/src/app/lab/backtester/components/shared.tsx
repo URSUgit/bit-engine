@@ -89,18 +89,81 @@ export function StrategyPicker(props: {
   );
 }
 
+const EXCHANGE_PRESETS = [
+  { label: "Binance",  commission: 0.1,  slippage: 0.05 },
+  { label: "Coinbase", commission: 0.5,  slippage: 0.10 },
+  { label: "Kraken",   commission: 0.16, slippage: 0.08 },
+  { label: "IB",       commission: 0.10, slippage: 0.05 },
+  { label: "Zero",     commission: 0.0,  slippage: 0.0  },
+];
+
 export function CostInputs(props: {
   capital: number; setCapital: (n: number) => void;
-  commissionBps: number; setCommissionBps: (n: number) => void;
-  slippageBps: number; setSlippageBps: (n: number) => void;
+  commissionPct: number; setCommissionPct: (n: number) => void;
+  slippagePct: number; setSlippagePct: (n: number) => void;
   positionPct: number; setPositionPct: (n: number) => void;
 }) {
+  const activePreset = EXCHANGE_PRESETS.find(
+    (p) => p.commission === props.commissionPct && p.slippage === props.slippagePct,
+  );
+
   return (
     <div className="space-y-2 border-t border-zinc-800 pt-3">
       <label className="text-xs font-medium uppercase tracking-wide text-zinc-400">Costs & sizing</label>
+
+      {/* Exchange presets */}
+      <div className="flex flex-wrap gap-1">
+        {EXCHANGE_PRESETS.map((p) => (
+          <button
+            key={p.label}
+            onClick={() => { props.setCommissionPct(p.commission); props.setSlippagePct(p.slippage); }}
+            className={`px-2 py-0.5 rounded text-xs transition ${
+              activePreset?.label === p.label
+                ? "bg-cyan-500 text-zinc-950"
+                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
       <NumberInput label="Capital ($)" value={props.capital} min={100} max={10_000_000} step={100} onChange={props.setCapital} />
-      <NumberInput label="Commission (bps)" value={props.commissionBps} min={0} max={100} step={1} onChange={props.setCommissionBps} />
-      <NumberInput label="Slippage (bps)" value={props.slippageBps} min={0} max={50} step={1} onChange={props.setSlippageBps} />
+
+      {/* Commission % input */}
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-zinc-400 flex-1">Commission (%)</span>
+        <div className="flex items-center gap-1">
+          <input
+            type="number"
+            value={props.commissionPct}
+            min={0}
+            max={5}
+            step={0.01}
+            onChange={(e) => props.setCommissionPct(Number(e.target.value))}
+            className="w-20 px-2 py-1 text-xs bg-zinc-950 border border-zinc-800 rounded text-right focus:border-cyan-500 focus:outline-none"
+          />
+          <span className="text-xs text-zinc-500">%</span>
+        </div>
+      </div>
+
+      {/* Slippage % input */}
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-zinc-400 flex-1">Slippage (%)</span>
+        <div className="flex items-center gap-1">
+          <input
+            type="number"
+            value={props.slippagePct}
+            min={0}
+            max={5}
+            step={0.01}
+            onChange={(e) => props.setSlippagePct(Number(e.target.value))}
+            className="w-20 px-2 py-1 text-xs bg-zinc-950 border border-zinc-800 rounded text-right focus:border-cyan-500 focus:outline-none"
+          />
+          <span className="text-xs text-zinc-500">%</span>
+        </div>
+      </div>
+
       <NumberInput label="Position size (%)" value={props.positionPct} min={1} max={100} step={1} onChange={props.setPositionPct} />
     </div>
   );
