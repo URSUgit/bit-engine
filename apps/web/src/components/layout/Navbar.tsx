@@ -8,6 +8,7 @@ import { SignInButton } from "@/components/wallet/SignInButton";
 import { NotificationsDropdown } from "@/components/NotificationsDropdown";
 import { useCommandPalette } from "@/components/CommandPalette";
 import { DataStatusIndicator } from "@/components/DataStatusIndicator";
+import { LogoMark } from "@/components/Logo";
 
 export function Navbar() {
   const [userOpen, setUserOpen] = useState(false);
@@ -16,13 +17,25 @@ export function Navbar() {
   return (
     <>
       <header className="h-14 shrink-0 flex items-center gap-3 px-4 bg-slate-950 border-b border-slate-800 relative z-30">
+        {/* Logo */}
+        <Link href="/dashboard" className="flex items-center gap-2 mr-2 shrink-0">
+          <LogoMark size={26} />
+          <span className="text-sm font-bold tracking-tight text-slate-50 hidden sm:block">
+            BIT<span className="text-cyan-400">privat</span>
+          </span>
+        </Link>
+
+        <div className="w-px h-6 bg-slate-800 shrink-0" />
+
+        {/* Search */}
         <div className="flex-1 max-w-md">
           <button
             onClick={openPalette}
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-sm text-slate-500 w-full hover:bg-slate-800/80 hover:text-slate-300 transition-colors"
           >
             <Search className="w-3.5 h-3.5 shrink-0" />
-            <span>Search markets, traders, strategies…</span>
+            <span className="hidden sm:block">Search markets, traders, strategies…</span>
+            <span className="sm:hidden">Search…</span>
             <kbd className="ml-auto text-[10px] bg-slate-800 rounded px-1.5 py-0.5 font-mono text-slate-400">⌘K</kbd>
           </button>
         </div>
