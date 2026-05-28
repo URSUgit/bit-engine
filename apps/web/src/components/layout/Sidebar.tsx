@@ -22,6 +22,7 @@ import {
   Activity,
   Sparkles,
   Target,
+  Newspaper,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoMark } from "@/components/Logo";
@@ -47,6 +48,7 @@ const navGroups: NavGroup[] = [
       { label: "Markets", href: "/dashboard/markets", icon: Globe },
       { label: "Copy Trading", href: "/dashboard/copy", icon: Users, badge: "3" },
       { label: "Signals", href: "/dashboard/signals", icon: Activity },
+      { label: "News", href: "/dashboard/news", icon: Newspaper },
     ],
   },
   {

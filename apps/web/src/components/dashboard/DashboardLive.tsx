@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { DollarSign, TrendingUp, Target, Layers } from "lucide-react";
+import { DollarSign, TrendingUp, Target, Layers, Newspaper, Radio } from "lucide-react";
 import { PortfolioCard } from "./PortfolioCard";
 import { SignalsFeed } from "./SignalsFeed";
+import { NewsFeed } from "./NewsFeed";
 import { TradingViewChart } from "@/components/charts/TradingViewChart";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import { usePaperTrading } from "@/hooks/usePaperTrading";
@@ -28,8 +29,11 @@ function fmtValue(v: number) {
   });
 }
 
+type RightTab = "signals" | "news";
+
 export function DashboardLive() {
   const [chartTf, setChartTf] = useState<(typeof CHART_TIMEFRAMES)[number]>("1M");
+  const [rightTab, setRightTab] = useState<RightTab>("signals");
   useLivePrices(); // keep prices warm for other components
   const { equity, totalUnrealizedPnl, livePositions, closedPositions, balance, mounted } = usePaperTrading();
 
@@ -112,15 +116,41 @@ export function DashboardLive() {
           />
         </div>
 
-        <div className="card-dark p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-slate-100">Live Signal Feed</h2>
-            <span className="flex items-center gap-1.5 text-[10px] text-emerald-400 uppercase tracking-widest font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Live
-            </span>
+        <div className="card-dark p-4 flex flex-col">
+          {/* Tab bar */}
+          <div className="flex items-center gap-1 mb-4 bg-slate-900/60 rounded-lg p-1 border border-slate-800 self-start w-full">
+            <button
+              onClick={() => setRightTab("signals")}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition-colors",
+                rightTab === "signals"
+                  ? "bg-slate-800 text-cyan-300"
+                  : "text-slate-500 hover:text-slate-300"
+              )}
+            >
+              <Radio className="w-3 h-3" />
+              Signals
+              {rightTab === "signals" && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse ml-0.5" />
+              )}
+            </button>
+            <button
+              onClick={() => setRightTab("news")}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition-colors",
+                rightTab === "news"
+                  ? "bg-slate-800 text-cyan-300"
+                  : "text-slate-500 hover:text-slate-300"
+              )}
+            >
+              <Newspaper className="w-3 h-3" />
+              News
+            </button>
           </div>
-          <SignalsFeed />
+
+          <div className="flex-1 overflow-y-auto max-h-[420px]">
+            {rightTab === "signals" ? <SignalsFeed /> : <NewsFeed />}
+          </div>
         </div>
       </div>
     </>

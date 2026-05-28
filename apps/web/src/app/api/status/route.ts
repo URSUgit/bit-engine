@@ -83,6 +83,21 @@ async function checkCoinGecko(): Promise<SourceStatus> {
   });
 }
 
+async function checkCryptoCompare(): Promise<SourceStatus> {
+  return probe("cryptocompare", "CryptoCompare (news feed)", async () => {
+    const r = await withTimeout(
+      fetch("https://min-api.cryptocompare.com/data/v2/news/?lang=EN&limit=1", {
+        headers: { "User-Agent": "Mozilla/5.0" },
+      }),
+      4000
+    );
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json() as { Type?: number };
+    if (d.Type !== 100) throw new Error("API returned error");
+    return "Reachable";
+  });
+}
+
 function checkEnvKey(name: string, label: string, envVar: string): SourceStatus {
   const key = process.env[envVar];
   if (!key || key === "demo" || key.length < 4) {
@@ -104,10 +119,11 @@ function checkEnvKey(name: string, label: string, envVar: string): SourceStatus 
 }
 
 export async function GET() {
-  const [binance, signalSvc, coinGecko] = await Promise.all([
+  const [binance, signalSvc, coinGecko, cryptoCompare] = await Promise.all([
     checkBinance(),
     checkSignalService(),
     checkCoinGecko(),
+    checkCryptoCompare(),
   ]);
 
   const alphaVantage = checkEnvKey(
@@ -127,7 +143,7 @@ export async function GET() {
   );
 
   const sources: SourceStatus[] = [
-    binance, signalSvc, coinGecko,
+    binance, signalSvc, coinGecko, cryptoCompare,
     alphaVantage, fred, oxr, finnhub, twelveData,
   ];
 
