@@ -111,17 +111,24 @@ export async function GET() {
   ]);
 
   const alphaVantage = checkEnvKey(
-    "alpha_vantage", "Alpha Vantage (stocks)", "ALPHA_VANTAGE_API_KEY"
+    "alpha_vantage", "Alpha Vantage (stocks/FX)", "ALPHA_VANTAGE_API_KEY"
   );
   const fred = checkEnvKey(
     "fred", "FRED (macro/economic)", "FRED_API_KEY"
   );
   const oxr = checkEnvKey(
-    "oxr", "OpenExchangeRates (forex)", "OXR_APP_ID"
+    "oxr", "OpenExchangeRates (forex)", "OPEN_EXCHANGE_RATES_APP_ID"
+  );
+  const finnhub = checkEnvKey(
+    "finnhub", "Finnhub (earnings/profile)", "FINNHUB_API_KEY"
+  );
+  const twelveData = checkEnvKey(
+    "twelve_data", "Twelve Data (global stocks)", "TWELVE_DATA_API_KEY"
   );
 
   const sources: SourceStatus[] = [
-    binance, signalSvc, coinGecko, alphaVantage, fred, oxr,
+    binance, signalSvc, coinGecko,
+    alphaVantage, fred, oxr, finnhub, twelveData,
   ];
 
   const liveCount = sources.filter((s) => s.status === "live").length;
