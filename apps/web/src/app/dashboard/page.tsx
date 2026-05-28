@@ -5,6 +5,7 @@ import { DashboardLive } from "@/components/dashboard/DashboardLive";
 import { DashboardSubtitle } from "@/components/dashboard/DashboardSubtitle";
 import { PositionsTable } from "@/components/dashboard/PositionsTable";
 import { CopyTradingPanel } from "@/components/dashboard/CopyTradingPanel";
+import { TopMovers } from "@/components/dashboard/TopMovers";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -46,7 +47,7 @@ export default function DashboardPage() {
         {/* Live stats + chart + signals (client component) */}
         <DashboardLive />
 
-        {/* Positions + Copy-trading */}
+        {/* Positions + Copy-trading + Top Movers */}
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
           <div className="xl:col-span-2 card-dark p-4">
             <div className="flex items-center justify-between mb-4">
@@ -60,7 +61,10 @@ export default function DashboardPage() {
             </div>
             <PositionsTable />
           </div>
-          <CopyTradingPanel />
+          <div className="flex flex-col gap-4">
+            <CopyTradingPanel />
+            <TopMovers />
+          </div>
         </div>
       </div>
   );

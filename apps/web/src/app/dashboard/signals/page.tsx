@@ -2,10 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUpRight, ArrowDownRight, Pause, Search } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Pause, Search, WifiOff, Inbox } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import { mockSignals } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import type { Signal } from "@bitprivat/shared-types";
 
 const dirFilters = ["all", "buy", "sell", "hold"] as const;
 const sourceFilters = ["all", "finbert", "on_chain", "twitter", "reddit", "telegram", "technical", "whale_alert"] as const;
@@ -27,21 +28,48 @@ function timeAgo(iso: string): string {
   return `${Math.floor(hr / 24)}d ago`;
 }
 
+/** Small colored confidence bar */
+function ConfidenceBar({ value }: { value: number }) {
+  const pct = Math.round(value * 100);
+  const colorClass =
+    value >= 0.8 ? "bg-emerald-500" :
+    value >= 0.6 ? "bg-amber-500" :
+    "bg-red-500";
+  return (
+    <div className="text-right shrink-0 min-w-[72px]">
+      <div className={cn(
+        "text-xl font-bold number-font",
+        value >= 0.85 ? "text-cyan-400" : value >= 0.7 ? "text-slate-200" : "text-slate-500"
+      )}>
+        {pct}%
+      </div>
+      <div className="w-full h-1.5 rounded-full bg-slate-800 mt-1 overflow-hidden">
+        <div
+          className={cn("h-full rounded-full transition-all", colorClass)}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <p className="text-[10px] text-slate-600 uppercase tracking-widest mt-0.5">Confidence</p>
+    </div>
+  );
+}
+
 export default function SignalsPage() {
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [direction, setDirection] = useState<(typeof dirFilters)[number]>("all");
   const [source, setSource] = useState<(typeof sourceFilters)[number]>("all");
   const [minConfidence, setMinConfidence] = useState(0);
 
-  const { data: signals } = useQuery({
+  const { data: signals, isLoading, isError } = useQuery<Signal[]>({
     queryKey: ["signals"],
     queryFn: () => api.signals.list(),
-    initialData: mockSignals,
+    initialData: [],
     refetchInterval: 30_000,
   });
 
   const filtered = useMemo(() => {
-    return ((signals ?? []) as typeof mockSignals).filter((s) => {
+    return (signals ?? []).filter((s) => {
       if (search && !s.asset.toLowerCase().includes(search.toLowerCase())) return false;
       if (direction !== "all" && s.direction !== direction) return false;
       if (source !== "all" && s.source !== source) return false;
@@ -94,7 +122,28 @@ export default function SignalsPage() {
         </div>
 
         <div className="card-dark divide-y divide-slate-800/60">
-          {filtered.map((s) => {
+          {isLoading && (
+            <div className="p-12 text-center text-sm text-slate-500 animate-pulse">Loading signals…</div>
+          )}
+
+          {!isLoading && filtered.length === 0 && (
+            <div className="flex flex-col items-center justify-center gap-3 p-12 text-center">
+              {isError ? (
+                <>
+                  <WifiOff className="w-8 h-8 text-slate-600" />
+                  <p className="text-sm font-medium text-slate-400">Signal service offline</p>
+                  <p className="text-xs text-slate-600">Start the signal service to see live signals</p>
+                </>
+              ) : (
+                <>
+                  <Inbox className="w-8 h-8 text-slate-600" />
+                  <p className="text-sm text-slate-500">No signals match your filters</p>
+                </>
+              )}
+            </div>
+          )}
+
+          {!isLoading && filtered.map((s) => {
             const cfg = dirConfig[s.direction];
             const Icon = cfg.icon;
             return (
@@ -120,19 +169,18 @@ export default function SignalsPage() {
                     <span>{timeAgo(s.createdAt)}</span>
                   </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <div className={cn("text-2xl font-bold number-font",
-                    s.confidence >= 0.85 ? "text-cyan-400" : s.confidence >= 0.7 ? "text-slate-200" : "text-slate-500")}>
-                    {Math.round(s.confidence * 100)}%
-                  </div>
-                  <p className="text-[10px] text-slate-600 uppercase tracking-widest">Confidence</p>
+                <div className="flex flex-col items-end gap-2 shrink-0">
+                  <ConfidenceBar value={s.confidence} />
+                  <button
+                    onClick={() => router.push(`/dashboard/positions?signal=${s.id}`)}
+                    className="text-[11px] font-semibold px-2.5 py-1 rounded bg-slate-800 text-cyan-300 border border-slate-700 hover:bg-slate-700 hover:text-cyan-200 transition-colors"
+                  >
+                    Paper trade →
+                  </button>
                 </div>
               </div>
             );
           })}
-          {filtered.length === 0 && (
-            <div className="p-12 text-center text-sm text-slate-500">No signals match your filters.</div>
-          )}
         </div>
       </div>
   );
