@@ -24,8 +24,6 @@ import {
   History,
   type LucideIcon,
 } from "lucide-react";
-import { mockTraders } from "@/lib/mock-data";
-
 const CRYPTO_MARKETS = [
   { symbol: "BTC", name: "Bitcoin" }, { symbol: "ETH", name: "Ethereum" },
   { symbol: "SOL", name: "Solana" }, { symbol: "BNB", name: "BNB" },
@@ -112,17 +110,24 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     }
   }, [open]);
 
-  const traderCommands: TraderCommand[] = useMemo(
-    () =>
-      mockTraders.slice(0, 25).map((t) => ({
-        type: "trader",
-        label: t.handle ?? "(unknown)",
-        description: `${(t.stats?.roi30d ?? 0) >= 0 ? "+" : ""}${(t.stats?.roi30d ?? 0).toFixed(1)}% · ${(t.stats?.winRatePct ?? 0).toFixed(0)}% wr`,
-        href: `/dashboard/leaderboard/${t.id}`,
-        avatarColor: t.avatarColor,
-      })),
-    []
-  );
+  const [traderCommands, setTraderCommands] = useState<TraderCommand[]>([]);
+  useEffect(() => {
+    if (!open) return;
+    fetch("/api/market/traders?limit=25")
+      .then((r) => r.json())
+      .then((res: { data?: Array<{ rank: number; handle: string; roi_30d: number; win_rate: number; address: string }> }) => {
+        setTraderCommands(
+          (res.data ?? []).map((t, i) => ({
+            type: "trader" as const,
+            label: t.handle,
+            description: `${t.roi_30d >= 0 ? "+" : ""}${t.roi_30d.toFixed(1)}% 30d · ${t.win_rate.toFixed(0)}% wr`,
+            href: `/dashboard/leaderboard/${t.rank}`,
+            avatarColor: ["from-cyan-500 to-blue-600","from-violet-500 to-purple-600","from-emerald-500 to-teal-600"][i % 3] as string,
+          }))
+        );
+      })
+      .catch(() => {});
+  }, [open]);
 
   const marketCommands: MarketCommand[] = useMemo(
     () =>
