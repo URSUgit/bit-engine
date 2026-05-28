@@ -92,8 +92,8 @@ async function checkCryptoCompare(): Promise<SourceStatus> {
       4000
     );
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const d = await r.json() as { Type?: number };
-    if (d.Type !== 100) throw new Error("API returned error");
+    const d = await r.json() as { Type?: number; Data?: unknown[] };
+    if (!Array.isArray(d.Data)) throw new Error("Unexpected response format");
     return "Reachable";
   });
 }

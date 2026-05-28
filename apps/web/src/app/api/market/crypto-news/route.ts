@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
       }>;
     };
 
-    if (j.Type !== 100) throw new Error(j.Message ?? "CryptoCompare error");
+    if (!Array.isArray(j.Data)) throw new Error(j.Message ?? "CryptoCompare: no data array");
 
     return (j.Data ?? []).slice(0, limit).map<NewsItem>((a) => ({
       id: String(a.id),
