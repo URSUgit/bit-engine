@@ -61,7 +61,6 @@ export default function BacktesterPage() {
   const [compareResults, setCompareResults] = useState<CompareResult[] | null>(null);
   const [optimizeResult, setOptimizeResult] = useState<OptimizeResult | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
-  const [scanResults, setScanResults] = useState<{strategy: string; result: BacktestResult | null; error: string | null}[]>([]);
 
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -279,6 +278,20 @@ export default function BacktesterPage() {
               setMode("single");
             }}
           />
+        ) : mode === "scan" ? (
+          <StrategyScannerView
+            symbol={singleSymbol}
+            strategies={strategies}
+            periodDays={periodDays}
+            interval={interval}
+            initialCapital={initialCapital}
+            commissionPct={commissionPct}
+            slippagePct={slippagePct}
+            onSelectStrategy={(name) => {
+              setStrategyName(name);
+              setMode("single");
+            }}
+          />
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
             {/* ─── Control panel ─── */}
@@ -392,13 +405,31 @@ export default function BacktesterPage() {
             {/* ─── Results pane ─── */}
             <main className="space-y-6">
               {mode === "single" && (
-                <SingleResultsView
-                  symbol={singleSymbol}
-                  result={singleResult}
-                  running={running}
-                  progress={progress}
-                  elapsedMs={elapsedMs}
-                />
+                <>
+                  <SingleResultsView
+                    symbol={singleSymbol}
+                    result={singleResult}
+                    running={running}
+                    progress={progress}
+                    elapsedMs={elapsedMs}
+                  />
+                  <BacktesterChat
+                    symbol={singleSymbol}
+                    strategy={strategyName}
+                    strategyParams={strategyParams}
+                    periodDays={periodDays}
+                    interval={interval}
+                    commissionPct={commissionPct}
+                    slippagePct={slippagePct}
+                    result={singleResult}
+                    onApplyParams={(p) => {
+                      if (p.strategy) setStrategyName(p.strategy);
+                      if (p.periodDays) setPeriodDays(p.periodDays);
+                      if (p.interval) setIntervalValue(p.interval);
+                      if (p.strategyParams) setStrategyParams(p.strategyParams);
+                    }}
+                  />
+                </>
               )}
               {mode === "compare" && (
                 <CompareResultsView results={compareResults} running={running} />
@@ -512,6 +543,7 @@ function ModeTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void 
     { value: "single", label: "Single", hint: "One pair, full charts" },
     { value: "compare", label: "Compare", hint: "Up to 20 pairs side-by-side" },
     { value: "optimize", label: "Optimize", hint: "Find best parameters" },
+    { value: "scan", label: "Scan", hint: "Best strategy finder" },
     { value: "history", label: "History", hint: "Past runs" },
     { value: "data", label: "Data", hint: "Cache · Custom symbols" },
   ];
