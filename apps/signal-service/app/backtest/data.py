@@ -1,7 +1,8 @@
 """
 Historical OHLCV data loader.
-Primary source: Yahoo Finance v8 chart API (free, no key, 20+ years).
-Fallback for crypto: Binance klines (free, no key).
+Primary source:  Yahoo Finance v8 chart API (free, no key, 20+ years).
+Stock fallback:  Stooq (free CSV, global access, no key).
+Crypto fallback: Binance klines (free, no key) + Kraken OHLC.
 All data is cached in SQLite for fast repeat access.
 """
 from __future__ import annotations
@@ -20,6 +21,28 @@ log = logging.getLogger(__name__)
 
 YAHOO_BASE = "https://query1.finance.yahoo.com/v8/finance/chart"
 BINANCE_BASE = "https://api.binance.com/api/v3"
+STOOQ_BASE = "https://stooq.com/q/d/l"
+KRAKEN_BASE = "https://api.kraken.com/0/public"
+
+# Stooq uses lowercase symbols with exchange suffix: AAPL → aapl.us
+# Index symbols like ^GSPC → ^spx.us, crypto not supported.
+STOOQ_SUFFIX: dict[str, str] = {}  # overrides; default is .us for stocks
+
+def _stooq_sym(symbol: str) -> str | None:
+    """Convert a Yahoo-style symbol to a Stooq symbol, or None if unsupported."""
+    if symbol.endswith("-USD") or symbol.endswith("USDT"):
+        return None  # crypto — Stooq doesn't carry these
+    if symbol.endswith("=X"):
+        # forex: EURUSD=X → eur/usd.fx
+        pair = symbol.replace("=X", "").lower()
+        return f"{pair[:3]}/{pair[3:]}.fx"
+    if symbol in ("GC=F", "SI=F", "CL=F", "NG=F", "HG=F"):
+        return None  # futures — skip
+    if symbol.startswith("^"):
+        idx_map = {"^GSPC": "^spx", "^IXIC": "^ndq", "^DJI": "^dji", "^VIX": "^vix"}
+        base = idx_map.get(symbol)
+        return f"{base}.us" if base else None
+    return f"{symbol.lower()}.us"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -211,6 +234,126 @@ async def fetch_binance_bars(
     return all_bars
 
 
+# ── Stooq fallback (stocks / ETFs / indices — key-free, global) ───────────────
+
+async def fetch_stooq_bars(
+    symbol: str,
+    start_date: datetime,
+    end_date: datetime,
+    interval: str = "1d",
+) -> list[Bar]:
+    """
+    Fetch daily OHLCV from Stooq (free CSV, no key, not geo-blocked).
+    Only supports daily interval and non-crypto symbols.
+    """
+    if interval not in ("1d", "1wk", "1mo"):
+        return []
+    stooq_sym = _stooq_sym(symbol)
+    if not stooq_sym:
+        return []
+
+    interval_map = {"1d": "d", "1wk": "w", "1mo": "m"}
+    params = {
+        "s": stooq_sym,
+        "i": interval_map[interval],
+        "d1": start_date.strftime("%Y%m%d"),
+        "d2": end_date.strftime("%Y%m%d"),
+    }
+    async with httpx.AsyncClient(timeout=20) as client:
+        try:
+            r = await client.get(STOOQ_BASE, params=params, headers=HEADERS)
+            r.raise_for_status()
+            text = r.text.strip()
+        except Exception as e:
+            log.warning("Stooq fetch failed for %s: %s", symbol, e)
+            return []
+
+    bars: list[Bar] = []
+    lines = text.splitlines()
+    if len(lines) < 2:
+        return []
+    # Header: Date,Open,High,Low,Close,Volume
+    for line in lines[1:]:
+        parts = line.split(",")
+        if len(parts) < 5:
+            continue
+        try:
+            ts = datetime.strptime(parts[0].strip(), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            o, h, l, c = float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4])
+            v = float(parts[5]) if len(parts) > 5 and parts[5].strip() else 0.0
+            if any(x == 0 for x in (o, h, l, c)):
+                continue
+            bars.append(Bar(timestamp=ts, open=o, high=h, low=l, close=c, volume=v))
+        except (ValueError, IndexError):
+            continue
+    return sorted(bars, key=lambda b: b.timestamp)
+
+
+# ── Kraken OHLC fallback (crypto daily — key-free, global) ────────────────────
+
+KRAKEN_CRYPTO_MAP = {
+    "BTC-USD": "XBTUSD", "ETH-USD": "ETHUSD", "SOL-USD": "SOLUSD",
+    "XRP-USD": "XRPUSD", "ADA-USD": "ADAUSD", "DOGE-USD": "XDGUSD",
+    "AVAX-USD": "AVAXUSD", "DOT-USD": "DOTUSD", "MATIC-USD": "MATICUSD",
+    "LINK-USD": "LINKUSD", "LTC-USD": "XLTCZUSD", "ATOM-USD": "ATOMUSD",
+}
+
+KRAKEN_INTERVAL_MAP = {"1d": 1440, "1wk": 10080, "1h": 60, "4h": 240}
+
+
+async def fetch_kraken_bars(
+    symbol: str,
+    start_date: datetime,
+    end_date: datetime,
+    interval: str = "1d",
+) -> list[Bar]:
+    """Fetch OHLCV from Kraken (key-free, global). Only for supported crypto."""
+    kraken_sym = KRAKEN_CRYPTO_MAP.get(symbol)
+    if not kraken_sym:
+        return []
+    interval_min = KRAKEN_INTERVAL_MAP.get(interval)
+    if not interval_min:
+        return []
+
+    since = int(start_date.timestamp())
+    all_bars: list[Bar] = []
+    async with httpx.AsyncClient(timeout=20) as client:
+        cursor = since
+        while True:
+            try:
+                r = await client.get(
+                    f"{KRAKEN_BASE}/OHLC",
+                    params={"pair": kraken_sym, "interval": interval_min, "since": cursor},
+                    headers=HEADERS,
+                )
+                r.raise_for_status()
+                result = r.json().get("result", {})
+                candles = next((v for k, v in result.items() if k != "last"), [])
+            except Exception as e:
+                log.warning("Kraken OHLC failed for %s: %s", symbol, e)
+                break
+
+            if not candles:
+                break
+
+            for k in candles:
+                ts = datetime.fromtimestamp(k[0], tz=timezone.utc)
+                if ts > end_date:
+                    break
+                o, h, l, c, v = float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[6])
+                if c == 0:
+                    continue
+                all_bars.append(Bar(timestamp=ts, open=o, high=h, low=l, close=c, volume=v))
+
+            last_ts = candles[-1][0]
+            next_cursor = result.get("last", last_ts)
+            if next_cursor <= cursor or len(candles) < 720:
+                break
+            cursor = next_cursor
+
+    return [b for b in all_bars if start_date <= b.timestamp <= end_date]
+
+
 # ── Public loader (caches in SQLite) ──────────────────────────────────────────
 
 class HistoricalDataLoader:
@@ -251,13 +394,24 @@ class HistoricalDataLoader:
                     log.info("Cache hit: %s %s — %d bars", symbol, interval, len(cached))
                     return cached
 
-        # Cache miss — fetch from network
+        # Cache miss — fetch from network (layered fallbacks)
         log.info("Fetching %s %s from %s to %s", symbol, interval, start_date.date(), end_date.date())
         bars = await fetch_yahoo_bars(symbol, start_date, end_date, interval)
 
+        # Fallback 2: Stooq (stocks/ETFs/indices — globally accessible, key-free)
+        if not bars and _stooq_sym(symbol):
+            log.info("Yahoo empty for %s, trying Stooq", symbol)
+            bars = await fetch_stooq_bars(symbol, start_date, end_date, interval)
+
+        # Fallback 3: Binance (crypto — key-free, may be geo-blocked)
         if not bars and symbol in BINANCE_SYMBOL_MAP:
-            log.info("Yahoo empty for %s, trying Binance", symbol)
+            log.info("Yahoo/Stooq empty for %s, trying Binance", symbol)
             bars = await fetch_binance_bars(symbol, start_date, end_date, interval)
+
+        # Fallback 4: Kraken (crypto — key-free, globally accessible)
+        if not bars and symbol in KRAKEN_CRYPTO_MAP:
+            log.info("Trying Kraken for %s", symbol)
+            bars = await fetch_kraken_bars(symbol, start_date, end_date, interval)
 
         if bars:
             self.storage.upsert_bars(symbol, interval, bars)

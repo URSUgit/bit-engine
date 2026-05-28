@@ -75,7 +75,7 @@ echo.
 echo --------------------------------------------------
 echo   Signal Service  --^>  http://localhost:8001
 echo   Web UI          --^>  http://localhost:3000
-echo   Backtester      --^>  http://localhost:3000/lab/backtester
+echo   Dashboard       --^>  http://localhost:3000/dashboard
 echo --------------------------------------------------
 echo.
 
@@ -85,12 +85,12 @@ start "BitPrivat Signal Service" cmd /k "cd /d %~dp0apps\signal-service && pytho
 :: Start web app in its own window
 start "BitPrivat Web UI" cmd /k "cd /d %~dp0apps\web && pnpm dev"
 
-:: Wait for services to boot then open browser directly on backtester
+:: Wait for services to boot then open browser on dashboard home
 echo Waiting 18 seconds for services to boot...
 timeout /t 18 /nobreak >nul
 
 echo Opening browser...
-start "" "http://localhost:3000/lab/backtester"
+start "" "http://localhost:3000/dashboard"
 
 echo.
 echo ============================================

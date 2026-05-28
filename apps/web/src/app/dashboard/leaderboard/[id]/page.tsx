@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ArrowUpRight, Check, ExternalLink, TrendingUp, TrendingDown, Loader2 } from "lucide-react";
-import { TradingViewChart } from "@/components/charts/TradingViewChart";
+import { TradingViewChart, type LineBar } from "@/components/charts/TradingViewChart";
 import { cn } from "@/lib/utils";
 import type { TraderEntry } from "@/app/api/market/traders/route";
 import { usePaperTrading } from "@/hooks/usePaperTrading";
@@ -30,7 +30,19 @@ export default function TraderDetailPage() {
   const [trader, setTrader] = useState<TraderEntry | null>(null);
   const [loading, setLoading] = useState(true);
   const [following, setFollowing] = useState(false);
+  const [btcChart, setBtcChart] = useState<LineBar[] | undefined>(undefined);
   const { livePositions } = usePaperTrading();
+
+  useEffect(() => {
+    fetch("/api/exchange/klines?symbol=BTC&interval=1d&limit=90")
+      .then((r) => r.json())
+      .then((res: { data?: Array<{ t: number; close: number }> }) => {
+        if (res.data?.length) {
+          setBtcChart(res.data.map((k) => ({ time: Math.floor(k.t / 1000) as LineBar["time"], value: k.close })));
+        }
+      })
+      .catch(() => setBtcChart(undefined));
+  }, []);
 
   useEffect(() => {
     fetch("/api/market/traders?limit=100")
@@ -129,8 +141,8 @@ export default function TraderDetailPage() {
       {/* Equity + positions */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 card-dark p-5">
-          <h2 className="text-sm font-semibold text-slate-100 mb-4">Equity Curve · 90d</h2>
-          <TradingViewChart height={320} />
+          <h2 className="text-sm font-semibold text-slate-100 mb-4">BTC/USD · 90d</h2>
+          <TradingViewChart height={320} type="area" data={btcChart} />
         </div>
 
         <div className="card-dark p-5">

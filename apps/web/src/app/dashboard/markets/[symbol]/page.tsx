@@ -10,7 +10,7 @@ import { OrderPanel } from "@/components/trading/OrderPanel";
 import { AssetFundamentals } from "@/components/markets/AssetFundamentals";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import { api } from "@/lib/api";
-import { mockAssets, generateOrderBook, type OrderBookLevel } from "@/lib/mock-data";
+import type { OrderBookLevel } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
 const TIMEFRAMES = ["1m", "5m", "1h", "4h", "1D"] as const;
@@ -40,7 +40,6 @@ export default function MarketDetailPage() {
   const { data: asset } = useQuery({
     queryKey: ["market", symbol],
     queryFn: () => api.markets.get(symbol),
-    initialData: mockAssets.find((a) => a.symbol === symbol) ?? mockAssets[0],
   });
 
   const currentPrice = live?.price ?? asset?.price ?? 0;
@@ -86,7 +85,7 @@ export default function MarketDetailPage() {
     queryFn: async () => {
       const res = await fetch(`/api/exchange/orderbook?symbol=${symbol}&limit=20`);
       const json = await res.json();
-      if (!json.data) return generateOrderBook(currentPrice || 100);
+      if (!json.data) return null;
       const ob = json.data as { bids: { price: number; qty: number }[]; asks: { price: number; qty: number }[] };
       let bidTotal = 0;
       let askTotal = 0;
@@ -95,7 +94,6 @@ export default function MarketDetailPage() {
         asks: ob.asks.map(({ price, qty }): OrderBookLevel => { askTotal += qty; return { price, size: qty, total: +askTotal.toFixed(4) }; }),
       };
     },
-    initialData: generateOrderBook(asset?.price ?? 100),
     refetchInterval: 3_000,
   });
 
@@ -240,8 +238,6 @@ export default function MarketDetailPage() {
 
             <TradingViewChart
               type={chartType}
-              timeframe={timeframe}
-              basePrice={currentPrice || asset.price}
               height={420}
               candleData={chartType === "candlestick" ? candleData : undefined}
               data={chartType !== "candlestick" ? areaData : undefined}

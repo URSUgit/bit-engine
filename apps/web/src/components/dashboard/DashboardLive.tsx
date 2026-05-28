@@ -1,23 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DollarSign, TrendingUp, Target, Layers, Newspaper, Radio } from "lucide-react";
 import { PortfolioCard } from "./PortfolioCard";
 import { SignalsFeed } from "./SignalsFeed";
 import { NewsFeed } from "./NewsFeed";
-import { TradingViewChart } from "@/components/charts/TradingViewChart";
+import { TradingViewChart, type LineBar } from "@/components/charts/TradingViewChart";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import { usePaperTrading } from "@/hooks/usePaperTrading";
 import { cn } from "@/lib/utils";
 
-const CHART_TIMEFRAMES = ["1H", "1D", "1W", "1M", "ALL"] as const;
+const CHART_TIMEFRAMES = ["1H", "1D", "1W", "1M"] as const;
 
 const TF_MAP: Record<string, string> = {
   "1H": "5m",
   "1D": "15m",
   "1W": "1h",
   "1M": "4h",
-  "ALL": "1D",
 };
 
 function fmtValue(v: number) {
@@ -34,8 +33,25 @@ type RightTab = "signals" | "news";
 export function DashboardLive() {
   const [chartTf, setChartTf] = useState<(typeof CHART_TIMEFRAMES)[number]>("1M");
   const [rightTab, setRightTab] = useState<RightTab>("signals");
+  const [chartData, setChartData] = useState<LineBar[] | undefined>(undefined);
   useLivePrices(); // keep prices warm for other components
   const { equity, totalUnrealizedPnl, livePositions, closedPositions, balance, mounted } = usePaperTrading();
+
+  // Fetch real BTC klines for the dashboard chart
+  useEffect(() => {
+    const interval = TF_MAP[chartTf] ?? "4h";
+    setChartData(undefined);
+    fetch(`/api/exchange/klines?symbol=BTC&interval=${interval}&limit=200`)
+      .then((r) => r.json())
+      .then((res: { data?: Array<{ t: number; close: number }> }) => {
+        if (res.data?.length) {
+          setChartData(
+            res.data.map((k) => ({ time: Math.floor(k.t / 1000) as LineBar["time"], value: k.close }))
+          );
+        }
+      })
+      .catch(() => setChartData(undefined));
+  }, [chartTf]);
 
   const winCount = closedPositions.filter((p) => (p.pnl ?? 0) > 0).length;
   const winRate = closedPositions.length > 0 ? (winCount / closedPositions.length) * 100 : null;
@@ -88,8 +104,8 @@ export function DashboardLive() {
         <div className="xl:col-span-2 card-dark p-4">
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <div>
-              <h2 className="text-sm font-semibold text-slate-100">Portfolio Performance</h2>
-              <p className="text-xs text-slate-500">Equity curve · USD</p>
+              <h2 className="text-sm font-semibold text-slate-100">BTC/USD</h2>
+              <p className="text-xs text-slate-500">Live market price</p>
             </div>
             <div className="flex gap-1 text-xs bg-slate-900 rounded-lg p-1 border border-slate-800">
               {CHART_TIMEFRAMES.map((tf) => (
@@ -111,8 +127,7 @@ export function DashboardLive() {
           <TradingViewChart
             height={320}
             type="area"
-            timeframe={TF_MAP[chartTf] ?? "4h"}
-            basePrice={mounted ? equity : 10_000}
+            data={chartData}
           />
         </div>
 
