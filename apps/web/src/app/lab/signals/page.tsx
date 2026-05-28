@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { Plus, Trash2, Save, Play } from "lucide-react";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { cn } from "@/lib/utils";
 
 type Op = ">" | "<" | ">=" | "<=" | "==" | "crosses_above" | "crosses_below";
@@ -39,7 +38,6 @@ export default function SignalBuilderPage() {
     setConditions((cs) => cs.filter((c) => c.id !== id));
 
   return (
-    <DashboardLayout>
       <div className="flex flex-col gap-6 p-6 max-w-[1200px] mx-auto">
         <div>
           <h1 className="text-2xl font-bold text-slate-50 tracking-tight">Signal Builder</h1>
@@ -119,6 +117,5 @@ ${conditions.map((c, i) => `    ${i === 0 ? "" : "and "}${c.indicator} ${c.op.re
           </pre>
         </div>
       </div>
-    </DashboardLayout>
   );
 }

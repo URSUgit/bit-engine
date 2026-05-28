@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { TradingViewChart } from "@/components/charts/TradingViewChart";
 import { cn } from "@/lib/utils";
 import { TrendingUp, Repeat, Scale, Brain, Activity, Globe2, Play, Save, Loader2 } from "lucide-react";
@@ -50,7 +49,6 @@ export default function LabPage() {
   };
 
   return (
-    <DashboardLayout>
       <div className="flex flex-col gap-6 p-6 max-w-[1600px] mx-auto">
         <div>
           <h1 className="text-2xl font-bold text-slate-50 tracking-tight">Strategy Lab</h1>
@@ -204,7 +202,6 @@ export default function LabPage() {
           </div>
         )}
       </div>
-    </DashboardLayout>
   );
 }
 

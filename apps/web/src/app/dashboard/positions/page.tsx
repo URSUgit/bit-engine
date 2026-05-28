@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { X, Plus, RefreshCw, TrendingUp, TrendingDown, ChevronDown } from "lucide-react";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { usePaperTrading, type PaperSide } from "@/hooks/usePaperTrading";
 import { cn } from "@/lib/utils";
 
@@ -176,14 +175,14 @@ export default function PositionsPage() {
   const [tab, setTab] = useState<"open" | "closed">("open");
   const [showDialog, setShowDialog] = useState(false);
 
-  if (!mounted) return <DashboardLayout><div className="p-6 text-slate-500 text-sm">Loading…</div></DashboardLayout>;
+  if (!mounted) return <div className="p-6 text-slate-500 text-sm">Loading…</div>;
 
   const winCount = closedPositions.filter((p) => (p.pnl ?? 0) > 0).length;
   const winRate = closedPositions.length > 0 ? (winCount / closedPositions.length) * 100 : 0;
   const pnlPositive = totalUnrealizedPnl >= 0;
 
   return (
-    <DashboardLayout>
+    <>
       <div className="flex flex-col gap-6 p-6 max-w-[1400px] mx-auto">
         {/* Header */}
         <div className="flex items-start justify-between">
@@ -353,6 +352,6 @@ export default function PositionsPage() {
           }}
         />
       )}
-    </DashboardLayout>
+    </>
   );
 }

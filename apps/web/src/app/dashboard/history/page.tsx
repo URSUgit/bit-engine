@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { Search, TrendingUp, TrendingDown, Download } from "lucide-react";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { usePaperTrading } from "@/hooks/usePaperTrading";
 import { cn } from "@/lib/utils";
 
@@ -51,7 +50,6 @@ export default function HistoryPage() {
   const totalVolume = filtered.reduce((s, p) => s + p.size_usd, 0);
 
   return (
-    <DashboardLayout>
       <div className="flex flex-col gap-6 p-6 max-w-[1600px] mx-auto">
         <div className="flex items-end justify-between flex-wrap gap-4">
           <div>
@@ -140,7 +138,6 @@ export default function HistoryPage() {
           )}
         </div>
       </div>
-    </DashboardLayout>
   );
 }
 

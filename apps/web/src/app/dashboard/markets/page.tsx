@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { Search, TrendingUp, TrendingDown } from "lucide-react";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { AssetSparkline } from "@/components/markets/AssetSparkline";
 import { MarketsOverview } from "@/components/markets/MarketsOverview";
 import { useLivePrices } from "@/hooks/useLivePrices";
@@ -96,7 +95,6 @@ export default function MarketsPage() {
   }, [assets, search, category]);
 
   return (
-    <DashboardLayout>
       <div className="flex flex-col gap-6 p-6 max-w-[1600px] mx-auto">
         <div>
           <h1 className="text-2xl font-bold text-slate-50 tracking-tight">Markets</h1>
@@ -236,6 +234,5 @@ export default function MarketsPage() {
           </div>
         </div>
       </div>
-    </DashboardLayout>
   );
 }

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { Plus, Copy, Check, Eye, EyeOff, Trash2, KeyRound } from "lucide-react";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { SettingsNav } from "@/components/settings/SettingsNav";
 import { cn } from "@/lib/utils";
 
@@ -44,7 +43,6 @@ export default function ApiKeysPage() {
     setKeys((k) => k.map((x) => (x.id === id ? { ...x, status: "revoked" as const } : x)));
 
   return (
-    <DashboardLayout>
       <div className="flex flex-col gap-6 p-6 max-w-[1200px] mx-auto">
         <div>
           <h1 className="text-2xl font-bold text-slate-50 tracking-tight">Settings</h1>
@@ -141,6 +139,5 @@ export default function ApiKeysPage() {
           </div>
         </div>
       </div>
-    </DashboardLayout>
   );
 }

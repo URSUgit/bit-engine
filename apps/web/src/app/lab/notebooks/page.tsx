@@ -1,7 +1,6 @@
 "use client";
 
 import { Plus, FileCode2, GitBranch } from "lucide-react";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { cn } from "@/lib/utils";
 
 interface Notebook {
@@ -23,7 +22,6 @@ const notebooks: Notebook[] = [
 
 export default function NotebooksPage() {
   return (
-    <DashboardLayout>
       <div className="flex flex-col gap-6 p-6 max-w-[1400px] mx-auto">
         <div className="flex items-end justify-between flex-wrap gap-4">
           <div>
@@ -70,6 +68,5 @@ export default function NotebooksPage() {
           </button>
         </div>
       </div>
-    </DashboardLayout>
   );
 }

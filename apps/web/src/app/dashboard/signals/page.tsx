@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowUpRight, ArrowDownRight, Pause, Search } from "lucide-react";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { api } from "@/lib/api";
 import { mockSignals } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
@@ -56,7 +55,6 @@ export default function SignalsPage() {
   const highConf = filtered.filter((s) => s.confidence >= 0.85).length;
 
   return (
-    <DashboardLayout>
       <div className="flex flex-col gap-6 p-6 max-w-[1600px] mx-auto">
         <div>
           <h1 className="text-2xl font-bold text-slate-50 tracking-tight">Live Signals</h1>
@@ -137,7 +135,6 @@ export default function SignalsPage() {
           )}
         </div>
       </div>
-    </DashboardLayout>
   );
 }
 

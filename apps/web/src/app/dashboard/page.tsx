@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Download, ChevronDown, Plus } from "lucide-react";
 import Link from "next/link";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { DashboardLive } from "@/components/dashboard/DashboardLive";
 import { DashboardSubtitle } from "@/components/dashboard/DashboardSubtitle";
 import { PositionsTable } from "@/components/dashboard/PositionsTable";
@@ -11,7 +10,6 @@ export const metadata: Metadata = { title: "Dashboard" };
 
 export default function DashboardPage() {
   return (
-    <DashboardLayout>
       <div className="flex flex-col gap-6 p-6 max-w-[1600px] mx-auto">
         {/* Header */}
         <div className="flex items-end justify-between flex-wrap gap-4">
@@ -65,6 +63,5 @@ export default function DashboardPage() {
           <CopyTradingPanel />
         </div>
       </div>
-    </DashboardLayout>
   );
 }

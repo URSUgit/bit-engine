@@ -5,7 +5,6 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, BarChart2, TrendingDown, TrendingUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { TradingViewChart, type CandleBar, type LineBar } from "@/components/charts/TradingViewChart";
 import { OrderPanel } from "@/components/trading/OrderPanel";
 import { AssetFundamentals } from "@/components/markets/AssetFundamentals";
@@ -106,7 +105,6 @@ export default function MarketDetailPage() {
   const maxAskTotal = Math.max(...(orderBook?.asks ?? []).map((a) => a.total), 1);
 
   return (
-    <DashboardLayout>
       <div className="flex flex-col gap-5 p-6 max-w-[1800px] mx-auto">
         {/* Header */}
         <div className="flex items-center gap-4 flex-wrap">
@@ -335,6 +333,5 @@ export default function MarketDetailPage() {
 
         <AssetFundamentals symbol={symbol} />
       </div>
-    </DashboardLayout>
   );
 }

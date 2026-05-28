@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { cn } from "@/lib/utils";
 import {
   Bot,
@@ -307,7 +306,6 @@ export default function AgentPage() {
   };
 
   return (
-    <DashboardLayout>
       <div className="flex flex-col h-[calc(100vh-0px)] max-h-screen">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 shrink-0">
@@ -409,6 +407,5 @@ export default function AgentPage() {
           </p>
         </div>
       </div>
-    </DashboardLayout>
   );
 }

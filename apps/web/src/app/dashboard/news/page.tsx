@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { ExternalLink, RefreshCw, TrendingUp, TrendingDown, Minus, Search, Filter } from "lucide-react";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { cn } from "@/lib/utils";
 import type { NewsItem } from "@/app/api/market/crypto-news/route";
 
@@ -151,7 +150,6 @@ export default function NewsPage() {
   });
 
   return (
-    <DashboardLayout>
       <div className="flex flex-col gap-6 p-6 max-w-[1400px] mx-auto">
         <div className="flex items-end justify-between flex-wrap gap-4">
           <div>
@@ -240,6 +238,5 @@ export default function NewsPage() {
           </div>
         )}
       </div>
-    </DashboardLayout>
   );
 }

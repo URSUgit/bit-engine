@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ArrowUpRight, Check, ExternalLink, TrendingUp, TrendingDown } from "lucide-react";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { TradingViewChart } from "@/components/charts/TradingViewChart";
 import { mockTraders, mockPositions } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
@@ -22,7 +21,6 @@ export default function TraderDetailPage() {
   const totalPnL = traderPositions.reduce((s, p) => s + p.unrealizedPnl, 0);
 
   return (
-    <DashboardLayout>
       <div className="flex flex-col gap-5 p-6 max-w-[1600px] mx-auto">
         <Link href="/dashboard/leaderboard" className="text-slate-500 hover:text-slate-300 transition-colors w-fit text-sm flex items-center gap-1.5">
           <ArrowLeft className="w-3.5 h-3.5" />
@@ -144,7 +142,6 @@ export default function TraderDetailPage() {
           </div>
         </div>
       </div>
-    </DashboardLayout>
   );
 }
 

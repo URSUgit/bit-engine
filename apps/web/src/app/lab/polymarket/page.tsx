@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { cn } from "@/lib/utils";
 import {
   Activity, Play, Square, Search, TrendingUp, TrendingDown,
@@ -380,7 +379,6 @@ export default function PolymarketPage() {
   };
 
   return (
-    <DashboardLayout>
       <div className="flex flex-col gap-6 p-6 max-w-[1200px] mx-auto">
         <div className="flex items-center justify-between">
           <div>
@@ -434,6 +432,5 @@ export default function PolymarketPage() {
           </div>
         </div>
       </div>
-    </DashboardLayout>
   );
 }

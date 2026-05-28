@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Plus, MoreHorizontal, TrendingUp, TrendingDown, Trash2, X } from "lucide-react";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { cn } from "@/lib/utils";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -155,7 +154,6 @@ export default function PortfoliosPage() {
   if (!mounted) return null;
 
   return (
-    <DashboardLayout>
       <div className="flex flex-col gap-6 p-6 max-w-[1600px] mx-auto">
         <div className="flex items-end justify-between flex-wrap gap-4">
           <div>
@@ -276,7 +274,6 @@ export default function PortfoliosPage() {
 
         {showCreate && <CreateDialog onClose={() => setShowCreate(false)} onCreate={addPortfolio} />}
       </div>
-    </DashboardLayout>
   );
 }
 

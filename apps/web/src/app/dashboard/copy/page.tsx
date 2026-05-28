@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { api } from "@/lib/api";
 import { mockTraders, mockPositions } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
@@ -42,7 +41,6 @@ export default function CopyPage() {
     setConfigs((prev) => ({ ...prev, [activeTraderId]: { ...(prev[activeTraderId] ?? defaultConfig), ...patch } }));
 
   return (
-    <DashboardLayout>
       <div className="flex flex-col gap-6 p-6 max-w-[1600px] mx-auto">
         <div className="flex items-end justify-between flex-wrap gap-4">
           <div>
@@ -200,7 +198,6 @@ export default function CopyPage() {
           )}
         </div>
       </div>
-    </DashboardLayout>
   );
 }
 
