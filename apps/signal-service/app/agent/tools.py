@@ -135,17 +135,36 @@ async def get_price(asset: str) -> dict[str, Any]:
                     f"https://api.coingecko.com/api/v3/simple/price?ids={cg_id}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true"
                 )
                 d = r.json().get(cg_id, {})
-                return {
-                    "asset": asset,
-                    "price_usd": d.get("usd", 0),
-                    "change_24h_pct": d.get("usd_24h_change", 0),
-                    "volume_24h_usd": d.get("usd_24h_vol", 0),
-                    "market_cap_usd": d.get("usd_market_cap", 0),
-                    "source": "coingecko",
-                    "timestamp": datetime.utcnow().isoformat(),
-                }
+                if d.get("usd"):
+                    return {
+                        "asset": asset,
+                        "price_usd": d.get("usd", 0),
+                        "change_24h_pct": d.get("usd_24h_change", 0),
+                        "volume_24h_usd": d.get("usd_24h_vol", 0),
+                        "market_cap_usd": d.get("usd_market_cap", 0),
+                        "source": "coingecko",
+                        "timestamp": datetime.utcnow().isoformat(),
+                    }
     except Exception:
         pass
+
+    # Last resort: Coinbase spot (key-free, global, not geo-blocked)
+    try:
+        from app.feeds.crypto import fetch_coinbase_spot
+        price = await fetch_coinbase_spot(asset + "USDT")
+        if price > 0:
+            return {
+                "asset": asset,
+                "price_usd": price,
+                "change_24h_pct": 0,
+                "volume_24h_usd": 0,
+                "market_cap_usd": 0,
+                "source": "coinbase",
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+    except Exception:
+        pass
+
     return {"asset": asset, "error": "price not available"}
 
 
