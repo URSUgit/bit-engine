@@ -61,7 +61,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [3/4] Installing web app dependencies...
+echo [3/5] Installing web app dependencies...
 call pnpm install
 if errorlevel 1 (
     echo ERROR: pnpm install failed.
@@ -70,7 +70,15 @@ if errorlevel 1 (
 )
 
 echo.
-echo [4/4] Starting services...
+echo [4/5] Setting up local database (auto-creates env + tables)...
+call pnpm --filter @bitprivat/web run setup
+if errorlevel 1 (
+    echo WARNING: database setup hit an issue. The app will still try to
+    echo self-initialize on first launch. Continuing...
+)
+
+echo.
+echo [5/5] Starting services...
 echo.
 echo --------------------------------------------------
 echo   Signal Service  --^>  http://localhost:8001
