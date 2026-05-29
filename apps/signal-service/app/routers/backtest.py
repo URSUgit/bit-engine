@@ -311,3 +311,273 @@ async def clear_cached_symbol(symbol: str, interval: Optional[str] = Query(None)
     """Remove cached bars for a symbol (forces re-fetch next time)."""
     bar_storage.delete_bars(symbol, interval)
     return {"cleared": True, "symbol": symbol, "interval": interval}
+
+
+# ── Anomaly scanning ───────────────────────────────────────────────────────────
+
+class AnomalyRequest(BaseModel):
+    symbol: str
+    start_date: str = "2024-01-01"
+    end_date: Optional[str] = None
+    interval: str = "1d"
+    config: dict = {}
+
+
+@router.post("/anomalies")
+async def scan_anomalies(req: AnomalyRequest):
+    """Scan a symbol's price history for market anomalies."""
+    loader = HistoricalDataLoader()
+    bars = await loader.load(req.symbol, req.start_date, req.end_date, req.interval)
+    if len(bars) < 20:
+        raise HTTPException(status_code=400, detail=f"Need at least 20 bars, got {len(bars)}")
+    from app.backtest.anomalies import AnomalyDetector, AnomalyConfig
+    cfg_data = {k: v for k, v in req.config.items() if not k.startswith("_")}
+    try:
+        cfg = AnomalyConfig(**cfg_data) if cfg_data else AnomalyConfig()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid config: {e}")
+    anomalies = AnomalyDetector().scan(bars, cfg)
+    return {
+        "symbol": req.symbol,
+        "interval": req.interval,
+        "bars_scanned": len(bars),
+        "count": len(anomalies),
+        "anomalies": [
+            {
+                "timestamp": a.timestamp,
+                "type": a.type,
+                "severity": a.severity,
+                "price": a.price,
+                "description": a.description,
+                "suggested_action": a.suggested_action,
+            }
+            for a in anomalies
+        ],
+    }
+
+
+# ── Alt datasets ───────────────────────────────────────────────────────────────
+
+@router.get("/datasets")
+async def list_datasets():
+    """Return a list of all alternative datasets cached locally (FRED, F&G, OI, funding)."""
+    from app.backtest.datasources import data_registry
+    return {"datasets": data_registry.list_available()}
+
+
+class FearGreedRequest(BaseModel):
+    days_back: int = 365
+
+
+@router.post("/datasets/fear-greed")
+async def get_fear_greed(req: FearGreedRequest):
+    """Fetch / return cached Fear & Greed index data."""
+    from app.backtest.datasources import fetch_fear_greed
+    data = await fetch_fear_greed(req.days_back)
+    return {"count": len(data), "data": data}
+
+
+class FredRequest(BaseModel):
+    series_id: str
+    start_date: str = "2015-01-01"
+    end_date: Optional[str] = None
+
+
+@router.post("/datasets/fred")
+async def get_fred(req: FredRequest):
+    """Fetch / return cached FRED macro series data."""
+    from app.backtest.datasources import fetch_fred_series
+    data = await fetch_fred_series(req.series_id, req.start_date, req.end_date)
+    return {"series_id": req.series_id, "count": len(data), "data": data}
+
+
+class FundingRequest(BaseModel):
+    symbol: str = "BTCUSDT"
+    start_ts: Optional[int] = None
+    end_ts: Optional[int] = None
+
+
+@router.post("/datasets/funding")
+async def get_funding(req: FundingRequest):
+    """Fetch / return cached Binance perpetual funding rates."""
+    from app.backtest.datasources import fetch_funding_rates
+    data = await fetch_funding_rates(req.symbol, req.start_ts, req.end_ts)
+    return {"symbol": req.symbol, "count": len(data), "data": data}
+
+
+class OIRequest(BaseModel):
+    symbol: str = "BTCUSDT"
+    interval: str = "1h"
+    start_ts: Optional[int] = None
+    end_ts: Optional[int] = None
+
+
+@router.post("/datasets/open-interest")
+async def get_open_interest(req: OIRequest):
+    """Fetch / return cached Binance futures open interest history."""
+    from app.backtest.datasources import fetch_open_interest
+    data = await fetch_open_interest(req.symbol, req.interval, req.start_ts, req.end_ts)
+    return {"symbol": req.symbol, "interval": req.interval, "count": len(data), "data": data}
+
+
+# ── Cross-asset correlations ───────────────────────────────────────────────────
+
+class CorrelationRequest(BaseModel):
+    symbols: list[str]
+    start_date: str = "2023-01-01"
+    end_date: Optional[str] = None
+    interval: str = "1d"
+
+
+def _pearson(xs: list[float], ys: list[float]) -> float:
+    n = len(xs)
+    if n < 3:
+        return 0.0
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    num = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    dx = (sum((x - mx) ** 2 for x in xs)) ** 0.5
+    dy = (sum((y - my) ** 2 for y in ys)) ** 0.5
+    return num / (dx * dy) if dx * dy > 0 else 0.0
+
+
+@router.post("/correlations")
+async def compute_correlations(req: CorrelationRequest):
+    """Compute pairwise return correlations for a list of symbols."""
+    if len(req.symbols) > 10:
+        raise HTTPException(status_code=400, detail="Max 10 symbols")
+    if len(req.symbols) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 symbols")
+
+    loader = HistoricalDataLoader()
+    results = await asyncio.gather(
+        *[loader.load(s, req.start_date, req.end_date, req.interval) for s in req.symbols],
+        return_exceptions=True,
+    )
+
+    # Build aligned close price series
+    series: dict[str, dict[int, float]] = {}
+    for sym, bars in zip(req.symbols, results):
+        if isinstance(bars, Exception) or not bars:
+            continue
+        series[sym] = {b.ts: b.close for b in bars}
+
+    valid_syms = list(series.keys())
+    if len(valid_syms) < 2:
+        raise HTTPException(status_code=400, detail="Could not load data for enough symbols")
+
+    # Common timestamps
+    common_ts = sorted(
+        set.intersection(*[set(series[s].keys()) for s in valid_syms])
+    )
+    if len(common_ts) < 5:
+        raise HTTPException(status_code=400, detail="Not enough overlapping bars")
+
+    def _returns(sym: str) -> list[float]:
+        closes = [series[sym][ts] for ts in common_ts]
+        return [(closes[i] - closes[i - 1]) / closes[i - 1] for i in range(1, len(closes))]
+
+    ret_map = {s: _returns(s) for s in valid_syms}
+    n = len(valid_syms)
+    matrix = [[0.0] * n for _ in range(n)]
+    for i, s1 in enumerate(valid_syms):
+        for j, s2 in enumerate(valid_syms):
+            if i == j:
+                matrix[i][j] = 1.0
+            elif j > i:
+                r = _pearson(ret_map[s1], ret_map[s2])
+                matrix[i][j] = matrix[j][i] = round(r, 4)
+
+    heatmap = [
+        {"x": valid_syms[i], "y": valid_syms[j], "value": matrix[i][j]}
+        for i in range(n) for j in range(n)
+    ]
+    return {"symbols": valid_syms, "matrix": matrix, "heatmap_data": heatmap, "bar_count": len(common_ts)}
+
+
+# ── Live signals ───────────────────────────────────────────────────────────────
+
+def _iso_days_ago(days: int) -> str:
+    from datetime import timezone, timedelta
+    return (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+
+
+@router.get("/signals/live")
+async def live_signals(symbols: str = Query("BTC-USD,ETH-USD"), bars: int = Query(200, ge=20, le=1000)):
+    """Run all strategies on recent bars and return current signal from each."""
+    sym_list = [s.strip() for s in symbols.split(",") if s.strip()][:5]
+    loader = HistoricalDataLoader()
+    from app.backtest.strategies import STRATEGIES
+    from app.backtest.strategies.base import StrategyContext
+
+    signals = []
+    for sym in sym_list:
+        try:
+            bar_data = await loader.load(sym, _iso_days_ago(400), None, "1d")
+            bar_data = bar_data[-bars:] if len(bar_data) >= bars else bar_data
+        except Exception:
+            continue
+        if len(bar_data) < 20:
+            continue
+        for strat_name, strat_cls in STRATEGIES.items():
+            if strat_name == "buy_and_hold":
+                continue
+            try:
+                strat = strat_cls()
+                ctx = StrategyContext(history=bar_data, position=None)
+                sig = strat.on_bar(ctx)
+                signals.append({
+                    "strategy": strat_name,
+                    "symbol": sym,
+                    "signal": sig,
+                    "last_bar_close": round(bar_data[-1].close, 4),
+                    "generated_at": int(datetime.utcnow().timestamp()),
+                })
+            except Exception:
+                continue
+
+    return {"count": len(signals), "signals": signals}
+
+
+# ── Signal validation ──────────────────────────────────────────────────────────
+
+class ValidateSignalRequest(BaseModel):
+    symbol: str
+    strategy: str
+    strategy_params: dict = {}
+    lookback_days: int = 90
+
+
+@router.post("/signals/validate")
+async def validate_signal(req: ValidateSignalRequest):
+    """Mini-backtest on recent history to compute win rate + EV for a strategy setup."""
+    params = BacktestParams(
+        symbol=req.symbol,
+        strategy=req.strategy,
+        start_date=_iso_days_ago(req.lookback_days),
+        strategy_params=req.strategy_params,
+        initial_capital=10_000,
+        commission_pct=0.001,
+        slippage_pct=0.0005,
+        position_size_pct=1.0,
+    )
+    try:
+        result = await run_backtest(params)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    m = result.metrics
+    wins = [t for t in result.trades if t.pnl > 0]
+    losses = [t for t in result.trades if t.pnl <= 0]
+    avg_win = sum(t.pnl_pct for t in wins) / len(wins) if wins else 0.0
+    avg_loss = sum(t.pnl_pct for t in losses) / len(losses) if losses else 0.0
+    return {
+        "strategy": req.strategy,
+        "symbol": req.symbol,
+        "win_rate": round(m.win_rate_pct, 1),
+        "avg_gain_pct": round(avg_win, 2),
+        "avg_loss_pct": round(avg_loss, 2),
+        "expected_value": round(m.avg_trade_pnl_pct, 2),
+        "sample_count": m.total_trades,
+        "sharpe": round(m.sharpe_ratio, 2),
+        "total_return_pct": round(m.total_return_pct, 2),
+    }

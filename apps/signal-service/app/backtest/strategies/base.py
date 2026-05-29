@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ..models import Bar, Position, Signal
 
@@ -12,11 +12,13 @@ class StrategyContext:
     """
     Per-bar context handed to a strategy.
 
-    history: all bars up to and INCLUDING current_bar (no look-ahead).
-    position: currently open position for this symbol, or None.
+    history:    all bars up to and INCLUDING current_bar (no look-ahead).
+    position:   currently open position for this symbol, or None.
+    properties: optional extra data (funding_rate, open_interest, fear_greed, …).
     """
     history: list[Bar]
     position: Position | None
+    properties: dict = field(default_factory=dict)
 
     @property
     def current_bar(self) -> Bar:

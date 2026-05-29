@@ -48,6 +48,13 @@ export type BacktestParams = {
   slippage_pct: number;
   position_size_pct: number;
   strategy_params: Record<string, number>;
+  // Realism upgrades
+  spread_bps?: number;
+  enable_market_impact?: boolean;
+  execution_latency_ms?: number;
+  use_funding_rates?: boolean;
+  leverage?: number;
+  run_anomaly_scan?: boolean;
 };
 
 export type Trade = {
@@ -110,6 +117,70 @@ export type EntryAnalysis = {
   feature_stats: FeatureStats[];
 };
 
+export type FrictionBreakdown = {
+  commission_usd: number;
+  slippage_usd: number;
+  spread_usd: number;
+  funding_usd: number;
+  total_usd: number;
+  total_pct_of_gross: number;
+};
+
+export type Anomaly = {
+  timestamp: number;
+  type: string;
+  severity: number;
+  price: number;
+  description: string;
+  suggested_action: string;
+  bar_index: number;
+};
+
+export type LiveSignal = {
+  strategy: string;
+  symbol: string;
+  signal: string;
+  confidence: number;
+  entry_price: number | null;
+  tp_price: number | null;
+  sl_price: number | null;
+  timestamp: string;
+  bar_count: number;
+  error: string | null;
+};
+
+export type SignalValidation = {
+  strategy: string;
+  symbol: string;
+  direction: string;
+  lookback_days: number;
+  total_signals: number;
+  win_rate: number;
+  avg_gain_pct: number;
+  avg_loss_pct: number;
+  expected_value_pct: number;
+  profit_factor: number;
+  best_pct: number;
+  worst_pct: number;
+};
+
+export type CorrelationResult = {
+  symbols: string[];
+  start_date: string;
+  end_date: string;
+  bars_per_symbol: Record<string, number>;
+  matrix: Record<string, Record<string, number | null>>;
+};
+
+export type DatasetEntry = {
+  datasource: string;
+  key: string;
+  first_ts: number | null;
+  last_ts: number | null;
+  count: number;
+  last_updated: number | null;
+};
+
 export type BacktestResult = {
   id: string;
   symbol: string;
@@ -125,6 +196,10 @@ export type BacktestResult = {
   bars_processed: number;
   runtime_ms: number;
   entry_analysis: EntryAnalysis | null;
+  // Realism additions
+  friction_breakdown: FrictionBreakdown | null;
+  anomalies: Anomaly[] | null;
+  short_trades: number;
 };
 
 export type CompareResult = {
@@ -363,4 +438,33 @@ export const backtestApi = {
     if (end_date) q.set("end_date", end_date);
     return call<HistoricalData>(`/api/v1/backtest/data/${symbol}?${q}`);
   },
+  anomalies: (req: {
+    symbol: string; start_date: string; end_date?: string; interval?: string;
+    volume_spike_z?: number; price_gap_pct?: number; flash_move_pct?: number;
+  }) =>
+    call<{ anomalies: Anomaly[]; symbol: string; bars_scanned: number; runtime_ms: number }>(
+      "/api/v1/backtest/anomalies",
+      { method: "POST", body: JSON.stringify(req) },
+    ),
+  correlations: (req: { symbols: string[]; start_date: string; end_date?: string; interval?: string }) =>
+    call<CorrelationResult>("/api/v1/backtest/correlations", {
+      method: "POST",
+      body: JSON.stringify(req),
+    }),
+  datasets: () =>
+    call<{ datasets: DatasetEntry[]; total: number }>("/api/v1/backtest/datasets"),
+  liveSignals: (symbol: string, interval = "1d") => {
+    const q = new URLSearchParams({ symbol, interval });
+    return call<{ signals: LiveSignal[]; symbol: string; interval: string; timestamp: string }>(
+      `/api/v1/backtest/signals/live?${q}`,
+    );
+  },
+  validateSignal: (req: {
+    strategy: string; symbol: string; direction: string;
+    interval?: string; lookback_days?: number;
+  }) =>
+    call<SignalValidation>("/api/v1/backtest/signals/validate", {
+      method: "POST",
+      body: JSON.stringify(req),
+    }),
 };

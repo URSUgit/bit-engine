@@ -12,6 +12,9 @@ import {
   type SymbolEntry,
   type HistoryRow,
   type StreamProgressEvent,
+  type LiveSignal,
+  type Anomaly,
+  type FrictionBreakdown,
 } from "@/lib/backtest-api";
 import {
   CostInputs, IntervalPicker, PeriodPicker, StrategyParamsForm,
@@ -26,7 +29,8 @@ import { DataStatusTab } from "./components/data-status";
 import { StrategyScannerView } from "./components/strategy-scanner";
 import { BacktesterChat } from "./components/chat-panel";
 
-type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data";
+type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals";
+type ResultTab = "charts" | "trades" | "analysis" | "friction" | "anomalies";
 
 export default function BacktesterPage() {
   const [mode, setMode] = useState<Mode>("single");
@@ -61,6 +65,23 @@ export default function BacktesterPage() {
   const [compareResults, setCompareResults] = useState<CompareResult[] | null>(null);
   const [optimizeResult, setOptimizeResult] = useState<OptimizeResult | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
+
+  // Realism config
+  const [spreadBps, setSpreadBps] = useState(0);
+  const [leverage, setLeverage] = useState(1.0);
+  const [latencyMs, setLatencyMs] = useState(0);
+  const [enableMarketImpact, setEnableMarketImpact] = useState(false);
+  const [useFundingRates, setUseFundingRates] = useState(false);
+  const [runAnomalyScan, setRunAnomalyScan] = useState(false);
+  const [realismOpen, setRealismOpen] = useState(false);
+
+  // Result tab
+  const [resultTab, setResultTab] = useState<ResultTab>("charts");
+
+  // Live signals
+  const [liveSignals, setLiveSignals] = useState<LiveSignal[] | null>(null);
+  const [liveSignalsLoading, setLiveSignalsLoading] = useState(false);
+  const [liveSignalsError, setLiveSignalsError] = useState<string | null>(null);
 
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -145,6 +166,12 @@ export default function BacktesterPage() {
         slippage_pct: slippagePct / 100,
         position_size_pct: positionPct / 100,
         strategy_params: strategyParams,
+        spread_bps: spreadBps,
+        enable_market_impact: enableMarketImpact,
+        execution_latency_ms: latencyMs,
+        use_funding_rates: useFundingRates,
+        leverage,
+        run_anomaly_scan: runAnomalyScan,
       };
       for await (const event of runBacktestStream(params)) {
         if (event.type === "progress") {
@@ -244,6 +271,19 @@ export default function BacktesterPage() {
     }
   }
 
+  async function fetchLiveSignals() {
+    setLiveSignalsLoading(true);
+    setLiveSignalsError(null);
+    try {
+      const r = await backtestApi.liveSignals(singleSymbol, interval);
+      setLiveSignals(r.signals);
+    } catch (e) {
+      setLiveSignalsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLiveSignalsLoading(false);
+    }
+  }
+
   function toggleCompareSymbol(sym: string) {
     setCompareSymbols((cur) =>
       cur.includes(sym) ? cur.filter((s) => s !== sym) : [...cur, sym].slice(0, 20),
@@ -254,6 +294,7 @@ export default function BacktesterPage() {
     if (mode === "single") runSingle();
     else if (mode === "compare") runCompare();
     else if (mode === "optimize") runOptimize();
+    else if (mode === "signals") fetchLiveSignals();
   };
 
   return (
@@ -298,6 +339,43 @@ export default function BacktesterPage() {
               setMode("single");
             }}
           />
+        ) : mode === "signals" ? (
+          <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
+            <aside className="space-y-4 bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
+              <SymbolPicker
+                symbols={visibleSymbols}
+                allCategories={categories}
+                selectedCategory={categoryFilter}
+                onCategoryChange={setCategoryFilter}
+                search={symbolSearch}
+                onSearchChange={setSymbolSearch}
+                selected={singleSymbol}
+                onSelect={setSingleSymbol}
+                totalCount={symbols.length}
+              />
+              <IntervalPicker interval={interval} onChange={setIntervalValue} />
+              <button
+                onClick={fetchLiveSignals}
+                disabled={liveSignalsLoading}
+                className="w-full py-3 rounded-md bg-cyan-500 hover:bg-cyan-400 disabled:bg-zinc-700 disabled:text-zinc-500 text-zinc-950 font-semibold transition"
+              >
+                {liveSignalsLoading ? "Fetching…" : "Fetch Live Signals"}
+              </button>
+              {liveSignalsError && (
+                <div className="text-sm text-red-400 bg-red-950/30 border border-red-900 p-2 rounded">
+                  {liveSignalsError}
+                </div>
+              )}
+            </aside>
+            <main>
+              <LiveSignalsView
+                signals={liveSignals}
+                loading={liveSignalsLoading}
+                symbol={singleSymbol}
+                interval={interval}
+              />
+            </main>
+          </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
             {/* ─── Control panel ─── */}
@@ -390,6 +468,58 @@ export default function BacktesterPage() {
                 positionPct={positionPct} setPositionPct={setPositionPct}
               />
 
+              {/* Realism config */}
+              <div className="border-t border-zinc-800 pt-3 space-y-2">
+                <button
+                  className="w-full flex items-center justify-between text-xs font-medium uppercase tracking-wide text-zinc-400 hover:text-zinc-200 transition"
+                  onClick={() => setRealismOpen((o) => !o)}
+                >
+                  <span>Realism</span>
+                  <span className="text-zinc-600">{realismOpen ? "▲" : "▼"}</span>
+                </button>
+                {realismOpen && (
+                  <div className="space-y-3 pt-1">
+                    <div className="space-y-1">
+                      <label className="text-xs text-zinc-400 flex justify-between">
+                        <span>Spread</span><span className="text-zinc-300">{spreadBps} bps</span>
+                      </label>
+                      <input type="range" min={0} max={50} step={0.5} value={spreadBps}
+                        onChange={(e) => setSpreadBps(Number(e.target.value))}
+                        className="w-full accent-cyan-500" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-zinc-400 flex justify-between">
+                        <span>Leverage</span><span className="text-zinc-300">{leverage}×</span>
+                      </label>
+                      <input type="range" min={1} max={20} step={1} value={leverage}
+                        onChange={(e) => setLeverage(Number(e.target.value))}
+                        className="w-full accent-cyan-500" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-zinc-400 flex justify-between">
+                        <span>Fill latency</span><span className="text-zinc-300">{latencyMs} ms</span>
+                      </label>
+                      <input type="range" min={0} max={2000} step={50} value={latencyMs}
+                        onChange={(e) => setLatencyMs(Number(e.target.value))}
+                        className="w-full accent-cyan-500" />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      {[
+                        { label: "Market impact (Almgren-Chriss)", val: enableMarketImpact, set: setEnableMarketImpact },
+                        { label: "Funding rates (perp futures)", val: useFundingRates, set: setUseFundingRates },
+                        { label: "Scan anomalies", val: runAnomalyScan, set: setRunAnomalyScan },
+                      ].map(({ label, val, set }) => (
+                        <label key={label} className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
+                          <input type="checkbox" checked={val} onChange={(e) => set(e.target.checked)}
+                            className="accent-cyan-500 w-3.5 h-3.5" />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <button
                 onClick={onRun}
                 disabled={running}
@@ -418,6 +548,8 @@ export default function BacktesterPage() {
                     running={running}
                     progress={progress}
                     elapsedMs={elapsedMs}
+                    resultTab={resultTab}
+                    setResultTab={setResultTab}
                   />
                   <BacktesterChat
                     symbol={singleSymbol}
@@ -550,6 +682,7 @@ function ModeTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void 
     { value: "compare", label: "Compare", hint: "Up to 20 pairs side-by-side" },
     { value: "optimize", label: "Optimize", hint: "Find best parameters" },
     { value: "scan", label: "Scan", hint: "Best strategy finder" },
+    { value: "signals", label: "Signals", hint: "Live signal feed" },
     { value: "history", label: "History", hint: "Past runs" },
     { value: "data", label: "Data", hint: "Cache · Custom symbols" },
   ];
@@ -575,14 +708,124 @@ function ModeTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void 
 
 // ─── Result view components ───────────────────────────────────────────────────
 
+function ResultTabs({
+  active, onChange, hasFriction, hasAnomalies, hasAnalysis,
+}: {
+  active: ResultTab; onChange: (t: ResultTab) => void;
+  hasFriction: boolean; hasAnomalies: boolean; hasAnalysis: boolean;
+}) {
+  const tabs: { value: ResultTab; label: string }[] = [
+    { value: "charts", label: "Charts" },
+    { value: "trades", label: "Trades" },
+    ...(hasAnalysis ? [{ value: "analysis" as ResultTab, label: "Analysis" }] : []),
+    ...(hasFriction ? [{ value: "friction" as ResultTab, label: "Friction" }] : []),
+    ...(hasAnomalies ? [{ value: "anomalies" as ResultTab, label: `Anomalies` }] : []),
+  ];
+  return (
+    <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
+      {tabs.map((t) => (
+        <button key={t.value} onClick={() => onChange(t.value)}
+          className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
+            active === t.value ? "bg-cyan-500 text-zinc-950" : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+          }`}>
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function FrictionPanel({ fb }: { fb: FrictionBreakdown }) {
+  const items = [
+    { label: "Commission", value: fb.commission_usd, color: "bg-blue-500" },
+    { label: "Slippage", value: fb.slippage_usd, color: "bg-yellow-500" },
+    { label: "Spread", value: fb.spread_usd, color: "bg-orange-500" },
+    { label: "Funding", value: fb.funding_usd, color: "bg-purple-500" },
+  ];
+  const total = fb.total_usd;
+  return (
+    <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-5 space-y-4">
+      <h3 className="font-semibold">Friction Breakdown</h3>
+      <div className="flex gap-2 h-6 rounded overflow-hidden">
+        {items.map((it) => (
+          <div key={it.label}
+            title={`${it.label}: $${it.value.toFixed(2)}`}
+            className={`${it.color} transition-all`}
+            style={{ width: total > 0 ? `${(it.value / total) * 100}%` : "25%" }}
+          />
+        ))}
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {items.map((it) => (
+          <div key={it.label} className="bg-zinc-800/60 rounded p-3">
+            <div className={`w-3 h-3 rounded-sm ${it.color} mb-1`} />
+            <div className="text-xs text-zinc-400">{it.label}</div>
+            <div className="font-semibold">${it.value.toFixed(2)}</div>
+            <div className="text-xs text-zinc-500">
+              {total > 0 ? `${((it.value / total) * 100).toFixed(1)}%` : "—"}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="text-sm text-zinc-400 border-t border-zinc-800 pt-3">
+        Total friction: <span className="text-zinc-200 font-semibold">${total.toFixed(2)}</span>
+        {" · "}
+        <span className="text-zinc-400">{fb.total_pct_of_gross.toFixed(2)}% of gross PnL</span>
+      </div>
+    </div>
+  );
+}
+
+const ANOMALY_SEVERITY_COLOR = ["", "text-zinc-400", "text-yellow-400", "text-orange-400", "text-red-400", "text-red-500 font-bold"];
+
+function AnomaliesPanel({ anomalies }: { anomalies: Anomaly[] }) {
+  if (anomalies.length === 0) {
+    return (
+      <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-8 text-center text-zinc-400 text-sm">
+        No anomalies detected in this period.
+      </div>
+    );
+  }
+  return (
+    <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-5 space-y-3">
+      <h3 className="font-semibold">Anomalies ({anomalies.length})</h3>
+      <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+        {anomalies.map((a, i) => (
+          <div key={i} className="flex items-start gap-3 bg-zinc-800/40 rounded p-3">
+            <div className={`text-sm font-bold mt-0.5 ${ANOMALY_SEVERITY_COLOR[a.severity] ?? "text-zinc-300"}`}>
+              S{a.severity}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-xs font-medium text-zinc-200 uppercase tracking-wide">{a.type.replace(/_/g, " ")}</span>
+                <span className="text-xs text-zinc-500">${a.price.toFixed(2)}</span>
+              </div>
+              <div className="text-xs text-zinc-400">{a.description}</div>
+              {a.suggested_action && (
+                <div className="text-xs text-cyan-400 mt-0.5">→ {a.suggested_action}</div>
+              )}
+            </div>
+            <div className="text-xs text-zinc-600 tabular-nums shrink-0">
+              {new Date(a.timestamp * 1000).toLocaleDateString()}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SingleResultsView({
   symbol, result, running, progress, elapsedMs,
+  resultTab, setResultTab,
 }: {
   symbol: string;
   result: BacktestResult | null;
   running: boolean;
   progress: StreamProgressEvent | null;
   elapsedMs: number;
+  resultTab: ResultTab;
+  setResultTab: (t: ResultTab) => void;
 }) {
   return (
     <>
@@ -606,11 +849,28 @@ function SingleResultsView({
       {result && (
         <>
           <MetricsGrid result={result} />
-          <PriceChart result={result} />
-          <EquityChart result={result} />
-          <TradesTable trades={result.trades} />
-          {result.entry_analysis && (
+          <ResultTabs
+            active={resultTab}
+            onChange={setResultTab}
+            hasFriction={!!result.friction_breakdown}
+            hasAnomalies={!!(result.anomalies && result.anomalies.length > 0)}
+            hasAnalysis={!!result.entry_analysis}
+          />
+          {resultTab === "charts" && (
+            <>
+              <PriceChart result={result} />
+              <EquityChart result={result} />
+            </>
+          )}
+          {resultTab === "trades" && <TradesTable trades={result.trades} />}
+          {resultTab === "analysis" && result.entry_analysis && (
             <EntryAnalysisPanel analysis={result.entry_analysis} />
+          )}
+          {resultTab === "friction" && result.friction_breakdown && (
+            <FrictionPanel fb={result.friction_breakdown} />
+          )}
+          {resultTab === "anomalies" && result.anomalies && (
+            <AnomaliesPanel anomalies={result.anomalies} />
           )}
         </>
       )}
@@ -660,6 +920,96 @@ function OptimizeResultsView({ result, running }: { result: OptimizeResult | nul
     );
   }
   return <OptimizeHeatmap result={result} />;
+}
+
+const SIGNAL_COLORS: Record<string, string> = {
+  buy: "text-emerald-400 bg-emerald-950/40 border-emerald-800",
+  sell: "text-red-400 bg-red-950/40 border-red-800",
+  short: "text-red-400 bg-red-950/40 border-red-800",
+  close: "text-yellow-400 bg-yellow-950/40 border-yellow-800",
+  hold: "text-zinc-400 bg-zinc-800/40 border-zinc-700",
+};
+
+function LiveSignalsView({
+  signals, loading, symbol, interval,
+}: {
+  signals: LiveSignal[] | null;
+  loading: boolean;
+  symbol: string;
+  interval: string;
+}) {
+  if (loading) {
+    return (
+      <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-12 text-center text-zinc-400">
+        Fetching live signals from all strategies…
+      </div>
+    );
+  }
+  if (!signals) {
+    return (
+      <div className="bg-zinc-900/30 border border-dashed border-zinc-800 rounded-lg p-12 text-center">
+        <h3 className="text-xl font-medium text-zinc-300 mb-2">Live signals from all strategies</h3>
+        <p className="text-sm text-zinc-500 max-w-md mx-auto">
+          Click "Fetch Live Signals" to see what every strategy currently says about <span className="text-zinc-300">{symbol}</span> on the <span className="text-zinc-300">{interval}</span> timeframe.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-lg">
+          Live signals · {symbol} · {interval}
+        </h3>
+        <span className="text-xs text-zinc-500">
+          {signals.filter((s) => s.signal !== "hold" && !s.error).length} active signals
+        </span>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {signals.map((sig) => {
+          const colorClass = SIGNAL_COLORS[sig.signal] ?? SIGNAL_COLORS.hold;
+          return (
+            <div key={sig.strategy} className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-medium text-sm text-zinc-200">{sig.strategy.replace(/_/g, " ")}</span>
+                <span className={`px-2 py-0.5 rounded border text-xs font-bold uppercase ${colorClass}`}>
+                  {sig.signal}
+                </span>
+              </div>
+              {sig.error ? (
+                <div className="text-xs text-red-400">{sig.error}</div>
+              ) : (
+                <div className="grid grid-cols-3 gap-1 text-xs">
+                  {sig.entry_price != null && (
+                    <div className="bg-zinc-800/60 rounded p-1.5">
+                      <div className="text-zinc-500">Entry</div>
+                      <div className="text-zinc-200">${sig.entry_price.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+                    </div>
+                  )}
+                  {sig.tp_price != null && (
+                    <div className="bg-zinc-800/60 rounded p-1.5">
+                      <div className="text-zinc-500">TP</div>
+                      <div className="text-emerald-400">${sig.tp_price.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+                    </div>
+                  )}
+                  {sig.sl_price != null && (
+                    <div className="bg-zinc-800/60 rounded p-1.5">
+                      <div className="text-zinc-500">SL</div>
+                      <div className="text-red-400">${sig.sl_price.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="flex items-center justify-between text-xs text-zinc-600">
+                <span>{sig.bar_count} bars</span>
+                <span>{sig.confidence > 0 ? `${(sig.confidence * 100).toFixed(0)}% conf.` : ""}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function HistoryView({

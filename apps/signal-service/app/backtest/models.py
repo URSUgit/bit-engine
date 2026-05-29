@@ -76,6 +76,13 @@ class BacktestParams(BaseModel):
     slippage_pct: float = Field(0.0005, ge=0, le=0.01, description="0.0005 = 5 bps")
     position_size_pct: float = Field(1.0, gt=0, le=1.0, description="1.0 = all-in")
     strategy_params: dict = Field(default_factory=dict)
+    # ── Realism upgrades (optional, defaults preserve existing behavior) ──────
+    spread_bps: float = Field(0.0, ge=0, le=200, description="Bid/ask spread bps (0=disabled)")
+    enable_market_impact: bool = Field(False, description="Almgren-Chriss market impact model")
+    execution_latency_ms: int = Field(0, ge=0, le=60000, description="Fill latency in ms; if > ½ bar, fills at next bar")
+    use_funding_rates: bool = Field(False, description="Fetch & deduct perpetual funding every 8h")
+    leverage: float = Field(1.0, ge=1.0, le=125.0, description="Position leverage (1=spot/no leverage)")
+    run_anomaly_scan: bool = Field(False, description="Scan for market anomalies and attach to result")
 
 
 class EquityPoint(BaseModel):
@@ -154,12 +161,16 @@ class BacktestResult(BaseModel):
     end_date: str
     params_used: dict
     metrics: PerformanceMetrics
-    benchmark_metrics: Optional[PerformanceMetrics] = None   # buy & hold comparison
+    benchmark_metrics: Optional[PerformanceMetrics] = None
     trades: list[TradeRecord]
     equity_curve: list[EquityPoint]
     bars_processed: int
     runtime_ms: float
-    entry_analysis: Optional[EntryAnalysis] = None   # oracle strategies only
+    entry_analysis: Optional[EntryAnalysis] = None
+    # Realism additions
+    friction_breakdown: Optional[dict] = None  # commission/slippage/spread/funding breakdown
+    anomalies: Optional[list[dict]] = None     # detected market anomalies
+    short_trades: int = 0                      # number of short trades executed
 
 
 class StrategyInfo(BaseModel):
