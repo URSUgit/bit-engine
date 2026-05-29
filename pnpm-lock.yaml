@@ -26,6 +26,12 @@ importers:
       '@bitprivat/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@next-auth/prisma-adapter':
+        specifier: ^1.0.7
+        version: 1.0.7(@prisma/client@5.22.0)(next-auth@4.24.14)
+      '@prisma/client':
+        specifier: ^5.22.0
+        version: 5.22.0(prisma@5.22.0)
       '@radix-ui/react-avatar':
         specifier: ^1.1.0
         version: 1.1.11(@types/react-dom@18.3.7)(@types/react@18.3.28)(react-dom@18.3.1)(react@18.3.1)
@@ -56,6 +62,9 @@ importers:
       '@wagmi/connectors':
         specifier: ^4.3.10
         version: 4.3.10(@types/react@18.3.28)(@wagmi/core@2.9.8)(react-dom@18.3.1)(react-i18next@13.5.0)(react-native@0.85.2)(react@18.3.1)(typescript@5.9.3)(viem@2.48.4)
+      bcryptjs:
+        specifier: ^3.0.3
+        version: 3.0.3
       class-variance-authority:
         specifier: ^0.7.0
         version: 0.7.1
@@ -74,6 +83,9 @@ importers:
       next-auth:
         specifier: ^4.24.7
         version: 4.24.14(next@14.2.5)(react-dom@18.3.1)(react@18.3.1)
+      prisma:
+        specifier: ^5.22.0
+        version: 5.22.0
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -99,6 +111,9 @@ importers:
       '@bitprivat/tsconfig':
         specifier: workspace:*
         version: link:../../packages/config/tsconfig
+      '@types/bcryptjs':
+        specifier: ^3.0.0
+        version: 3.0.0
       '@types/node':
         specifier: ^20.14.10
         version: 20.19.39
@@ -1145,6 +1160,16 @@ packages:
     dev: true
     optional: true
 
+  /@next-auth/prisma-adapter@1.0.7(@prisma/client@5.22.0)(next-auth@4.24.14):
+    resolution: {integrity: sha512-Cdko4KfcmKjsyHFrWwZ//lfLUbcLqlyFqjd/nYE2m3aZ7tjMNUjpks47iw7NTCnXf+5UWz5Ypyt1dSs1EP5QJw==}
+    peerDependencies:
+      '@prisma/client': '>=2.26.0 || >=3'
+      next-auth: ^4
+    dependencies:
+      '@prisma/client': 5.22.0(prisma@5.22.0)
+      next-auth: 4.24.14(next@14.2.5)(react-dom@18.3.1)(react@18.3.1)
+    dev: false
+
   /@next/env@14.2.5:
     resolution: {integrity: sha512-/zZGkrTOsraVfYjGP8uM0p6r0BDT6xWpkjdVbcz66PJVSpwXX3yNiRycxAuDfBKGWBrZBXRuK/YVlkNgxHGwmA==}
     dev: false
@@ -1349,6 +1374,51 @@ packages:
     requiresBuild: true
     dev: true
     optional: true
+
+  /@prisma/client@5.22.0(prisma@5.22.0):
+    resolution: {integrity: sha512-M0SVXfyHnQREBKxCgyo7sffrKttwE6R8PMq330MIUF0pTwjUhLbW84pFDlf06B27XyCR++VtjugEnIHdr07SVA==}
+    engines: {node: '>=16.13'}
+    requiresBuild: true
+    peerDependencies:
+      prisma: '*'
+    peerDependenciesMeta:
+      prisma:
+        optional: true
+    dependencies:
+      prisma: 5.22.0
+    dev: false
+
+  /@prisma/debug@5.22.0:
+    resolution: {integrity: sha512-AUt44v3YJeggO2ZU5BkXI7M4hu9BF2zzH2iF2V5pyXT/lRTyWiElZ7It+bRH1EshoMRxHgpYg4VB6rCM+mG5jQ==}
+    dev: false
+
+  /@prisma/engines-version@5.22.0-44.605197351a3c8bdd595af2d2a9bc3025bca48ea2:
+    resolution: {integrity: sha512-2PTmxFR2yHW/eB3uqWtcgRcgAbG1rwG9ZriSvQw+nnb7c4uCr3RAcGMb6/zfE88SKlC1Nj2ziUvc96Z379mHgQ==}
+    dev: false
+
+  /@prisma/engines@5.22.0:
+    resolution: {integrity: sha512-UNjfslWhAt06kVL3CjkuYpHAWSO6L4kDCVPegV6itt7nD1kSJavd3vhgAEhjglLJJKEdJ7oIqDJ+yHk6qO8gPA==}
+    requiresBuild: true
+    dependencies:
+      '@prisma/debug': 5.22.0
+      '@prisma/engines-version': 5.22.0-44.605197351a3c8bdd595af2d2a9bc3025bca48ea2
+      '@prisma/fetch-engine': 5.22.0
+      '@prisma/get-platform': 5.22.0
+    dev: false
+
+  /@prisma/fetch-engine@5.22.0:
+    resolution: {integrity: sha512-bkrD/Mc2fSvkQBV5EpoFcZ87AvOgDxbG99488a5cexp5Ccny+UM6MAe/UFkUC0wLYD9+9befNOqGiIJhhq+HbA==}
+    dependencies:
+      '@prisma/debug': 5.22.0
+      '@prisma/engines-version': 5.22.0-44.605197351a3c8bdd595af2d2a9bc3025bca48ea2
+      '@prisma/get-platform': 5.22.0
+    dev: false
+
+  /@prisma/get-platform@5.22.0:
+    resolution: {integrity: sha512-pHhpQdr1UPFpt+zFfnPazhulaZYCUqeIcPpJViYoq9R+D/yw4fjE+CtnsnKzPYm0ddUbeXUzjGVGIRVgPDCk4Q==}
+    dependencies:
+      '@prisma/debug': 5.22.0
+    dev: false
 
   /@radix-ui/number@1.1.1:
     resolution: {integrity: sha512-MkKCwxlXTgz6CFoJx3pCwn07GKp36+aZyu/u2Ln2VrA5DcdyCZkASEDBTd8x5whTQQL5CiYf4prXKLcgQdv29g==}
@@ -3514,6 +3584,13 @@ packages:
     dev: true
     optional: true
 
+  /@types/bcryptjs@3.0.0:
+    resolution: {integrity: sha512-WRZOuCuaz8UcZZE4R5HXTco2goQSI2XxjGY3hbM/xDvwmqFWd4ivooImsMx65OKM6CtNKbnZ5YL+YwAwK7c1dg==}
+    deprecated: This is a stub types definition. bcryptjs provides its own type definitions, so you do not need this installed.
+    dependencies:
+      bcryptjs: 3.0.3
+    dev: true
+
   /@types/debug@4.1.13:
     resolution: {integrity: sha512-KSVgmQmzMwPlmtljOomayoR89W4FynCAi3E8PPs7vmDVPe84hT+vGPKkJfThkmXs0x0jAaa9U8uW8bbfyS2fWw==}
     dependencies:
@@ -5377,6 +5454,10 @@ packages:
     engines: {node: '>=6.0.0'}
     hasBin: true
 
+  /bcryptjs@3.0.3:
+    resolution: {integrity: sha512-GlF5wPWnSa/X5LKM1o0wz0suXIINz1iHRLvTS+sLyi7XPbe5ycmYI3DlZqVGZZtDgl4DmasFg7gOB3JYbphV5g==}
+    hasBin: true
+
   /big.js@6.2.2:
     resolution: {integrity: sha512-y/ie+Faknx7sZA5MfGA2xKlu0GDv8RWrXGsmlteyJQ2lvoKv9GBK/fpRMc2qlSoBAgNxrixICFCBefIq8WCQpQ==}
     dev: false
@@ -6715,7 +6796,6 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
     requiresBuild: true
-    dev: true
     optional: true
 
   /function-bind@1.1.2:
@@ -8830,6 +8910,17 @@ packages:
 
   /pretty-format@3.8.0:
     resolution: {integrity: sha512-WuxUnVtlWL1OfZFQFuqvnvs6MiAGk9UNsBostyBOB0Is9wb5uRESevA6rnl/rkksXaGX3GzZhPup5d6Vp1nFew==}
+    dev: false
+
+  /prisma@5.22.0:
+    resolution: {integrity: sha512-vtpjW3XuYCSnMsNVBjLMNkTj6OZbudcPPTPYHqX0CJfpcdWciI1dM8uHETwmDxxiqEwCIE6WvXucWUetJgfu/A==}
+    engines: {node: '>=16.13'}
+    hasBin: true
+    requiresBuild: true
+    dependencies:
+      '@prisma/engines': 5.22.0
+    optionalDependencies:
+      fsevents: 2.3.3
     dev: false
 
   /process-nextick-args@2.0.1:

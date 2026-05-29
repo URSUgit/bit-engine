@@ -1,3 +1,8 @@
+# ─── SQLite dev database (local only; swap for Postgres in production) ────────
+apps/web/prisma/dev.db
+apps/web/prisma/dev.db-journal
+apps/web/prisma/*.db
+
 # ─── Node / pnpm ─────────────────────────────────────────────────────────────
 node_modules/
 .pnpm-store/

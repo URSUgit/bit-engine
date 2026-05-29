@@ -29,7 +29,7 @@ function StatCard({ label, value, sub, positive }: { label: string; value: strin
 function OrderDialog({ prices, onClose, onPlace }: {
   prices: Record<string, number>;
   onClose: () => void;
-  onPlace: (params: { symbol: string; side: PaperSide; size_usd: number; leverage: number; take_profit?: number | null; stop_loss?: number | null }) => { error?: string };
+  onPlace: (params: { symbol: string; side: PaperSide; size_usd: number; leverage: number; take_profit?: number | null; stop_loss?: number | null }) => Promise<{ error?: string }>;
 }) {
   const [symbol, setSymbol] = useState("BTC");
   const [side, setSide] = useState<PaperSide>("long");
@@ -42,10 +42,10 @@ function OrderDialog({ prices, onClose, onPlace }: {
 
   const currentPrice = prices[symbol] ?? 0;
 
-  function submit() {
+  async function submit() {
     const size = parseFloat(sizeUsd);
     if (!size || size <= 0) { setError("Enter a valid size"); return; }
-    const result = onPlace({
+    const result = await onPlace({
       symbol,
       side,
       size_usd: size,
@@ -346,10 +346,7 @@ export default function PositionsPage() {
         <OrderDialog
           prices={prices}
           onClose={() => setShowDialog(false)}
-          onPlace={(params) => {
-            const result = placeOrder(params);
-            return result;
-          }}
+          onPlace={(params) => placeOrder(params)}
         />
       )}
     </>

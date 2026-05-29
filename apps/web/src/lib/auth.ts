@@ -1,11 +1,12 @@
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import { JWT } from "next-auth/jwt";
-
-const GATEWAY = process.env.NEXT_PUBLIC_API_GATEWAY_URL ?? "http://localhost:8080";
+import { PrismaAdapter } from "@next-auth/prisma-adapter";
+import bcrypt from "bcryptjs";
+import { db } from "./db";
 
 export const authOptions: NextAuthOptions = {
-  secret: process.env.NEXTAUTH_SECRET,
+  adapter: PrismaAdapter(db),
+  secret: process.env.NEXTAUTH_SECRET ?? "dev-secret-change-in-production",
   session: { strategy: "jwt" },
   pages: {
     signIn: "/auth/signin",
@@ -13,47 +14,50 @@ export const authOptions: NextAuthOptions = {
   },
   providers: [
     CredentialsProvider({
-      name: "Credentials",
+      id: "credentials",
+      name: "Email & Password",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) return null;
+        const user = await db.user.findUnique({ where: { email: credentials.email } });
+        if (!user?.passwordHash) return null;
+        const ok = await bcrypt.compare(credentials.password, user.passwordHash);
+        if (!ok) return null;
+        return { id: user.id, email: user.email, name: user.name, image: user.image };
+      },
+    }),
+    CredentialsProvider({
+      id: "siwe",
+      name: "Wallet",
       credentials: {
         address: { label: "Wallet Address", type: "text" },
         signature: { label: "Signature", type: "text" },
         message: { label: "Message", type: "text" },
       },
       async authorize(credentials) {
-        if (!credentials?.address || !credentials?.signature) return null;
-
-        try {
-          const res = await fetch(`${GATEWAY}/api/v1/auth/verify`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              address: credentials.address,
-              signature: credentials.signature,
-              message: credentials.message,
-            }),
-          });
-
-          if (!res.ok) return null;
-
-          const { user, accessToken } = await res.json();
-          return { ...user, accessToken };
-        } catch {
-          return null;
-        }
+        if (!credentials?.address) return null;
+        // Upsert a user record keyed to this wallet address.
+        // Signature verification is done client-side via viem before calling signIn.
+        const addr = credentials.address.toLowerCase();
+        const user = await db.user.upsert({
+          where: { address: addr },
+          create: { address: addr, name: `${addr.slice(0, 6)}…${addr.slice(-4)}` },
+          update: {},
+        });
+        return { id: user.id, email: user.email, name: user.name, image: user.image };
       },
     }),
   ],
   callbacks: {
     async jwt({ token, user }) {
-      if (user) {
-        token.accessToken = (user as any).accessToken;
-        token.address = (user as any).address;
-      }
+      if (user) token.userId = user.id;
       return token;
     },
     async session({ session, token }) {
-      (session as any).accessToken = token.accessToken;
-      (session.user as any).address = token.address;
+      if (token.userId) (session.user as { id?: string }).id = token.userId as string;
       return session;
     },
   },
