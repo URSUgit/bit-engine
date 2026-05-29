@@ -1,6 +1,6 @@
 "use client";
 
-import type { StrategyInfo } from "@/lib/backtest-api";
+import type { StrategyInfo, IntervalInfo } from "@/lib/backtest-api";
 
 export function CategoryChip({
   active, onClick, children,
@@ -209,38 +209,88 @@ export function PeriodPicker({ periodDays, onChange }: { periodDays: number; onC
   );
 }
 
-const INTERVALS = [
-  { v: "1s", l: "1 sec" },
-  { v: "1m", l: "1 min" },
-  { v: "5m", l: "5 min" },
-  { v: "15m", l: "15 min" },
-  { v: "30m", l: "30 min" },
-  { v: "1h", l: "1 hour" },
-  { v: "4h", l: "4 hour" },
-  { v: "1d", l: "Daily" },
-  { v: "1wk", l: "Weekly" },
+// Static fallback used until the backend interval metadata loads.
+const INTERVALS_FALLBACK: IntervalInfo[] = [
+  { value: "1s",  label: "1 sec",   sources: ["binance"],          asset_classes: ["crypto"] },
+  { value: "1m",  label: "1 min",   sources: ["binance", "yahoo"], asset_classes: ["crypto", "stocks"], yahoo_max_days: 7 },
+  { value: "5m",  label: "5 min",   sources: ["binance", "yahoo"], asset_classes: ["crypto", "stocks"], yahoo_max_days: 60 },
+  { value: "15m", label: "15 min",  sources: ["binance", "yahoo"], asset_classes: ["crypto", "stocks"], yahoo_max_days: 60 },
+  { value: "30m", label: "30 min",  sources: ["binance", "yahoo"], asset_classes: ["crypto", "stocks"], yahoo_max_days: 60 },
+  { value: "1h",  label: "1 hour",  sources: ["binance", "yahoo"], asset_classes: ["crypto", "stocks"], yahoo_max_days: 730 },
+  { value: "4h",  label: "4 hour",  sources: ["binance"],          asset_classes: ["crypto"] },
+  { value: "1d",  label: "Daily",   sources: ["yahoo", "binance"], asset_classes: ["all"] },
+  { value: "1wk", label: "Weekly",  sources: ["yahoo", "binance"], asset_classes: ["all"] },
 ];
 
-export function IntervalPicker({ interval, onChange }: { interval: string; onChange: (i: string) => void }) {
+const SHORT_LABELS: Record<string, string> = {
+  "1s": "1 sec", "1m": "1 min", "5m": "5 min", "15m": "15 min", "30m": "30 min",
+  "1h": "1 hour", "4h": "4 hour", "1d": "Daily", "1wk": "Weekly",
+};
+
+/**
+ * Map a symbol's catalog category to the broad asset class the interval
+ * metadata uses ("crypto" vs everything-Yahoo, treated as "stocks").
+ * Returns null when unknown (e.g. custom symbols) → no fading.
+ */
+export function assetClassForCategory(category: string | undefined): string | null {
+  if (!category) return null;
+  if (category === "crypto") return "crypto";
+  if (category === "custom") return null;  // unknown source — don't fade
+  return "stocks";  // stocks, etfs, forex, commodities, indices are all Yahoo-sourced
+}
+
+function intervalAvailable(info: IntervalInfo, assetClass: string | null): boolean {
+  if (!assetClass) return true;  // no symbol context → everything selectable
+  return info.asset_classes.includes("all") || info.asset_classes.includes(assetClass);
+}
+
+export function IntervalPicker({
+  interval, onChange, intervals, assetClass,
+}: {
+  interval: string;
+  onChange: (i: string) => void;
+  intervals?: IntervalInfo[];
+  assetClass?: string | null;
+}) {
+  const list = (intervals && intervals.length > 0 ? intervals : INTERVALS_FALLBACK);
+  const ac = assetClass ?? null;
+  const selected = list.find((o) => o.value === interval);
+  const selectedUnavailable = selected ? !intervalAvailable(selected, ac) : false;
+
   return (
     <div className="space-y-2">
       <label className="text-xs font-medium uppercase tracking-wide text-zinc-400">Bar interval</label>
       <div className="grid grid-cols-3 gap-1">
-        {INTERVALS.map((o) => (
-          <button
-            key={o.v}
-            onClick={() => onChange(o.v)}
-            className={`px-2 py-1.5 rounded text-xs font-medium transition ${
-              interval === o.v
-                ? "bg-cyan-500 text-zinc-950"
-                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-            }`}
-          >
-            {o.l}
-          </button>
-        ))}
+        {list.map((o) => {
+          const available = intervalAvailable(o, ac);
+          const active = interval === o.value && available;
+          return (
+            <button
+              key={o.value}
+              onClick={() => available && onChange(o.value)}
+              disabled={!available}
+              title={available
+                ? `${o.label} · ${o.sources.join(", ")}`
+                : `Not available for this ticker (${o.sources.join(", ")} only)`}
+              className={`px-2 py-1.5 rounded text-xs font-medium transition ${
+                active
+                  ? "bg-cyan-500 text-zinc-950"
+                  : available
+                  ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                  : "bg-zinc-900/60 text-zinc-600 cursor-not-allowed line-through opacity-50"
+              }`}
+            >
+              {SHORT_LABELS[o.value] ?? o.label}
+            </button>
+          );
+        })}
       </div>
-      {(interval === "1s" || interval === "1m") && (
+      {selectedUnavailable && (
+        <p className="text-xs text-red-400/90">
+          This granularity isn&apos;t available for the selected ticker — pick a non-faded bar.
+        </p>
+      )}
+      {!selectedUnavailable && (interval === "1s" || interval === "1m") && (
         <p className="text-xs text-amber-500/80">
           {interval === "1s"
             ? "1-second bars: crypto only (Binance). Yahoo doesn't expose ticks."

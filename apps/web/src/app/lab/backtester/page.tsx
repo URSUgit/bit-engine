@@ -18,8 +18,9 @@ import {
 } from "@/lib/backtest-api";
 import {
   CostInputs, IntervalPicker, PeriodPicker, StrategyParamsForm,
-  StrategyPicker, NumberInput, isoDaysAgo,
+  StrategyPicker, NumberInput, isoDaysAgo, assetClassForCategory,
 } from "./components/shared";
+import type { IntervalInfo } from "@/lib/backtest-api";
 import { SymbolPicker, MultiSymbolPicker } from "./components/symbol-picker";
 import { MetricsGrid, PriceChart, EquityChart, TradesTable, EntryAnalysisPanel } from "./components/results";
 import { MetadataPanel } from "./components/metadata-panel";
@@ -37,6 +38,7 @@ export default function BacktesterPage() {
 
   // Shared state
   const [symbols, setSymbols] = useState<SymbolEntry[]>([]);
+  const [intervalInfos, setIntervalInfos] = useState<IntervalInfo[]>([]);
   const [strategies, setStrategies] = useState<StrategyInfo[]>([]);
   const [strategyName, setStrategyName] = useState("rsi");
   const [periodDays, setPeriodDays] = useState(365 * 5);
@@ -92,6 +94,7 @@ export default function BacktesterPage() {
   // Load symbols + strategies on mount
   useEffect(() => {
     backtestApi.symbols().then(setSymbols).catch(console.error);
+    backtestApi.intervals().then((d) => setIntervalInfos(d.intervals)).catch(console.error);
     backtestApi.strategies().then((s) => {
       setStrategies(s);
       if (s.length > 0) setStrategyName(s[0].name);
@@ -121,6 +124,37 @@ export default function BacktesterPage() {
   }, [singleSymbol]);
 
   const currentStrategy = strategies.find((s) => s.name === strategyName);
+
+  // Look up a symbol's catalog category (custom symbols have unknown source).
+  const categoryOf = useMemo(() => {
+    const map = new Map<string, string>();
+    symbols.forEach((s) => map.set(s.symbol, s.category));
+    customSymbols.forEach((s) => { if (!map.has(s)) map.set(s, "custom"); });
+    return (sym: string) => map.get(sym);
+  }, [symbols, customSymbols]);
+
+  // Broad asset class driving interval availability for the active mode.
+  // compare runs one interval across all picked pairs, so it must be the most
+  // restrictive class (crypto-only bars fade as soon as a non-crypto pair is in).
+  const activeAssetClass = useMemo<string | null>(() => {
+    if (mode === "compare") {
+      const classes = compareSymbols.map((s) => assetClassForCategory(categoryOf(s)));
+      if (classes.some((c) => c === null)) return null;       // unknown present → don't fade
+      if (classes.some((c) => c === "stocks")) return "stocks"; // most restrictive
+      return classes.length > 0 ? "crypto" : null;
+    }
+    const sym = mode === "optimize" ? optimizeSymbol : singleSymbol;
+    return assetClassForCategory(categoryOf(sym));
+  }, [mode, singleSymbol, optimizeSymbol, compareSymbols, categoryOf]);
+
+  // If the currently selected interval isn't available for the new ticker,
+  // fall back to a universally-supported bar so a faded bar is never "active".
+  useEffect(() => {
+    if (intervalInfos.length === 0 || activeAssetClass === null) return;
+    const info = intervalInfos.find((i) => i.value === interval);
+    const ok = info && (info.asset_classes.includes("all") || info.asset_classes.includes(activeAssetClass));
+    if (!ok) setIntervalValue("1d");
+  }, [activeAssetClass, intervalInfos]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const visibleSymbols = useMemo(() => {
     const customEntries = customSymbols.map((sym) => ({ symbol: sym, category: "custom" }));
@@ -353,7 +387,12 @@ export default function BacktesterPage() {
                 onSelect={setSingleSymbol}
                 totalCount={symbols.length}
               />
-              <IntervalPicker interval={interval} onChange={setIntervalValue} />
+              <IntervalPicker
+                interval={interval}
+                onChange={setIntervalValue}
+                intervals={intervalInfos}
+                assetClass={activeAssetClass}
+              />
               <button
                 onClick={fetchLiveSignals}
                 disabled={liveSignalsLoading}
@@ -422,7 +461,12 @@ export default function BacktesterPage() {
               )}
 
               <PeriodPicker periodDays={periodDays} onChange={setPeriodDays} />
-              <IntervalPicker interval={interval} onChange={setIntervalValue} />
+              <IntervalPicker
+                interval={interval}
+                onChange={setIntervalValue}
+                intervals={intervalInfos}
+                assetClass={activeAssetClass}
+              />
               <StrategyPicker
                 strategies={strategies}
                 selected={strategyName}
