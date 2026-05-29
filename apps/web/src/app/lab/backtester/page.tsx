@@ -23,6 +23,7 @@ import {
 import type { IntervalInfo } from "@/lib/backtest-api";
 import { SymbolPicker, MultiSymbolPicker } from "./components/symbol-picker";
 import { MetricsGrid, PriceChart, EquityChart, TradesTable, EntryAnalysisPanel } from "./components/results";
+import { MonthlyBreakdown } from "./components/monthly-breakdown";
 import { MetadataPanel } from "./components/metadata-panel";
 import { CompareTable } from "./components/compare-table";
 import { OptimizeHeatmap } from "./components/optimize-heatmap";
@@ -31,7 +32,7 @@ import { StrategyScannerView } from "./components/strategy-scanner";
 import { BacktesterChat } from "./components/chat-panel";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals";
-type ResultTab = "charts" | "trades" | "analysis" | "friction" | "anomalies";
+type ResultTab = "charts" | "trades" | "analysis" | "friction" | "anomalies" | "monthly";
 
 export default function BacktesterPage() {
   const [mode, setMode] = useState<Mode>("single");
@@ -753,17 +754,18 @@ function ModeTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void 
 // ─── Result view components ───────────────────────────────────────────────────
 
 function ResultTabs({
-  active, onChange, hasFriction, hasAnomalies, hasAnalysis,
+  active, onChange, hasFriction, hasAnomalies, hasAnalysis, hasMonthly,
 }: {
   active: ResultTab; onChange: (t: ResultTab) => void;
-  hasFriction: boolean; hasAnomalies: boolean; hasAnalysis: boolean;
+  hasFriction: boolean; hasAnomalies: boolean; hasAnalysis: boolean; hasMonthly: boolean;
 }) {
   const tabs: { value: ResultTab; label: string }[] = [
     { value: "charts", label: "Charts" },
     { value: "trades", label: "Trades" },
+    ...(hasMonthly ? [{ value: "monthly" as ResultTab, label: "Monthly" }] : []),
     ...(hasAnalysis ? [{ value: "analysis" as ResultTab, label: "Analysis" }] : []),
     ...(hasFriction ? [{ value: "friction" as ResultTab, label: "Friction" }] : []),
-    ...(hasAnomalies ? [{ value: "anomalies" as ResultTab, label: `Anomalies` }] : []),
+    ...(hasAnomalies ? [{ value: "anomalies" as ResultTab, label: "Anomalies" }] : []),
   ];
   return (
     <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
@@ -899,6 +901,7 @@ function SingleResultsView({
             hasFriction={!!result.friction_breakdown}
             hasAnomalies={!!(result.anomalies && result.anomalies.length > 0)}
             hasAnalysis={!!result.entry_analysis}
+            hasMonthly={result.trades.length > 0}
           />
           {resultTab === "charts" && (
             <>
@@ -906,7 +909,12 @@ function SingleResultsView({
               <EquityChart result={result} />
             </>
           )}
-          {resultTab === "trades" && <TradesTable trades={result.trades} />}
+          {resultTab === "trades" && (
+            <TradesTable trades={result.trades} symbol={result.symbol} />
+          )}
+          {resultTab === "monthly" && (
+            <MonthlyBreakdown trades={result.trades} />
+          )}
           {resultTab === "analysis" && result.entry_analysis && (
             <EntryAnalysisPanel analysis={result.entry_analysis} />
           )}

@@ -8,9 +8,11 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+from app.limiter import limiter
 
 from app.backtest import HistoricalDataLoader
 from app.backtest.data import SYMBOL_CATALOG, all_symbols
@@ -73,19 +75,21 @@ async def list_intervals():
 # ── Single backtest ────────────────────────────────────────────────────────────
 
 @router.post("/run", response_model=BacktestResult)
-async def run(params: BacktestParams):
+@limiter.limit("20/minute")
+async def run(request: Request, params: BacktestParams):
     """Execute a backtest. Returns full result with metrics, trades, equity curve."""
     try:
         return await run_backtest(params)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        log.exception("Backtest failed")
+        log.error("Backtest failed", extra={"path": "/run"}, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Backtest failed: {e}")
 
 
 @router.post("/run/stream")
-async def run_stream(params: BacktestParams):
+@limiter.limit("20/minute")
+async def run_stream(request: Request, params: BacktestParams):
     """
     Execute a backtest with real-time SSE progress streaming.
     Events: {type:"progress", phase, current, total, pct}
@@ -118,7 +122,7 @@ async def run_stream(params: BacktestParams):
                 "type": "error", "message": str(exc),
             })
         except Exception as exc:
-            log.exception("Streaming backtest failed")
+            log.error("Streaming backtest failed", extra={"path": "/run/stream"}, exc_info=True)
             main_loop.call_soon_threadsafe(queue.put_nowait, {
                 "type": "error", "message": f"Backtest failed: {exc}",
             })
@@ -195,14 +199,15 @@ async def compare(req: CompareRequest):
 # ── Parameter optimization ─────────────────────────────────────────────────────
 
 @router.post("/optimize", response_model=OptimizeResult)
-async def optimize(req: OptimizeRequest):
+@limiter.limit("5/minute")
+async def optimize(request: Request, req: OptimizeRequest):
     """Grid-search across parameter ranges to find the best strategy settings."""
     try:
         return await run_optimization(req)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        log.exception("Optimization failed")
+        log.error("Optimization failed", extra={"path": "/optimize"}, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

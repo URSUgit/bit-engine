@@ -6,6 +6,7 @@ import {
   type IChartApi, type SeriesMarker, type Time,
 } from "lightweight-charts";
 import { backtestApi, type BacktestResult, type EntryAnalysis, type FeatureStats, type Bar } from "@/lib/backtest-api";
+import { downloadBlob, todayIso } from "@/lib/export-utils";
 
 // ── Indicator computation ─────────────────────────────────────────────────────
 
@@ -423,6 +424,19 @@ export function PriceChart({ result }: { result: BacktestResult }) {
   );
 }
 
+function exportEquityCurveCSV(result: BacktestResult): void {
+  const header = "date,equity,drawdown_pct\n";
+  const rows = result.equity_curve.map((p) => {
+    const date = new Date(p.t * 1000).toISOString().slice(0, 10);
+    return `${date},${p.equity.toFixed(4)},${p.drawdown_pct.toFixed(4)}`;
+  });
+  downloadBlob(
+    `equity-${result.symbol}-${todayIso()}.csv`,
+    header + rows.join("\n"),
+    "text/csv",
+  );
+}
+
 export function EquityChart({ result }: { result: BacktestResult }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -468,9 +482,17 @@ export function EquityChart({ result }: { result: BacktestResult }) {
 
   return (
     <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
-      <h3 className="font-semibold mb-3">
-        Equity curve <span className="text-zinc-500 text-xs ml-2">(cyan: portfolio · red: drawdown %)</span>
-      </h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold">
+          Equity curve <span className="text-zinc-500 text-xs ml-2">(cyan: portfolio · red: drawdown %)</span>
+        </h3>
+        <button
+          onClick={() => exportEquityCurveCSV(result)}
+          className="px-2.5 py-1 text-xs rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 border border-zinc-700 transition"
+        >
+          ↓ CSV
+        </button>
+      </div>
       <div ref={containerRef} className="w-full" />
     </div>
   );
@@ -706,7 +728,31 @@ export function EntryAnalysisPanel({ analysis }: { analysis: EntryAnalysis }) {
   );
 }
 
-export function TradesTable({ trades }: { trades: BacktestResult["trades"] }) {
+function exportTradesCSV(trades: BacktestResult["trades"], symbol: string): void {
+  const header = "index,side,entry_time,exit_time,entry_price,exit_price,size,pnl,pnl_pct,duration_bars\n";
+  const rows = trades.map((t, i) =>
+    [i + 1, t.side, t.entry_time, t.exit_time,
+     t.entry_price, t.exit_price, t.size,
+     t.pnl.toFixed(4), t.pnl_pct.toFixed(4), t.duration_bars].join(",")
+  );
+  downloadBlob(`trades-${symbol}-${todayIso()}.csv`, header + rows.join("\n"), "text/csv");
+}
+
+function exportTradesJSON(trades: BacktestResult["trades"], symbol: string): void {
+  downloadBlob(
+    `trades-${symbol}-${todayIso()}.json`,
+    JSON.stringify(trades, null, 2),
+    "application/json",
+  );
+}
+
+export function TradesTable({
+  trades,
+  symbol = "export",
+}: {
+  trades: BacktestResult["trades"];
+  symbol?: string;
+}) {
   if (trades.length === 0) {
     return (
       <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4 text-zinc-500 text-sm">
@@ -716,7 +762,23 @@ export function TradesTable({ trades }: { trades: BacktestResult["trades"] }) {
   }
   return (
     <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
-      <h3 className="font-semibold mb-3">Trades ({trades.length})</h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold">Trades ({trades.length})</h3>
+        <div className="flex gap-2">
+          <button
+            onClick={() => exportTradesCSV(trades, symbol)}
+            className="px-2.5 py-1 text-xs rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 border border-zinc-700 transition"
+          >
+            ↓ CSV
+          </button>
+          <button
+            onClick={() => exportTradesJSON(trades, symbol)}
+            className="px-2.5 py-1 text-xs rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 border border-zinc-700 transition"
+          >
+            ↓ JSON
+          </button>
+        </div>
+      </div>
       <div className="overflow-x-auto max-h-[420px]">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-zinc-900">
