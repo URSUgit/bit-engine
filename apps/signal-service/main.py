@@ -59,12 +59,12 @@ from app.feeds import signal_engine, price_cache  # noqa: E402
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    log.info("startup", extra={"msg": "launching market data refresh loop"})
+    log.info("startup: launching market data refresh loop")
     refresh_task = asyncio.create_task(
         signal_engine.start_background_refresh(interval_seconds=60)
     )
     yield
-    log.info("shutdown", extra={"msg": "stopping signal engine"})
+    log.info("shutdown: stopping signal engine")
     signal_engine.stop()
     refresh_task.cancel()
     try:
