@@ -48,7 +48,7 @@ export function StrategyScannerView({
       // Build default params from schema
       const strategyParams: Record<string, number> = {};
       Object.entries(strat.params_schema).forEach(([k, v]) => {
-        strategyParams[k] = v.default;
+        strategyParams[k] = typeof v.default === "boolean" ? (v.default ? 1 : 0) : v.default;
       });
 
       try {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { backtestApi, type CachedSeries, type CacheStatus } from "@/lib/backtest-api";
 import { isoDaysAgo } from "./shared";
+import { CorrelationHeatmap } from "./correlation-heatmap";
 
 const CRYPTO_SYMBOLS = new Set([
   "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD", "ADA-USD",
@@ -251,6 +252,11 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
           </div>
         </div>
       )}
+
+      {/* Correlation heatmap */}
+      <CorrelationHeatmap
+        activeSymbols={series.length > 0 ? series.slice(0, 8).map((s) => s.symbol) : undefined}
+      />
 
       {/* Add Custom Symbol section */}
       <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4 space-y-3">

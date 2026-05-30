@@ -48,13 +48,13 @@ class RSIDivergenceStrategy(Strategy):
         "Works best on 5m–1h timeframes."
     )
     params_schema = {
-        "rsi_period":   {"type": "int",   "default": 14, "min": 5,  "max": 50,  "label": "RSI Period"},
-        "lookback":     {"type": "int",   "default": 30, "min": 10, "max": 100, "label": "Divergence Lookback"},
-        "pivot_window": {"type": "int",   "default": 5,  "min": 2,  "max": 15,  "label": "Pivot Detection Window"},
-        "rsi_os":       {"type": "float", "default": 40, "min": 20, "max": 50,  "label": "RSI Oversold Zone"},
-        "rsi_ob":       {"type": "float", "default": 60, "min": 50, "max": 80,  "label": "RSI Overbought Zone"},
-        "exit_bars":    {"type": "int",   "default": 20, "min": 3,  "max": 100, "label": "Max Holding Bars"},
-        "allow_short":  {"type": "bool",  "default": False,          "label": "Allow Bearish Divergence Shorts"},
+        "rsi_period":   {"type": "int",   "default": 14, "min": 5,  "max": 50,  "label": "RSI Period",                        "description": "Lookback period for RSI calculation. Standard is 14. Shorter periods make RSI more sensitive to recent price changes."},
+        "lookback":     {"type": "int",   "default": 30, "min": 10, "max": 100, "label": "Divergence Lookback",               "description": "Number of bars to scan for divergence pivots. Larger values catch longer-term divergences but may produce stale signals."},
+        "pivot_window": {"type": "int",   "default": 5,  "min": 2,  "max": 15,  "label": "Pivot Detection Window",            "description": "Number of bars on each side required to confirm a local high or low. Higher values find stronger, more significant pivots."},
+        "rsi_os":       {"type": "float", "default": 40, "min": 20, "max": 50,  "label": "RSI Oversold Zone",                 "description": "RSI must be below this level at the second low to qualify as a bullish divergence. Lower values filter for more extreme setups."},
+        "rsi_ob":       {"type": "float", "default": 60, "min": 50, "max": 80,  "label": "RSI Overbought Zone",               "description": "RSI must be above this level at the second high to qualify as a bearish divergence. Higher values filter for more extreme setups."},
+        "exit_bars":    {"type": "int",   "default": 20, "min": 3,  "max": 100, "label": "Max Holding Bars",                  "description": "Maximum number of bars to hold a position before a time-based exit. Prevents getting stuck in slow-moving trades."},
+        "allow_short":  {"type": "bool",  "default": False,          "label": "Allow Bearish Divergence Shorts",  "description": "Enable short entries on bearish RSI divergence signals. Disable if trading spot markets."},
     }
 
     def __init__(self, **params) -> None:

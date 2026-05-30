@@ -48,17 +48,38 @@ export function StrategyParamsForm(props: {
     <div className="space-y-2 border-t border-zinc-800 pt-3">
       <label className="text-xs font-medium uppercase tracking-wide text-zinc-400">Parameters</label>
       <div className="space-y-2">
-        {entries.map(([key, spec]) => (
-          <NumberInput
-            key={key}
-            label={key}
-            value={props.values[key] ?? spec.default}
-            min={spec.min}
-            max={spec.max}
-            step={spec.type === "int" ? 1 : 0.1}
-            onChange={(v) => props.onChange({ ...props.values, [key]: v })}
-          />
-        ))}
+        {entries.map(([key, spec]) => {
+          if (spec.type === "bool") {
+            const checked = Boolean(props.values[key] ?? spec.default);
+            return (
+              <label key={key} className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer" title={spec.description}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => props.onChange({ ...props.values, [key]: e.target.checked ? 1 : 0 })}
+                  className="accent-cyan-500 w-3.5 h-3.5"
+                />
+                <span>{spec.label ?? key}</span>
+                {spec.description && <span className="text-zinc-600 italic truncate ml-1">— {spec.description}</span>}
+              </label>
+            );
+          }
+          return (
+            <div key={key} title={spec.description}>
+              <NumberInput
+                label={spec.label ?? key}
+                value={props.values[key] ?? (typeof spec.default === "number" ? spec.default : 0)}
+                min={spec.min ?? 0}
+                max={spec.max ?? 1000}
+                step={spec.type === "int" ? 1 : 0.1}
+                onChange={(v) => props.onChange({ ...props.values, [key]: v })}
+              />
+              {spec.description && (
+                <p className="text-[10px] text-zinc-600 mt-0.5 pl-0.5">{spec.description}</p>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

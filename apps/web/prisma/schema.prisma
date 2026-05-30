@@ -62,6 +62,7 @@ model User {
   paperAccount  PaperAccount?
   watchlist     WatchlistItem[]
   settings      UserSettings?
+  alerts        PriceAlert[]
 }
 
 // ─── Paper Trading ────────────────────────────────────────────────────────────
@@ -104,6 +105,21 @@ model WatchlistItem {
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, symbol])
+}
+
+// ─── Price Alerts ─────────────────────────────────────────────────────────────
+model PriceAlert {
+  id          String    @id @default(cuid())
+  userId      String
+  symbol      String
+  condition   String    // "above" | "below"
+  price       Float
+  active      Boolean   @default(true)
+  triggeredAt DateTime?
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, active])
 }
 
 // ─── User Settings ────────────────────────────────────────────────────────────

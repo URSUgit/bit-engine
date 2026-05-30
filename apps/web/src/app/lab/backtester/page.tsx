@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   backtestApi,
   runBacktestStream,
+  compareStream,
   type BacktestParams,
   type BacktestResult,
   type CompareResult,
@@ -66,6 +67,7 @@ export default function BacktesterPage() {
   // Results
   const [singleResult, setSingleResult] = useState<BacktestResult | null>(null);
   const [compareResults, setCompareResults] = useState<CompareResult[] | null>(null);
+  const [compareProgress, setCompareProgress] = useState<{ completed: number; total: number } | null>(null);
   const [optimizeResult, setOptimizeResult] = useState<OptimizeResult | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
 
@@ -107,7 +109,9 @@ export default function BacktesterPage() {
     const strat = strategies.find((s) => s.name === strategyName);
     if (!strat) return;
     const defaults: Record<string, number> = {};
-    Object.entries(strat.params_schema).forEach(([k, v]) => { defaults[k] = v.default; });
+    Object.entries(strat.params_schema).forEach(([k, v]) => {
+      defaults[k] = typeof v.default === "boolean" ? (v.default ? 1 : 0) : v.default;
+    });
     setStrategyParams(defaults);
   }, [strategyName, strategies]);
 
@@ -230,8 +234,10 @@ export default function BacktesterPage() {
     setRunning(true);
     setError(null);
     setCompareResults(null);
+    setCompareProgress(null);
+    const partial: CompareResult[] = [];
     try {
-      const r = await backtestApi.compare({
+      for await (const event of compareStream({
         symbols: compareSymbols,
         strategy: strategyName,
         start_date: isoDaysAgo(periodDays),
@@ -242,11 +248,25 @@ export default function BacktesterPage() {
         slippage_pct: slippagePct / 100,
         position_size_pct: positionPct / 100,
         strategy_params: strategyParams,
-      });
-      setCompareResults(r);
+      })) {
+        if (event.type === "start") {
+          setCompareProgress({ completed: 0, total: event.total });
+        } else if (event.type === "result") {
+          partial.push({ symbol: event.symbol, success: event.success, result: event.result ?? null, error: event.error ?? null });
+          setCompareResults([...partial]);
+          setCompareProgress({ completed: event.completed, total: event.total });
+        } else if (event.type === "done") {
+          setCompareProgress(null);
+        } else if (event.type === "error") {
+          setError(event.message);
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally { setRunning(false); }
+    } finally {
+      setRunning(false);
+      setCompareProgress(null);
+    }
   }
 
   async function runOptimize() {
@@ -258,13 +278,19 @@ export default function BacktesterPage() {
     setOptimizeResult(null);
     try {
       // Auto-generate param ranges from schema defaults: span ~50% around default
-      const paramRanges = Object.entries(currentStrategy.params_schema).slice(0, 2).map(([name, spec]) => {
-        const range = spec.max - spec.min;
-        const step = spec.type === "int" ? Math.max(1, Math.round(range / 8)) : range / 8;
-        const start = Math.max(spec.min, spec.default - range * 0.3);
-        const stop = Math.min(spec.max, spec.default + range * 0.3);
-        return { name, start, stop, step };
-      });
+      const paramRanges = Object.entries(currentStrategy.params_schema)
+        .filter(([, spec]) => spec.type !== "bool" && spec.min !== undefined && spec.max !== undefined)
+        .slice(0, 2)
+        .map(([name, spec]) => {
+          const min = spec.min as number;
+          const max = spec.max as number;
+          const def = typeof spec.default === "boolean" ? (spec.default ? 1 : 0) : spec.default;
+          const range = max - min;
+          const step = spec.type === "int" ? Math.max(1, Math.round(range / 8)) : range / 8;
+          const start = Math.max(min, def - range * 0.3);
+          const stop = Math.min(max, def + range * 0.3);
+          return { name, start, stop, step };
+        });
       const r = await backtestApi.optimize({
         symbol: optimizeSymbol,
         strategy: strategyName,
@@ -615,7 +641,7 @@ export default function BacktesterPage() {
                 </>
               )}
               {mode === "compare" && (
-                <CompareResultsView results={compareResults} running={running} />
+                <CompareResultsView results={compareResults} running={running} progress={compareProgress} />
               )}
               {mode === "optimize" && (
                 <OptimizeResultsView result={optimizeResult} running={running} />
@@ -930,11 +956,17 @@ function SingleResultsView({
   );
 }
 
-function CompareResultsView({ results, running }: { results: CompareResult[] | null; running: boolean }) {
-  if (running) {
+function CompareResultsView({
+  results, running, progress,
+}: {
+  results: CompareResult[] | null;
+  running: boolean;
+  progress: { completed: number; total: number } | null;
+}) {
+  if (!results && running) {
     return (
       <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-12 text-center text-zinc-400">
-        Running parallel backtests on all selected pairs… (~15-30s total)
+        Starting parallel backtests…
       </div>
     );
   }
@@ -949,7 +981,27 @@ function CompareResultsView({ results, running }: { results: CompareResult[] | n
       </div>
     );
   }
-  return <CompareTable rows={results} />;
+  return (
+    <div className="space-y-3">
+      {progress && (
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg px-4 py-3 flex items-center gap-4">
+          <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${(progress.completed / progress.total) * 100}%`,
+                background: "linear-gradient(90deg, #06b6d4, #3b82f6)",
+              }}
+            />
+          </div>
+          <span className="text-xs text-zinc-400 tabular-nums shrink-0">
+            {progress.completed} / {progress.total} complete
+          </span>
+        </div>
+      )}
+      <CompareTable rows={results} />
+    </div>
+  );
 }
 
 function OptimizeResultsView({ result, running }: { result: OptimizeResult | null; running: boolean }) {

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Star, Bell, Trash2, TrendingUp, TrendingDown, X } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { Plus, Star, Trash2, TrendingUp, TrendingDown, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -48,13 +49,60 @@ function saveLists(lists: Watchlist[]) {
 
 const ALL_CRYPTO = ["BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOGE", "AVAX", "MATIC", "DOT", "LINK", "LTC", "ATOM", "UNI", "ARB", "OP"];
 
+// ── DB sync helpers (authenticated users only) ────────────────────────────────
+
+async function dbGetSymbols(): Promise<string[]> {
+  try {
+    const r = await fetch("/api/watchlist");
+    if (!r.ok) return [];
+    const { items } = await r.json();
+    return (items as { symbol: string }[]).map((i) => i.symbol);
+  } catch { return []; }
+}
+
+async function dbAddSymbol(symbol: string): Promise<void> {
+  await fetch("/api/watchlist", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symbol }),
+  });
+}
+
+async function dbRemoveSymbol(symbol: string): Promise<void> {
+  await fetch(`/api/watchlist?symbol=${encodeURIComponent(symbol)}`, { method: "DELETE" });
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────────
+
 export default function WatchlistsPage() {
+  const { data: session } = useSession();
+  const isAuthed = !!session?.user;
+
   const [lists, setLists] = useState<Watchlist[]>([]);
   const [activeId, setActiveId] = useState("");
   const [coins, setCoins] = useState<Record<string, CoinData>>({});
   const [showCreate, setShowCreate] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [dbSyncing, setDbSyncing] = useState(false);
+
+  // Load: DB when authenticated, localStorage when not
+  useEffect(() => {
+    if (!mounted) return;
+    if (!isAuthed) return;
+    setDbSyncing(true);
+    dbGetSymbols().then((symbols) => {
+      if (symbols.length === 0) return;
+      // Merge DB symbols into the default "My Watchlist" list
+      setLists((prev) => {
+        const updated = prev.map((l, i) =>
+          i === 0 ? { ...l, symbols: Array.from(new Set([...l.symbols, ...symbols])) } : l,
+        );
+        saveLists(updated);
+        return updated;
+      });
+    }).finally(() => setDbSyncing(false));
+  }, [isAuthed, mounted]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const loaded = loadLists();
@@ -124,6 +172,7 @@ export default function WatchlistsPage() {
         ? { ...l, symbols: [...l.symbols, sym] }
         : l
     ));
+    if (isAuthed) dbAddSymbol(sym).catch(console.error);
     setShowAdd(false);
   }
 
@@ -132,6 +181,7 @@ export default function WatchlistsPage() {
     setLists((prev) => prev.map((l) =>
       l.id === active.id ? { ...l, symbols: l.symbols.filter((s) => s !== sym) } : l
     ));
+    if (isAuthed) dbRemoveSymbol(sym).catch(console.error);
   }
 
   if (!mounted) return null;
@@ -142,7 +192,12 @@ export default function WatchlistsPage() {
         <div className="flex items-end justify-between flex-wrap gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-50 tracking-tight">Watchlists</h1>
-            <p className="text-sm text-slate-400 mt-1">Track crypto with real-time CoinGecko prices</p>
+            <p className="text-sm text-slate-400 mt-1">
+              Track crypto with real-time prices
+              {isAuthed && <span className="ml-2 text-emerald-500 text-xs">● synced</span>}
+              {!isAuthed && <span className="ml-2 text-zinc-500 text-xs">(local only — sign in to sync)</span>}
+              {dbSyncing && <span className="ml-2 text-zinc-500 text-xs">syncing…</span>}
+            </p>
           </div>
           <button onClick={() => setShowCreate(true)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-500 text-slate-950 text-sm font-semibold hover:bg-cyan-400 transition-colors">
             <Plus className="w-4 h-4" /> New List

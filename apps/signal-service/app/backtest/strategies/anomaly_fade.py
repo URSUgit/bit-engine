@@ -45,13 +45,13 @@ class AnomalyFadeStrategy(Strategy):
         "Best on liquid assets (BTC, ETH) on 1m–5m timeframes."
     )
     params_schema = {
-        "volume_z":       {"type": "float", "default": 3.0, "min": 1.5, "max": 8.0,  "label": "Volume Z-Score Threshold"},
-        "move_pct":       {"type": "float", "default": 1.0, "min": 0.2, "max": 5.0,  "label": "Price Move % to Fade"},
-        "fade_bars":      {"type": "int",   "default": 15,  "min": 3,   "max": 100,  "label": "Max Bars in Trade"},
-        "rsi_confirm":    {"type": "float", "default": 70,  "min": 55,  "max": 90,   "label": "RSI Overbought (fade threshold)"},
-        "revert_pct":     {"type": "float", "default": 0.4, "min": 0.1, "max": 2.0,  "label": "Take Profit % (reversion target)"},
-        "allow_long_fade":{"type": "bool",  "default": True,             "label": "Fade Crashes (go long after drop)"},
-        "stats_window":   {"type": "int",   "default": 20,  "min": 10,  "max": 100,  "label": "Stats Window (bars)"},
+        "volume_z":       {"type": "float", "default": 3.0, "min": 1.5, "max": 8.0,  "label": "Volume Z-Score Threshold",        "description": "Minimum Z-score of the current bar's volume relative to the rolling window mean. Higher values require a more extreme volume spike before fading."},
+        "move_pct":       {"type": "float", "default": 1.0, "min": 0.2, "max": 5.0,  "label": "Price Move % to Fade",            "description": "Minimum single-bar price move percentage required to trigger a fade entry. Larger values target more dramatic spikes with higher reversion potential."},
+        "fade_bars":      {"type": "int",   "default": 15,  "min": 3,   "max": 100,  "label": "Max Bars in Trade",               "description": "Maximum number of bars to hold the fade position before a time-based exit. Keeps exposure short if the expected reversion is slow."},
+        "rsi_confirm":    {"type": "float", "default": 70,  "min": 55,  "max": 90,   "label": "RSI Overbought (fade threshold)", "description": "RSI must exceed this level to confirm an overbought pump before shorting it. Higher values require more extreme RSI readings, reducing trade frequency."},
+        "revert_pct":     {"type": "float", "default": 0.4, "min": 0.1, "max": 2.0,  "label": "Take Profit % (reversion target)", "description": "Take-profit distance as a percentage of the entry price, targeting partial mean reversion. Lower values lock in gains quickly; higher values wait for a fuller reversal."},
+        "allow_long_fade":{"type": "bool",  "default": True,             "label": "Fade Crashes (go long after drop)", "description": "Enable long entries to fade sudden price crashes on high volume. Disable to only fade pumps (short-only mode)."},
+        "stats_window":   {"type": "int",   "default": 20,  "min": 10,  "max": 100,  "label": "Stats Window (bars)",              "description": "Rolling window size used to compute volume mean and standard deviation for Z-score calculation. Shorter windows adapt faster to changing market regimes."},
     }
 
     def __init__(self, **params) -> None:

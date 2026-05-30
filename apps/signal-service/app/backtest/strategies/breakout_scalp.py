@@ -27,12 +27,12 @@ class BreakoutScalpStrategy(Strategy):
         "Can also short breakdowns below the N-bar low."
     )
     params_schema = {
-        "lookback":       {"type": "int",   "default": 20,  "min": 5,   "max": 200, "label": "Breakout Lookback (bars)"},
-        "volume_mult":    {"type": "float", "default": 1.5, "min": 0.8, "max": 5.0, "label": "Volume Confirmation (×avg)"},
-        "atr_period":     {"type": "int",   "default": 14,  "min": 5,   "max": 50,  "label": "ATR Period"},
-        "trail_atr_mult": {"type": "float", "default": 1.5, "min": 0.5, "max": 5.0, "label": "Trailing Stop (ATR mult)"},
-        "tp_atr_mult":    {"type": "float", "default": 3.0, "min": 1.0, "max": 10.0,"label": "Take Profit (ATR mult)"},
-        "allow_short":    {"type": "bool",  "default": False,            "label": "Allow Short Breakdowns"},
+        "lookback":       {"type": "int",   "default": 20,  "min": 5,   "max": 200, "label": "Breakout Lookback (bars)", "description": "Number of bars that define the range whose high/low must be broken for entry. Shorter lookbacks produce more frequent breakouts; longer lookbacks catch more significant levels."},
+        "volume_mult":    {"type": "float", "default": 1.5, "min": 0.8, "max": 5.0, "label": "Volume Confirmation (×avg)", "description": "Bar volume must exceed this multiple of the 20-bar average to confirm a breakout. Higher values filter out low-conviction false breaks."},
+        "atr_period":     {"type": "int",   "default": 14,  "min": 5,   "max": 50,  "label": "ATR Period",               "description": "Lookback period for ATR used to size the trailing stop and take-profit. Shorter periods track recent volatility more closely."},
+        "trail_atr_mult": {"type": "float", "default": 1.5, "min": 0.5, "max": 5.0, "label": "Trailing Stop (ATR mult)", "description": "Trailing stop distance as a multiple of ATR, updated each bar. Higher values give the trade more room to breathe but risk larger drawdowns."},
+        "tp_atr_mult":    {"type": "float", "default": 3.0, "min": 1.0, "max": 10.0,"label": "Take Profit (ATR mult)",   "description": "Fixed take-profit distance as a multiple of ATR. Increase for larger profit targets; decrease to lock in gains more quickly."},
+        "allow_short":    {"type": "bool",  "default": False,            "label": "Allow Short Breakdowns",   "description": "Enable short entries when price breaks below the N-bar low. Disable if trading spot markets."},
     }
 
     def __init__(self, **params) -> None:

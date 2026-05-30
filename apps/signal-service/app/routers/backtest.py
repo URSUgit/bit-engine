@@ -196,6 +196,62 @@ async def compare(req: CompareRequest):
     return await asyncio.gather(*[_one(s) for s in req.symbols])
 
 
+@router.post("/compare/stream")
+async def compare_stream(req: CompareRequest):
+    """
+    Compare multiple symbols via SSE — emits one result event per symbol as it finishes.
+    Events: {type:"start", total}
+             {type:"result", symbol, success, result|error, completed, total}
+             {type:"done"}
+    """
+    if len(req.symbols) > 20:
+        raise HTTPException(status_code=400, detail="Max 20 symbols per comparison")
+
+    queue: asyncio.Queue[dict] = asyncio.Queue()
+    total = len(req.symbols)
+
+    async def _one(sym: str) -> None:
+        try:
+            params = BacktestParams(
+                symbol=sym, strategy=req.strategy,
+                start_date=req.start_date, end_date=req.end_date,
+                interval=req.interval, initial_capital=req.initial_capital,
+                commission_pct=req.commission_pct, slippage_pct=req.slippage_pct,
+                position_size_pct=req.position_size_pct,
+                strategy_params=req.strategy_params,
+            )
+            r = await run_backtest(params)
+            await queue.put({"type": "result", "symbol": sym, "success": True,
+                             "result": r.model_dump(mode="json")})
+        except Exception as exc:
+            await queue.put({"type": "result", "symbol": sym, "success": False,
+                             "error": str(exc)})
+
+    tasks = [asyncio.create_task(_one(s)) for s in req.symbols]
+
+    async def event_stream():
+        yield f"data: {json.dumps({'type': 'start', 'total': total})}\n\n"
+        completed = 0
+        while completed < total:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=300.0)
+            except asyncio.TimeoutError:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'Timeout after 5 min'})}\n\n"
+                break
+            completed += 1
+            event["completed"] = completed
+            event["total"] = total
+            yield f"data: {json.dumps(event)}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'total': total})}\n\n"
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 # ── Parameter optimization ─────────────────────────────────────────────────────
 
 @router.post("/optimize", response_model=OptimizeResult)

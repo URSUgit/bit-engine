@@ -8,10 +8,12 @@ const BACKTEST_BASE =
 export type SymbolEntry = { symbol: string; category: string };
 
 export type StrategyParamSpec = {
-  type: "int" | "float";
-  default: number;
-  min: number;
-  max: number;
+  type: "int" | "float" | "bool";
+  default: number | boolean;
+  min?: number;
+  max?: number;
+  label?: string;
+  description?: string;
 };
 
 export type StrategyInfo = {
@@ -209,6 +211,12 @@ export type CompareResult = {
   error: string | null;
 };
 
+export type CompareStreamEvent =
+  | { type: "start"; total: number }
+  | { type: "result"; symbol: string; success: boolean; result: BacktestResult | null; error: string | null; completed: number; total: number }
+  | { type: "done"; total: number }
+  | { type: "error"; message: string };
+
 export type ParamRange = { name: string; start: number; stop: number; step: number };
 
 export type OptimizeRequest = {
@@ -350,6 +358,41 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(`${res.status}: ${body || res.statusText}`);
   }
   return (await res.json()) as T;
+}
+
+export async function* compareStream(
+  req: {
+    symbols: string[]; strategy: string; start_date: string; end_date?: string;
+    interval: string; initial_capital: number; commission_pct: number;
+    slippage_pct: number; position_size_pct: number;
+    strategy_params: Record<string, number>;
+  },
+): AsyncGenerator<CompareStreamEvent> {
+  const res = await fetch(`${BACKTEST_BASE}/api/v1/backtest/compare/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`${res.status}: ${text}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        const payload = line.slice(6).trim();
+        if (payload) yield JSON.parse(payload) as CompareStreamEvent;
+      }
+    }
+  }
 }
 
 export async function* runBacktestStream(

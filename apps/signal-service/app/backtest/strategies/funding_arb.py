@@ -35,12 +35,12 @@ class FundingArbStrategy(Strategy):
         "Uses RSI as a momentum filter to avoid fighting strong trends."
     )
     params_schema = {
-        "min_rate":       {"type": "float", "default": 0.0005, "min": 0.0001, "max": 0.01, "label": "Min Funding Rate"},
-        "hold_bars":      {"type": "int",   "default": 480,    "min": 1,      "max": 2880,  "label": "Hold Bars (1m=480 = 8h)"},
-        "rsi_period":     {"type": "int",   "default": 14,     "min": 5,      "max": 50,    "label": "RSI Period"},
-        "rsi_max_long":   {"type": "float", "default": 65,     "min": 50,     "max": 80,    "label": "RSI Max (long entry)"},
-        "rsi_min_short":  {"type": "float", "default": 35,     "min": 20,     "max": 50,    "label": "RSI Min (short entry)"},
-        "allow_short":    {"type": "bool",  "default": True,                   "label": "Allow Short Trades"},
+        "min_rate":       {"type": "float", "default": 0.0005, "min": 0.0001, "max": 0.01, "label": "Min Funding Rate",        "description": "Minimum absolute funding rate (e.g. 0.0005 = 0.05%) required to trigger an entry. Higher values only trade during extreme funding periods with larger carry income."},
+        "hold_bars":      {"type": "int",   "default": 480,    "min": 1,      "max": 2880,  "label": "Hold Bars (1m=480 = 8h)", "description": "Maximum number of bars to hold the position before a time-based exit. At 1-minute bars, 480 equals one 8-hour funding cycle."},
+        "rsi_period":     {"type": "int",   "default": 14,     "min": 5,      "max": 50,    "label": "RSI Period",              "description": "Lookback period for RSI calculation. Standard is 14. Shorter periods make RSI more sensitive to recent price changes."},
+        "rsi_max_long":   {"type": "float", "default": 65,     "min": 50,     "max": 80,    "label": "RSI Max (long entry)",    "description": "RSI must be below this threshold to allow a long entry, avoiding entries into strongly overbought conditions. Lower values add a stricter momentum filter."},
+        "rsi_min_short":  {"type": "float", "default": 35,     "min": 20,     "max": 50,    "label": "RSI Min (short entry)",   "description": "RSI must be above this threshold to allow a short entry, avoiding entries into strongly oversold conditions. Higher values add a stricter momentum filter."},
+        "allow_short":    {"type": "bool",  "default": True,                   "label": "Allow Short Trades",       "description": "Enable short entries when funding rates are highly positive. Disable if trading spot markets or to only collect on negative-funding longs."},
     }
 
     def __init__(self, **params) -> None:

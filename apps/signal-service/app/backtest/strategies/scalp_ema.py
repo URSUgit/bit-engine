@@ -38,13 +38,13 @@ class ScalpEMAStrategy(Strategy):
         "with volume confirmation. ATR-based TP/SL targets. Time-of-day filter available."
     )
     params_schema = {
-        "fast_ema":      {"type": "int",   "default": 9,    "min": 3,   "max": 50,   "label": "Fast EMA"},
-        "slow_ema":      {"type": "int",   "default": 21,   "min": 8,   "max": 200,  "label": "Slow EMA"},
-        "atr_period":    {"type": "int",   "default": 14,   "min": 5,   "max": 50,   "label": "ATR Period"},
-        "tp_atr":        {"type": "float", "default": 2.0,  "min": 0.5, "max": 10.0, "label": "Take Profit (ATR mult)"},
-        "sl_atr":        {"type": "float", "default": 1.0,  "min": 0.3, "max": 5.0,  "label": "Stop Loss (ATR mult)"},
-        "volume_mult":   {"type": "float", "default": 1.2,  "min": 0.5, "max": 5.0,  "label": "Volume Filter (×avg)"},
-        "allow_short":   {"type": "bool",  "default": False,             "label": "Allow Short Trades"},
+        "fast_ema":      {"type": "int",   "default": 9,    "min": 3,   "max": 50,   "label": "Fast EMA",                "description": "Number of bars for the fast EMA. Lower values react faster to price changes but generate more noise."},
+        "slow_ema":      {"type": "int",   "default": 21,   "min": 8,   "max": 200,  "label": "Slow EMA",                "description": "Number of bars for the slow EMA. Higher values create smoother signals with fewer but higher-quality crossovers."},
+        "atr_period":    {"type": "int",   "default": 14,   "min": 5,   "max": 50,   "label": "ATR Period",              "description": "Lookback period for Average True Range calculation. Controls how far back volatility is measured for TP/SL placement."},
+        "tp_atr":        {"type": "float", "default": 2.0,  "min": 0.5, "max": 10.0, "label": "Take Profit (ATR mult)",  "description": "Take-profit distance as a multiple of ATR. Higher values target larger moves but reduce win rate."},
+        "sl_atr":        {"type": "float", "default": 1.0,  "min": 0.3, "max": 5.0,  "label": "Stop Loss (ATR mult)",    "description": "Stop-loss distance as a multiple of ATR. Lower values cut losses sooner but may cause premature exits on volatile bars."},
+        "volume_mult":   {"type": "float", "default": 1.2,  "min": 0.5, "max": 5.0,  "label": "Volume Filter (×avg)",    "description": "Minimum bar volume as a multiple of the 20-bar average. Increase to require stronger volume confirmation before entry."},
+        "allow_short":   {"type": "bool",  "default": False,             "label": "Allow Short Trades",      "description": "Enable short-selling signals in addition to long entries. Disable if trading spot markets."},
     }
 
     def __init__(self, **params) -> None:

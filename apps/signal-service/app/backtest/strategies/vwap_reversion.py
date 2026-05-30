@@ -31,11 +31,11 @@ class VWAPReversionStrategy(Strategy):
         "Optionally go short above VWAP + N×σ. Uses rolling VWAP over a configurable window."
     )
     params_schema = {
-        "vwap_window": {"type": "int",   "default": 50,  "min": 10, "max": 500,  "label": "VWAP Window (bars)"},
-        "entry_sigma": {"type": "float", "default": 1.5, "min": 0.5,"max": 5.0,  "label": "Entry σ Deviation"},
-        "exit_sigma":  {"type": "float", "default": 0.1, "min": 0.0,"max": 1.5,  "label": "Exit σ (near VWAP)"},
-        "allow_short": {"type": "bool",  "default": False,            "label": "Allow Short Trades"},
-        "min_volume_ratio": {"type": "float", "default": 0.5, "min": 0.1, "max": 3.0, "label": "Min Volume Ratio"},
+        "vwap_window": {"type": "int",   "default": 50,  "min": 10, "max": 500,  "label": "VWAP Window (bars)",  "description": "Number of bars used to compute the rolling VWAP and price standard deviation. Shorter windows track intraday price more tightly."},
+        "entry_sigma": {"type": "float", "default": 1.5, "min": 0.5,"max": 5.0,  "label": "Entry σ Deviation",  "description": "How many standard deviations below (or above) VWAP price must deviate to trigger an entry. Higher values select more extreme reversions with fewer trades."},
+        "exit_sigma":  {"type": "float", "default": 0.1, "min": 0.0,"max": 1.5,  "label": "Exit σ (near VWAP)", "description": "Position is closed when price returns within this many standard deviations of VWAP. Lower values exit closer to VWAP, capturing less of the reversion."},
+        "allow_short": {"type": "bool",  "default": False,            "label": "Allow Short Trades",  "description": "Enable short entries when price is above VWAP by entry_sigma. Disable if trading spot markets."},
+        "min_volume_ratio": {"type": "float", "default": 0.5, "min": 0.1, "max": 3.0, "label": "Min Volume Ratio", "description": "Current bar volume must be at least this multiple of the 20-bar average to confirm an entry. Reduces entries on thin, low-liquidity bars."},
     }
 
     def on_bar(self, ctx: StrategyContext) -> Signal:
