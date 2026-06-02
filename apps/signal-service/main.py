@@ -10,9 +10,23 @@ from fastapi import FastAPI, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pythonjsonlogger import jsonlogger
-from slowapi.errors import RateLimitExceeded
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+# Optional deps — the service must still start (and serve /symbols) if these
+# aren't installed. Both degrade gracefully to stdlib equivalents so a missing
+# `pip install` never leaves the backtester without tickers.
+try:
+    from pythonjsonlogger import jsonlogger
+    _JSON_LOGS = True
+except ImportError:
+    _JSON_LOGS = False
+
+try:
+    from slowapi.errors import RateLimitExceeded
+    _SLOWAPI = True
+except ImportError:
+    RateLimitExceeded = None  # type: ignore[assignment,misc]
+    _SLOWAPI = False
 
 
 def _load_env_file() -> None:
@@ -39,12 +53,18 @@ def _load_env_file() -> None:
 
 _load_env_file()
 
-# ── Structured JSON logging ────────────────────────────────────────────────────
-# Configure before router imports so all modules share the same handler.
+# ── Structured logging ─────────────────────────────────────────────────────────
+# Configure before router imports so all modules share the same handler. JSON
+# formatting when python-json-logger is present, plain text otherwise.
 _handler = logging.StreamHandler()
-_handler.setFormatter(
-    jsonlogger.JsonFormatter("%(asctime)s %(levelname)s %(name)s %(message)s")
-)
+if _JSON_LOGS:
+    _handler.setFormatter(
+        jsonlogger.JsonFormatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    )
+else:
+    _handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    )
 log = logging.getLogger("signal_service")
 log.setLevel(logging.INFO)
 log.addHandler(_handler)
@@ -86,14 +106,15 @@ app.state.limiter = limiter
 
 # ── Exception handlers ────────────────────────────────────────────────────────
 
-@app.exception_handler(RateLimitExceeded)
-async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
-    retry = getattr(exc, "retry_after", 60)
-    return JSONResponse(
-        {"error": "rate_limit_exceeded", "retry_after": retry},
-        status_code=429,
-        headers={"Retry-After": str(retry)},
-    )
+if _SLOWAPI:
+    @app.exception_handler(RateLimitExceeded)
+    async def _rate_limit_handler(request: Request, exc) -> JSONResponse:
+        retry = getattr(exc, "retry_after", 60)
+        return JSONResponse(
+            {"error": "rate_limit_exceeded", "retry_after": retry},
+            status_code=429,
+            headers={"Retry-After": str(retry)},
+        )
 
 
 @app.exception_handler(StarletteHTTPException)
