@@ -1,9 +1,13 @@
 /**
- * Backtest API client — talks directly to the signal-service on port 8001.
+ * Backtest API client — routes through the Next.js /api/v1 proxy so the
+ * browser never needs a direct connection to the signal service.
+ * The Next.js server relays every request to SIGNAL_SERVICE_URL (localhost:8001).
+ *
+ * Override NEXT_PUBLIC_SIGNAL_SERVICE_URL to a full URL to bypass the proxy
+ * (e.g. when pointing at a remote signal-service in production).
  */
 
-const BACKTEST_BASE =
-  process.env.NEXT_PUBLIC_SIGNAL_SERVICE_URL ?? "http://localhost:8001";
+const BACKTEST_BASE = process.env.NEXT_PUBLIC_SIGNAL_SERVICE_URL ?? "";
 
 export type SymbolEntry = { symbol: string; category: string };
 
