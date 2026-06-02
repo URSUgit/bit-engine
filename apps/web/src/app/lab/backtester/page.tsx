@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
+import { useEffect, useMemo, useRef, useState } from "react";import {
   backtestApi,
   runBacktestStream,
   compareStream,
@@ -16,6 +15,7 @@ import {
   type LiveSignal,
   type Anomaly,
   type FrictionBreakdown,
+  type SignalValidation,
 } from "@/lib/backtest-api";
 import {
   CostInputs, IntervalPicker, PeriodPicker, StrategyParamsForm,
@@ -1042,6 +1042,23 @@ function LiveSignalsView({
   symbol: string;
   interval: string;
 }) {
+  const [validations, setValidations] = useState<Record<string, SignalValidation | "loading" | "error">>({});
+
+  async function handleValidate(sig: LiveSignal) {
+    setValidations((prev) => ({ ...prev, [sig.strategy]: "loading" }));
+    try {
+      const result = await backtestApi.validateSignal({
+        strategy: sig.strategy,
+        symbol: sig.symbol,
+        direction: sig.signal,
+        interval,
+      });
+      setValidations((prev) => ({ ...prev, [sig.strategy]: result }));
+    } catch {
+      setValidations((prev) => ({ ...prev, [sig.strategy]: "error" }));
+    }
+  }
+
   if (loading) {
     return (
       <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-12 text-center text-zinc-400">
@@ -1072,6 +1089,8 @@ function LiveSignalsView({
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {signals.map((sig) => {
           const colorClass = SIGNAL_COLORS[sig.signal] ?? SIGNAL_COLORS.hold;
+          const validation = validations[sig.strategy];
+          const canValidate = sig.signal !== "hold" && !sig.error;
           return (
             <div key={sig.strategy} className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4 space-y-2">
               <div className="flex items-center justify-between">
@@ -1108,6 +1127,54 @@ function LiveSignalsView({
                 <span>{sig.bar_count} bars</span>
                 <span>{sig.confidence > 0 ? `${(sig.confidence * 100).toFixed(0)}% conf.` : ""}</span>
               </div>
+              {canValidate && (
+                <div className="pt-1 border-t border-zinc-800">
+                  {!validation && (
+                    <button
+                      onClick={() => handleValidate(sig)}
+                      className="w-full text-xs py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors"
+                    >
+                      Validate historically
+                    </button>
+                  )}
+                  {validation === "loading" && (
+                    <div className="text-xs text-zinc-500 text-center py-1">Scanning history…</div>
+                  )}
+                  {validation === "error" && (
+                    <div className="text-xs text-red-400 text-center py-1">Validation failed</div>
+                  )}
+                  {validation && validation !== "loading" && validation !== "error" && (
+                    <div className="space-y-1.5">
+                      <div className="grid grid-cols-2 gap-1 text-xs">
+                        <div className="bg-zinc-800/60 rounded p-1.5">
+                          <div className="text-zinc-500">Win rate</div>
+                          <div className={validation.win_rate >= 0.5 ? "text-emerald-400" : "text-red-400"}>
+                            {(validation.win_rate * 100).toFixed(0)}%
+                            <span className="text-zinc-600 ml-1">({validation.total_signals} signals)</span>
+                          </div>
+                        </div>
+                        <div className="bg-zinc-800/60 rounded p-1.5">
+                          <div className="text-zinc-500">Exp. value</div>
+                          <div className={validation.expected_value_pct >= 0 ? "text-emerald-400" : "text-red-400"}>
+                            {validation.expected_value_pct >= 0 ? "+" : ""}{validation.expected_value_pct.toFixed(2)}%
+                          </div>
+                        </div>
+                        <div className="bg-zinc-800/60 rounded p-1.5">
+                          <div className="text-zinc-500">Avg win</div>
+                          <div className="text-emerald-400">+{validation.avg_gain_pct.toFixed(2)}%</div>
+                        </div>
+                        <div className="bg-zinc-800/60 rounded p-1.5">
+                          <div className="text-zinc-500">Avg loss</div>
+                          <div className="text-red-400">{validation.avg_loss_pct.toFixed(2)}%</div>
+                        </div>
+                      </div>
+                      <div className="text-xs text-zinc-600 text-center">
+                        Profit factor {validation.profit_factor.toFixed(2)} · best {validation.best_pct.toFixed(1)}% / worst {validation.worst_pct.toFixed(1)}%
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
