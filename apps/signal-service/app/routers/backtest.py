@@ -564,22 +564,39 @@ def _iso_days_ago(days: int) -> str:
 
 
 @router.get("/signals/live")
-async def live_signals(symbols: str = Query("BTC-USD,ETH-USD"), bars: int = Query(200, ge=20, le=1000)):
+async def live_signals(
+    symbol: str = Query("BTC-USD"),
+    interval: str = Query("1d"),
+    bars: int = Query(200, ge=20, le=1000),
+    # legacy plural alias kept for backwards compat
+    symbols: str | None = Query(None),
+):
     """Run all strategies on recent bars and return current signal from each."""
-    sym_list = [s.strip() for s in symbols.split(",") if s.strip()][:5]
+    # Support both ?symbol= (new) and ?symbols= (old) param
+    sym = symbol
+    if symbols:
+        sym = symbols.split(",")[0].strip()
+
     loader = HistoricalDataLoader()
     from app.backtest.strategies import STRATEGIES
     from app.backtest.strategies.base import StrategyContext
 
-    signals = []
-    for sym in sym_list:
-        try:
-            bar_data = await loader.load(sym, _iso_days_ago(400), None, "1d")
-            bar_data = bar_data[-bars:] if len(bar_data) >= bars else bar_data
-        except Exception:
-            continue
-        if len(bar_data) < 20:
-            continue
+    try:
+        bar_data = await loader.load(sym, _iso_days_ago(400), None, interval)
+        bar_data = bar_data[-bars:] if len(bar_data) >= bars else bar_data
+    except Exception as exc:
+        bar_data = []
+
+    now_iso = datetime.utcnow().isoformat() + "Z"
+    result_signals = []
+
+    if len(bar_data) >= 20:
+        last = bar_data[-1]
+        close = last.close
+        # Simple ATR for TP/SL estimation (20-bar avg true range)
+        atr_vals = [abs(b.high - b.low) for b in bar_data[-20:]]
+        atr = sum(atr_vals) / len(atr_vals) if atr_vals else close * 0.01
+
         for strat_name, strat_cls in STRATEGIES.items():
             if strat_name == "buy_and_hold":
                 continue
@@ -587,17 +604,65 @@ async def live_signals(symbols: str = Query("BTC-USD,ETH-USD"), bars: int = Quer
                 strat = strat_cls()
                 ctx = StrategyContext(history=bar_data, position=None)
                 sig = strat.on_bar(ctx)
-                signals.append({
+                entry_price = round(close, 4) if sig in ("buy", "sell", "short") else None
+                if sig in ("buy",):
+                    tp = round(close + 2 * atr, 4)
+                    sl = round(close - atr, 4)
+                elif sig in ("sell", "short"):
+                    tp = round(close - 2 * atr, 4)
+                    sl = round(close + atr, 4)
+                else:
+                    tp = sl = None
+                result_signals.append({
                     "strategy": strat_name,
                     "symbol": sym,
                     "signal": sig,
-                    "last_bar_close": round(bar_data[-1].close, 4),
-                    "generated_at": int(datetime.utcnow().timestamp()),
+                    "confidence": 0.0,
+                    "entry_price": entry_price,
+                    "tp_price": tp,
+                    "sl_price": sl,
+                    "timestamp": now_iso,
+                    "bar_count": len(bar_data),
+                    "error": None,
                 })
-            except Exception:
+            except Exception as exc:
+                result_signals.append({
+                    "strategy": strat_name,
+                    "symbol": sym,
+                    "signal": "hold",
+                    "confidence": 0.0,
+                    "entry_price": None,
+                    "tp_price": None,
+                    "sl_price": None,
+                    "timestamp": now_iso,
+                    "bar_count": len(bar_data),
+                    "error": str(exc),
+                })
+    else:
+        # Not enough data — return error for all strategies
+        from app.backtest.strategies import STRATEGIES
+        for strat_name in STRATEGIES:
+            if strat_name == "buy_and_hold":
                 continue
+            result_signals.append({
+                "strategy": strat_name,
+                "symbol": sym,
+                "signal": "hold",
+                "confidence": 0.0,
+                "entry_price": None,
+                "tp_price": None,
+                "sl_price": None,
+                "timestamp": now_iso,
+                "bar_count": len(bar_data),
+                "error": "Insufficient data",
+            })
 
-    return {"count": len(signals), "signals": signals}
+    return {
+        "signals": result_signals,
+        "symbol": sym,
+        "interval": interval,
+        "timestamp": now_iso,
+    }
 
 
 # ── Signal validation ──────────────────────────────────────────────────────────
@@ -606,6 +671,8 @@ class ValidateSignalRequest(BaseModel):
     symbol: str
     strategy: str
     strategy_params: dict = {}
+    direction: str = "buy"
+    interval: str = "1d"
     lookback_days: int = 90
 
 
@@ -627,18 +694,27 @@ async def validate_signal(req: ValidateSignalRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     m = result.metrics
-    wins = [t for t in result.trades if t.pnl > 0]
-    losses = [t for t in result.trades if t.pnl <= 0]
+    trades = result.trades
+    wins = [t for t in trades if t.pnl > 0]
+    losses = [t for t in trades if t.pnl <= 0]
     avg_win = sum(t.pnl_pct for t in wins) / len(wins) if wins else 0.0
     avg_loss = sum(t.pnl_pct for t in losses) / len(losses) if losses else 0.0
+    gross_profit = sum(t.pnl for t in wins)
+    gross_loss = abs(sum(t.pnl for t in losses))
+    profit_factor = gross_profit / gross_loss if gross_loss > 0 else (float("inf") if gross_profit > 0 else 0.0)
+    best_pct = max((t.pnl_pct for t in trades), default=0.0)
+    worst_pct = min((t.pnl_pct for t in trades), default=0.0)
     return {
         "strategy": req.strategy,
         "symbol": req.symbol,
-        "win_rate": round(m.win_rate_pct, 1),
+        "direction": req.direction,
+        "lookback_days": req.lookback_days,
+        "total_signals": m.total_trades,
+        "win_rate": round(m.win_rate_pct / 100, 4),
         "avg_gain_pct": round(avg_win, 2),
         "avg_loss_pct": round(avg_loss, 2),
-        "expected_value": round(m.avg_trade_pnl_pct, 2),
-        "sample_count": m.total_trades,
-        "sharpe": round(m.sharpe_ratio, 2),
-        "total_return_pct": round(m.total_return_pct, 2),
+        "expected_value_pct": round(m.avg_trade_pnl_pct, 2),
+        "profit_factor": round(profit_factor, 2),
+        "best_pct": round(best_pct, 2),
+        "worst_pct": round(worst_pct, 2),
     }
