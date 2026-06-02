@@ -396,7 +396,7 @@ export default function WatchlistsPage() {
                                     <Bell className="w-4 h-4" />
                                   </button>
                                 ) : (
-                                  <Bell className="w-4 h-4 text-slate-700" title="Sign in to set alerts" />
+                                  <Bell className="w-4 h-4 text-slate-700" aria-label="Sign in to set alerts" />
                                 )}
                               </td>
                               <td className="px-4 py-3.5 text-right">
