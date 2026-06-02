@@ -181,6 +181,14 @@ export default function PositionsPage() {
   const winRate = closedPositions.length > 0 ? (winCount / closedPositions.length) * 100 : 0;
   const pnlPositive = totalUnrealizedPnl >= 0;
 
+  // Account summary calculations
+  const totalRealizedPnl = closedPositions.reduce((sum, p) => sum + (p.pnl ?? 0), 0);
+  const totalOpenSize = livePositions.reduce((sum, p) => sum + p.size_usd, 0);
+
+  // Open positions summary
+  const openWinCount = livePositions.filter((p) => p.unrealized_pnl > 0).length;
+  const openLoseCount = livePositions.filter((p) => p.unrealized_pnl < 0).length;
+
   return (
     <>
       <div className="flex flex-col gap-6 p-6 max-w-[1400px] mx-auto">
@@ -218,6 +226,37 @@ export default function PositionsPage() {
             value={closedPositions.length > 0 ? `${winRate.toFixed(0)}%` : "—"}
             sub={closedPositions.length > 0 ? `${winCount}/${closedPositions.length} trades` : "No closed trades"}
           />
+        </div>
+
+        {/* Account Summary Card */}
+        <div className="card-dark p-4">
+          <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-3">Account Summary</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            <div>
+              <p className="text-[11px] text-slate-500 mb-0.5">Account Balance</p>
+              <p className="text-base font-bold number-font text-slate-100">
+                ${balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] text-slate-500 mb-0.5">Unrealized P&L</p>
+              <p className={cn("text-base font-bold number-font", livePositions.length === 0 ? "text-slate-500" : totalUnrealizedPnl >= 0 ? "text-emerald-400" : "text-red-400")}>
+                {livePositions.length === 0 ? "—" : `${totalUnrealizedPnl >= 0 ? "+" : ""}$${Math.abs(totalUnrealizedPnl).toFixed(2)}`}
+              </p>
+              {livePositions.length > 0 && (
+                <p className="text-[11px] text-slate-500 mt-0.5 number-font">{livePositions.length} open position{livePositions.length !== 1 ? "s" : ""}</p>
+              )}
+            </div>
+            <div>
+              <p className="text-[11px] text-slate-500 mb-0.5">Realized P&L</p>
+              <p className={cn("text-base font-bold number-font", closedPositions.length === 0 ? "text-slate-500" : totalRealizedPnl >= 0 ? "text-emerald-400" : "text-red-400")}>
+                {closedPositions.length === 0 ? "—" : `${totalRealizedPnl >= 0 ? "+" : ""}$${Math.abs(totalRealizedPnl).toFixed(2)}`}
+              </p>
+              {closedPositions.length > 0 && (
+                <p className="text-[11px] text-slate-500 mt-0.5 number-font">{closedPositions.length} closed trade{closedPositions.length !== 1 ? "s" : ""}</p>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -284,6 +323,32 @@ export default function PositionsPage() {
                       );
                     })}
                   </tbody>
+                  {/* Summary row */}
+                  <tfoot>
+                    <tr className="border-t border-slate-700 bg-slate-900/60">
+                      <td colSpan={2} className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                        Total · {livePositions.length} position{livePositions.length !== 1 ? "s" : ""}
+                      </td>
+                      <td className="px-4 py-3 text-slate-300 number-font font-semibold text-sm">
+                        ${totalOpenSize.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td />
+                      <td />
+                      <td />
+                      <td className="px-4 py-3">
+                        <div className={cn("number-font font-bold flex items-center gap-1 text-sm", totalUnrealizedPnl >= 0 ? "text-emerald-400" : "text-red-400")}>
+                          {totalUnrealizedPnl >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                          {totalUnrealizedPnl >= 0 ? "+" : ""}${Math.abs(totalUnrealizedPnl).toFixed(2)}
+                        </div>
+                        <div className="text-[10px] text-slate-500 mt-0.5 number-font">
+                          <span className="text-emerald-500">{openWinCount}W</span>
+                          {" / "}
+                          <span className="text-red-500">{openLoseCount}L</span>
+                        </div>
+                      </td>
+                      <td colSpan={2} />
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             )
