@@ -5,6 +5,7 @@ import { DollarSign, TrendingUp, Target, Layers, Newspaper, Radio } from "lucide
 import { PortfolioCard } from "./PortfolioCard";
 import { SignalsFeed } from "./SignalsFeed";
 import { NewsFeed } from "./NewsFeed";
+import { FearGreedWidget } from "./FearGreedWidget";
 import { TradingViewChart, type LineBar } from "@/components/charts/TradingViewChart";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import { usePaperTrading } from "@/hooks/usePaperTrading";
@@ -97,6 +98,26 @@ export function DashboardLive() {
           trend="neutral"
           icon={Layers}
         />
+      </div>
+
+      {/* Fear & Greed + Top Movers strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-4">
+        <FearGreedWidget />
+        <div className="card-dark p-4 flex flex-col justify-between">
+          <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2">Market Summary</p>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Real-time paper trading against live Binance prices. Open positions are mark-to-market every 5 seconds.
+            Win rate and P&amp;L update as trades close.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {["BTC", "ETH", "SOL", "BNB", "XRP"].map((sym) => (
+              <a key={sym} href={`/dashboard/markets/${sym}`}
+                className="text-xs px-2 py-1 rounded-lg bg-slate-800 text-slate-400 hover:text-cyan-300 hover:bg-slate-700 transition-colors font-medium">
+                {sym} →
+              </a>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Chart + Signals */}
