@@ -23,6 +23,7 @@ import {
   Sparkles,
   Target,
   Newspaper,
+  Database,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoMark } from "@/components/Logo";
@@ -56,6 +57,7 @@ const navGroups: NavGroup[] = [
     items: [
       { label: "Strategy Lab", href: "/lab", icon: FlaskConical },
       { label: "Backtester", href: "/lab/backtester", icon: Zap },
+      { label: "Data Quality", href: "/lab/data", icon: Database },
       { label: "Signal Builder", href: "/lab/signals", icon: Layers },
       { label: "Notebooks", href: "/lab/notebooks", icon: BookOpen },
       { label: "AI Agent", href: "/lab/agent", icon: Sparkles, badge: "new" },

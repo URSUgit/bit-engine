@@ -187,6 +187,84 @@ export type DatasetEntry = {
   last_updated: number | null;
 };
 
+// ── Data warehouse: quality, cross-validation, live ingest ──────────────────
+
+export type QualityIssue = {
+  kind: string;
+  severity: number;
+  ts: number;
+  detail: string;
+  iso: string;
+};
+
+export type QualityReport = {
+  symbol: string;
+  interval: string;
+  bar_count: number;
+  expected_count: number;
+  completeness_pct: number;
+  quality_score: number;
+  gap_count: number;
+  spike_count: number;
+  ohlc_violation_count: number;
+  zero_volume_count: number;
+  duplicate_count: number;
+  earliest_iso: string | null;
+  latest_iso: string | null;
+  issues: QualityIssue[];
+};
+
+export type QualityOverviewRow = {
+  symbol: string;
+  interval: string;
+  bar_count: number;
+  completeness_pct: number;
+  quality_score: number;
+  gap_count: number;
+  spike_count: number;
+  ohlc_violation_count: number;
+  earliest_iso: string | null;
+  latest_iso: string | null;
+};
+
+export type CrossValidationReport = {
+  symbol: string;
+  interval: string;
+  sources: { source: string; ok: boolean; bar_count: number; error: string | null }[];
+  compared_bars: number;
+  matching_bars: number;
+  max_divergence_pct: number;
+  mean_divergence_pct: number;
+  divergent_timestamps: {
+    ts: number; iso: string; ref_source: string; ref_close: number;
+    peer_source: string; divergence_pct: number;
+  }[];
+  agreement_pct: number;
+  verdict: "trusted" | "minor_drift" | "conflict" | "insufficient" | "unknown";
+  recommended_source: string;
+};
+
+export type IngestStream = {
+  symbol: string;
+  interval: string;
+  enabled: boolean;
+  last_poll_ts: number | null;
+  last_bar_ts: number | null;
+  bars_written_total: number;
+  last_write_count: number;
+  error: string | null;
+  polls: number;
+  last_poll_iso: string | null;
+  last_bar_iso: string | null;
+};
+
+export type IngestStatus = {
+  running: boolean;
+  poll_seconds: number;
+  stream_count: number;
+  streams: IngestStream[];
+};
+
 export type BacktestResult = {
   id: string;
   symbol: string;
@@ -511,6 +589,27 @@ export const backtestApi = {
     interval?: string; lookback_days?: number;
   }) =>
     call<SignalValidation>("/api/v1/backtest/signals/validate", {
+      method: "POST",
+      body: JSON.stringify(req),
+    }),
+
+  // ── Data warehouse ────────────────────────────────────────────────────────
+  dataQuality: (symbol: string, interval = "1d") => {
+    const q = new URLSearchParams({ symbol, interval });
+    return call<QualityReport>(`/api/v1/backtest/data/quality?${q}`);
+  },
+  dataQualityOverview: () =>
+    call<{ count: number; datasets: QualityOverviewRow[] }>(
+      "/api/v1/backtest/data/quality/overview",
+    ),
+  crossValidate: (req: { symbol: string; interval?: string; limit?: number; tolerance_pct?: number }) =>
+    call<CrossValidationReport>("/api/v1/backtest/data/cross-validate", {
+      method: "POST",
+      body: JSON.stringify(req),
+    }),
+  ingestStatus: () => call<IngestStatus>("/api/v1/backtest/data/ingest/status"),
+  ingestControl: (req: { symbol: string; interval?: string; enabled: boolean }) =>
+    call<IngestStatus>("/api/v1/backtest/data/ingest/control", {
       method: "POST",
       body: JSON.stringify(req),
     }),
