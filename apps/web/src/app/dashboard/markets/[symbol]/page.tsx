@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { TradingViewChart, type CandleBar, type LineBar } from "@/components/charts/TradingViewChart";
 import { OrderPanel } from "@/components/trading/OrderPanel";
 import { AssetFundamentals } from "@/components/markets/AssetFundamentals";
+import { FundingPanel } from "./components/FundingPanel";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import { api } from "@/lib/api";
 import type { OrderBookLevel } from "@/lib/mock-data";
@@ -244,7 +245,7 @@ export default function MarketDetailPage() {
             />
           </div>
 
-          {/* Right: Order panel + Order book */}
+          {/* Right: Order panel + Order book + Funding */}
           <div className="flex flex-col gap-4">
             <OrderPanel symbol={symbol} currentPrice={currentPrice} />
 
@@ -324,6 +325,8 @@ export default function MarketDetailPage() {
                 ))}
               </div>
             </div>
+
+            <FundingPanel symbol={symbol} />
           </div>
         </div>
 
