@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowUpRight, ArrowDownRight, Search, RefreshCw, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CryptoQuote } from "@/app/api/market/crypto/route";
+import MomentumHeatmap from "./components/MomentumHeatmap";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -403,6 +404,9 @@ export default function MarketsPage() {
           </div>
         </div>
       )}
+
+      {/* Momentum Heatmap */}
+      <MomentumHeatmap />
     </div>
   );
 }
