@@ -83,9 +83,21 @@ async def lifespan(app: FastAPI):
     refresh_task = asyncio.create_task(
         signal_engine.start_background_refresh(interval_seconds=60)
     )
+    # Start the live data-warehouse ingester (keeps the SQLite store fresh).
+    # Guarded so a failure here never blocks the rest of the service.
+    try:
+        from app.backtest.ingester import live_ingester
+        live_ingester.start()
+    except Exception as exc:
+        log.warning("live ingester failed to start: %s", exc)
     yield
     log.info("shutdown: stopping signal engine")
     signal_engine.stop()
+    try:
+        from app.backtest.ingester import live_ingester
+        live_ingester.stop()
+    except Exception:
+        pass
     refresh_task.cancel()
     try:
         await refresh_task

@@ -718,3 +718,83 @@ async def validate_signal(req: ValidateSignalRequest):
         "best_pct": round(best_pct, 2),
         "worst_pct": round(worst_pct, 2),
     }
+
+
+# ── Data warehouse: quality, cross-validation, live ingestion ───────────────────
+
+@router.get("/data/quality")
+async def data_quality(
+    symbol: str = Query(...),
+    interval: str = Query("1d"),
+):
+    """Run integrity checks on cached bars: gaps, spikes, OHLC violations,
+    completeness and an overall 0–100 quality score."""
+    from app.backtest.quality import assess
+    return assess(symbol, interval).to_dict()
+
+
+@router.get("/data/quality/overview")
+async def data_quality_overview():
+    """Quality score for every cached (symbol, interval) in the warehouse."""
+    from app.backtest.quality import assess
+    rows = []
+    for entry in bar_storage.list_symbols():
+        try:
+            rep = assess(entry["symbol"], entry["interval"])
+            rows.append({
+                "symbol": rep.symbol,
+                "interval": rep.interval,
+                "bar_count": rep.bar_count,
+                "completeness_pct": rep.completeness_pct,
+                "quality_score": rep.quality_score,
+                "gap_count": rep.gap_count,
+                "spike_count": rep.spike_count,
+                "ohlc_violation_count": rep.ohlc_violation_count,
+                "earliest_iso": rep.earliest_iso,
+                "latest_iso": rep.latest_iso,
+            })
+        except Exception as e:
+            log.warning("quality overview failed for %s/%s: %s", entry["symbol"], entry["interval"], e)
+    rows.sort(key=lambda r: r["quality_score"])
+    return {"count": len(rows), "datasets": rows}
+
+
+class CrossValidateRequest(BaseModel):
+    symbol: str
+    interval: str = "1d"
+    limit: int = 200
+    tolerance_pct: float = 0.1
+
+
+@router.post("/data/cross-validate")
+async def data_cross_validate(req: CrossValidateRequest):
+    """Compare the same symbol across Binance, Bybit and Kraken bar-by-bar to
+    establish which source(s) to trust."""
+    from app.backtest.cross_validate import cross_validate
+    report = await cross_validate(req.symbol, req.interval, req.limit, req.tolerance_pct)
+    return report.to_dict()
+
+
+@router.get("/data/ingest/status")
+async def ingest_status():
+    """Live ingester status: which streams are running and how fresh they are."""
+    from app.backtest.ingester import live_ingester
+    return live_ingester.status()
+
+
+class IngestControlRequest(BaseModel):
+    symbol: str
+    interval: str = "1m"
+    enabled: bool = True
+
+
+@router.post("/data/ingest/control")
+async def ingest_control(req: IngestControlRequest):
+    """Add a live stream or toggle an existing one on/off."""
+    from app.backtest.ingester import live_ingester
+    existing = live_ingester.set_enabled(req.symbol, req.interval, req.enabled)
+    if not existing:
+        added = await live_ingester.add_stream(req.symbol, req.interval)
+        if not added:
+            raise HTTPException(status_code=400, detail=f"{req.symbol} is not a supported live symbol")
+    return live_ingester.status()
