@@ -24,6 +24,7 @@ import {
 import type { IntervalInfo } from "@/lib/backtest-api";
 import { SymbolPicker, MultiSymbolPicker } from "./components/symbol-picker";
 import { MetricsGrid, PriceChart, EquityChart, TradesTable, EntryAnalysisPanel } from "./components/results";
+import { TradeEditor } from "./components/trade-editor";
 import { MonthlyBreakdown } from "./components/monthly-breakdown";
 import { MetadataPanel } from "./components/metadata-panel";
 import { CompareTable } from "./components/compare-table";
@@ -33,7 +34,7 @@ import { StrategyScannerView } from "./components/strategy-scanner";
 import { BacktesterChat } from "./components/chat-panel";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals";
-type ResultTab = "charts" | "trades" | "analysis" | "friction" | "anomalies" | "monthly";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly";
 
 export default function BacktesterPage() {
   const [mode, setMode] = useState<Mode>("single");
@@ -787,6 +788,7 @@ function ResultTabs({
 }) {
   const tabs: { value: ResultTab; label: string }[] = [
     { value: "charts", label: "Charts" },
+    ...(hasMonthly ? [{ value: "editor" as ResultTab, label: "Trade Editor" }] : []),
     { value: "trades", label: "Trades" },
     ...(hasMonthly ? [{ value: "monthly" as ResultTab, label: "Monthly" }] : []),
     ...(hasAnalysis ? [{ value: "analysis" as ResultTab, label: "Analysis" }] : []),
@@ -934,6 +936,9 @@ function SingleResultsView({
               <PriceChart result={result} />
               <EquityChart result={result} />
             </>
+          )}
+          {resultTab === "editor" && (
+            <TradeEditor result={result} />
           )}
           {resultTab === "trades" && (
             <TradesTable trades={result.trades} symbol={result.symbol} />
