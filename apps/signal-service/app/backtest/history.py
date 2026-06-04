@@ -9,13 +9,13 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from .models import BacktestResult
-from .storage import DEFAULT_DB_PATH
+from .storage import HISTORY_DB_PATH
 
 
 class BacktestHistory:
     """Stores every backtest run so users can browse and re-open results."""
 
-    def __init__(self, db_path: str = DEFAULT_DB_PATH) -> None:
+    def __init__(self, db_path: str = HISTORY_DB_PATH) -> None:
         self.db_path = db_path
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
