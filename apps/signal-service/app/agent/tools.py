@@ -82,6 +82,36 @@ TOOL_DESCRIPTIONS = [
         "description": "Navigate the user to a page in the platform. Valid paths: /dashboard, /dashboard/positions, /dashboard/markets, /dashboard/history, /dashboard/markets/{SYMBOL} (e.g. /dashboard/markets/BTC-USD), /lab/backtester, /lab/agent, /dashboard/signals, /lab/polymarket",
         "parameters": {"path": "str — platform path to navigate to"},
     },
+    {
+        "name": "run_audit",
+        "description": "Run a full platform audit. Returns a prioritized list of findings: security issues, code quality problems, missing tests, outdated deps, and more.",
+        "parameters": {},
+    },
+    {
+        "name": "get_audit_report",
+        "description": "Get the most recent audit report summary. Use run_audit first if no report exists.",
+        "parameters": {},
+    },
+    {
+        "name": "read_file",
+        "description": "Read the contents of a file in the project. Useful for understanding code before suggesting a fix.",
+        "parameters": {"path": "str — absolute or relative-to-project path"},
+    },
+    {
+        "name": "list_files",
+        "description": "List files matching a glob pattern in the project. E.g. 'apps/web/src/**/*.tsx'",
+        "parameters": {"pattern": "str — glob pattern"},
+    },
+    {
+        "name": "write_file",
+        "description": "Write content to a file in the project to fix an issue. ONLY use this after reading the file and understanding what needs to change. Never write .env files.",
+        "parameters": {"path": "str — path relative to project root", "content": "str — full new file content"},
+    },
+    {
+        "name": "run_command",
+        "description": "Run a safe read-only shell command in the project. Allowed: git status, git diff, git log, grep, find, cat, ls, python -m py_compile, tsc --noEmit, pip list, npm list. NOT allowed: rm, git push, git commit.",
+        "parameters": {"cmd": "str — the shell command"},
+    },
 ]
 
 TOOL_SCHEMAS_TEXT = json.dumps(TOOL_DESCRIPTIONS, indent=2)
@@ -387,6 +417,202 @@ async def navigate_to(path: str) -> dict:
     return {"__navigate__": True, "path": path}
 
 
+# ─── Audit tools ──────────────────────────────────────────────────────────────
+
+_PROJECT_ROOT = "/home/user/bit-engine"
+
+# Allowlist of safe read-only shell command prefixes
+_CMD_ALLOWLIST = [
+    "git status",
+    "git diff",
+    "git log",
+    "grep ",
+    "grep -",
+    "find ",
+    "cat ",
+    "ls",
+    "ls ",
+    "python -m py_compile",
+    "npx tsc",
+    "tsc ",
+    "pip list",
+    "npm list",
+]
+
+
+async def run_audit() -> dict[str, Any]:
+    """Run a full platform audit and save results to the store."""
+    import asyncio as _asyncio
+    from app.audit import checker as _checker, store as _store
+    report = await _asyncio.to_thread(_checker.run_all)
+    report_id = await _asyncio.to_thread(_store.save_report, report)
+    top_findings = [
+        {
+            "id": f.id,
+            "priority": f.priority,
+            "category": f.category,
+            "title": f.title,
+            "file": f.file,
+            "line": f.line,
+            "fix_hint": f.fix_hint,
+        }
+        for f in report.findings[:10]
+    ]
+    return {
+        "report_id": report_id,
+        "checked_at": report.checked_at,
+        "summary": report.summary,
+        "top_findings": top_findings,
+    }
+
+
+async def get_audit_report() -> dict[str, Any]:
+    """Load the latest saved audit report."""
+    import asyncio as _asyncio
+    from app.audit import store as _store
+    report = await _asyncio.to_thread(_store.load_latest)
+    if report is None:
+        return {"error": "No audit report found. Run run_audit first."}
+    top_findings = [
+        {
+            "id": f.id,
+            "priority": f.priority,
+            "category": f.category,
+            "title": f.title,
+            "file": f.file,
+            "line": f.line,
+            "fix_hint": f.fix_hint,
+        }
+        for f in report.findings[:20]
+    ]
+    return {
+        "checked_at": report.checked_at,
+        "summary": report.summary,
+        "findings": top_findings,
+    }
+
+
+async def read_file(path: str) -> dict[str, Any]:
+    """Read a file from the project (safety-checked, max 300 lines)."""
+    import asyncio as _asyncio
+
+    def _read(path: str) -> dict[str, Any]:
+        import os as _os
+        # Resolve path
+        if not _os.path.isabs(path):
+            path = _os.path.join(_PROJECT_ROOT, path)
+        path = _os.path.realpath(path)
+        real_root = _os.path.realpath(_PROJECT_ROOT)
+        if not path.startswith(real_root + _os.sep) and path != real_root:
+            return {"error": "Path is outside PROJECT_ROOT."}
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                lines = fh.readlines()
+            truncated = len(lines) > 300
+            content = "".join(lines[:300])
+            return {
+                "path": path,
+                "lines": min(len(lines), 300),
+                "total_lines": len(lines),
+                "truncated": truncated,
+                "content": content,
+            }
+        except FileNotFoundError:
+            return {"error": f"File not found: {path}"}
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    return await _asyncio.to_thread(_read, path)
+
+
+async def list_files(pattern: str) -> dict[str, Any]:
+    """List files matching a glob pattern in the project."""
+    import asyncio as _asyncio
+    import glob as _glob
+
+    def _list(pattern: str) -> dict[str, Any]:
+        import os as _os
+        # If pattern is relative, root it to PROJECT_ROOT
+        if not _os.path.isabs(pattern):
+            pattern = _os.path.join(_PROJECT_ROOT, pattern)
+        matches = _glob.glob(pattern, recursive=True)
+        # Safety: filter to only PROJECT_ROOT
+        real_root = _os.path.realpath(_PROJECT_ROOT)
+        safe = [p for p in matches if _os.path.realpath(p).startswith(real_root)]
+        safe.sort()
+        truncated = len(safe) > 30
+        return {
+            "pattern": pattern,
+            "count": len(safe),
+            "truncated": truncated,
+            "files": safe[:30],
+        }
+
+    return await _asyncio.to_thread(_list, pattern)
+
+
+async def write_file(path: str, content: str) -> dict[str, Any]:
+    """Write content to a project file (safety-checked)."""
+    import asyncio as _asyncio
+
+    def _write(path: str, content: str) -> dict[str, Any]:
+        import os as _os
+        if not _os.path.isabs(path):
+            path = _os.path.join(_PROJECT_ROOT, path)
+        path = _os.path.realpath(path)
+        real_root = _os.path.realpath(_PROJECT_ROOT)
+        if not path.startswith(real_root + _os.sep) and path != real_root:
+            return {"error": "Path is outside PROJECT_ROOT."}
+        basename = _os.path.basename(path)
+        if basename.startswith(".env") or "/.git/" in path or path.endswith("/.git"):
+            return {"error": "Writing .env or .git files is not allowed."}
+        try:
+            _os.makedirs(_os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(content)
+            return {"ok": True, "path": path, "bytes_written": len(content.encode())}
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    return await _asyncio.to_thread(_write, path, content)
+
+
+async def run_command(cmd: str) -> dict[str, Any]:
+    """Run a safe read-only shell command."""
+    import asyncio as _asyncio
+    import subprocess as _subprocess
+
+    cmd_stripped = cmd.strip()
+    allowed = any(cmd_stripped.startswith(prefix) for prefix in _CMD_ALLOWLIST)
+    if not allowed:
+        return {
+            "error": (
+                "Command not in allowlist. Allowed: git status/diff/log, grep, find, "
+                "cat, ls, python -m py_compile, tsc --noEmit, pip list, npm list."
+            )
+        }
+
+    def _run(cmd: str) -> dict[str, Any]:
+        try:
+            result = _subprocess.run(
+                cmd,
+                shell=True,  # noqa: S602 — user input already allowlist-checked
+                capture_output=True,
+                text=True,
+                cwd=_PROJECT_ROOT,
+                timeout=30,
+            )
+            out = result.stdout[:2000]
+            err = result.stderr[:500]
+            return {"stdout": out, "stderr": err, "returncode": result.returncode}
+        except _subprocess.TimeoutExpired:
+            return {"error": "Command timed out after 30s"}
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    return await _asyncio.to_thread(_run, cmd_stripped)
+
+
 TOOLS: dict[str, Any] = {
     "get_price": get_price,
     "get_sentiment": get_sentiment,
@@ -401,6 +627,12 @@ TOOLS: dict[str, Any] = {
     "search_symbols": search_symbols,
     "get_backtest_history": get_backtest_history,
     "navigate_to": navigate_to,
+    "run_audit": run_audit,
+    "get_audit_report": get_audit_report,
+    "read_file": read_file,
+    "list_files": list_files,
+    "write_file": write_file,
+    "run_command": run_command,
 }
 
 

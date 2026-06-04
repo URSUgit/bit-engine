@@ -24,6 +24,7 @@ import {
   Target,
   Newspaper,
   Database,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoMark } from "@/components/Logo";
@@ -63,6 +64,7 @@ const navGroups: NavGroup[] = [
       { label: "Notebooks", href: "/lab/notebooks", icon: BookOpen },
       { label: "AI Agent", href: "/lab/agent", icon: Sparkles, badge: "new" },
       { label: "Polymarket Bot", href: "/lab/polymarket", icon: Target },
+      { label: "Monitor", href: "/lab/monitor", icon: ShieldCheck },
     ],
   },
   {

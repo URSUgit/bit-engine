@@ -73,7 +73,7 @@ logging.getLogger().setLevel(logging.WARNING)
 
 # ── Router + feed imports (after env + logging setup) ─────────────────────────
 from app.limiter import limiter  # noqa: E402
-from app.routers import signals, traders, analytics, agent, polymarket, backtest  # noqa: E402
+from app.routers import signals, traders, analytics, agent, polymarket, backtest, audit  # noqa: E402
 from app.feeds import signal_engine, price_cache  # noqa: E402
 
 
@@ -218,3 +218,4 @@ app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["analytic
 app.include_router(agent.router, prefix="/api/v1/agent", tags=["agent"])
 app.include_router(polymarket.router, prefix="/api/v1/polymarket", tags=["polymarket"])
 app.include_router(backtest.router, prefix="/api/v1/backtest", tags=["backtest"])
+app.include_router(audit.router, prefix="/api/v1/audit", tags=["audit"])
