@@ -79,6 +79,8 @@ function QualityOverview() {
   const [error, setError] = useState("");
   const [detail, setDetail] = useState<QualityReport | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -103,17 +105,38 @@ function QualityOverview() {
     }
   }
 
+  async function handleExportParquet() {
+    setExporting(true); setExportError("");
+    try {
+      await backtestApi.exportParquet();
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <p className="text-sm text-slate-400">
           {rows ? `${rows.length} cached dataset(s) · sorted worst-first` : "Scanning…"}
         </p>
-        <button onClick={load} disabled={loading}
-          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors">
-          <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={handleExportParquet} disabled={exporting || !rows || rows.length === 0}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-50 transition-colors">
+            {exporting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
+            Export Parquet
+          </button>
+          <button onClick={load} disabled={loading}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors">
+            <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} /> Refresh
+          </button>
+        </div>
       </div>
+      {exportError && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-xs text-red-300">{exportError}</div>
+      )}
 
       {error && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-sm text-red-300">{error}</div>
