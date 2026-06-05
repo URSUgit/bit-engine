@@ -7,6 +7,7 @@ import {
 } from "lightweight-charts";
 import { backtestApi, type BacktestResult, type EntryAnalysis, type FeatureStats, type Bar } from "@/lib/backtest-api";
 import { downloadBlob, todayIso } from "@/lib/export-utils";
+import { paperApi } from "@/lib/paper-api";
 
 // ── Indicator computation ─────────────────────────────────────────────────────
 
@@ -103,6 +104,30 @@ export function MetricsGrid({ result }: { result: BacktestResult }) {
   const m = result.metrics;
   const b = result.benchmark_metrics;
   const beats = b ? m.total_return_pct > b.total_return_pct : false;
+  const [paperStatus, setPaperStatus] = useState<"idle" | "loading" | "ok" | "err">("idle");
+
+  async function handlePaperTrade() {
+    const trades = result.trades;
+    if (!trades || trades.length === 0) return;
+    const lastTrade = trades[trades.length - 1];
+    setPaperStatus("loading");
+    try {
+      await paperApi.openPosition({
+        symbol: result.symbol,
+        side: lastTrade.side,
+        entry_price: lastTrade.entry_price,
+        size: lastTrade.size,
+        strategy: result.strategy,
+        notes: `From backtest: ${result.strategy} ${result.interval} ${result.start_date}→${result.end_date}`,
+      });
+      setPaperStatus("ok");
+      setTimeout(() => setPaperStatus("idle"), 2500);
+    } catch {
+      setPaperStatus("err");
+      setTimeout(() => setPaperStatus("idle"), 2500);
+    }
+  }
+
   return (
     <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
@@ -112,11 +137,28 @@ export function MetricsGrid({ result }: { result: BacktestResult }) {
             {result.start_date} → {result.end_date} · {result.bars_processed} bars · {result.runtime_ms}ms
           </p>
         </div>
-        {b && (
-          <div className={`text-xs px-2 py-1 rounded ${beats ? "bg-emerald-900/40 text-emerald-300" : "bg-zinc-800 text-zinc-400"}`}>
-            {beats ? "Beats" : "Underperforms"} buy-and-hold ({b.total_return_pct >= 0 ? "+" : ""}{b.total_return_pct.toFixed(1)}%)
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {result.trades && result.trades.length > 0 && (
+            <button
+              onClick={handlePaperTrade}
+              disabled={paperStatus === "loading"}
+              className={`text-xs px-2.5 py-1 rounded flex items-center gap-1 border transition-colors ${
+                paperStatus === "ok"
+                  ? "bg-emerald-900/40 text-emerald-300 border-emerald-700"
+                  : paperStatus === "err"
+                  ? "bg-red-900/40 text-red-300 border-red-700"
+                  : "bg-zinc-800 text-zinc-300 border-zinc-700 hover:bg-zinc-700"
+              }`}
+            >
+              {paperStatus === "loading" ? "Opening…" : paperStatus === "ok" ? "Opened!" : paperStatus === "err" ? "Failed" : "Paper Trade"}
+            </button>
+          )}
+          {b && (
+            <div className={`text-xs px-2 py-1 rounded ${beats ? "bg-emerald-900/40 text-emerald-300" : "bg-zinc-800 text-zinc-400"}`}>
+              {beats ? "Beats" : "Underperforms"} buy-and-hold ({b.total_return_pct >= 0 ? "+" : ""}{b.total_return_pct.toFixed(1)}%)
+            </div>
+          )}
+        </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <MetricCard label="Total return" value={fmtPct(m.total_return_pct)} positive={m.total_return_pct >= 0} />
