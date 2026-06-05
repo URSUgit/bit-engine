@@ -5,11 +5,12 @@ import asyncio
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
+import numpy as np
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app.limiter import limiter
@@ -372,6 +373,119 @@ async def clear_cached_symbol(symbol: str, interval: Optional[str] = Query(None)
     """Remove cached bars for a symbol (forces re-fetch next time)."""
     bar_storage.delete_bars(symbol, interval)
     return {"cleared": True, "symbol": symbol, "interval": interval}
+
+
+# ── Demo-data seed ─────────────────────────────────────────────────────────────
+
+# Per-symbol GBM parameters: (start_price, annual_vol, annual_drift, base_volume)
+_SYMBOL_PARAMS: dict[str, tuple[float, float, float, float]] = {
+    "BTCUSDT": (42_000.0, 0.75, 0.50, 28_000.0),
+    "ETHUSDT": ( 2_200.0, 0.85, 0.55, 150_000.0),
+    "SOLUSDT": (    95.0, 1.10, 0.60, 2_000_000.0),
+    "BNBUSDT": (   310.0, 0.65, 0.40, 500_000.0),
+}
+_DEFAULT_PARAMS = (100.0, 0.80, 0.30, 100_000.0)
+
+# Bar duration in days for each interval label
+_INTERVAL_DT: dict[str, float] = {
+    "1d": 1.0,
+    "4h": 1.0 / 6.0,
+    "1h": 1.0 / 24.0,
+    "15m": 1.0 / 96.0,
+    "5m":  1.0 / 288.0,
+    "1m":  1.0 / 1440.0,
+}
+
+# How many seconds a bar represents (for timestamps)
+_INTERVAL_SECS: dict[str, int] = {
+    "1d": 86_400,
+    "4h": 14_400,
+    "1h": 3_600,
+    "15m": 900,
+    "5m":  300,
+    "1m":  60,
+}
+
+
+class SeedDemoRequest(BaseModel):
+    symbols: list[str] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]
+    intervals: list[str] = ["1d", "4h", "1h"]
+    days: int = 365
+
+
+def _generate_gbm_bars(symbol: str, interval: str, days: int, seed: int = 42) -> list:
+    """Generate synthetic OHLCV bars using Geometric Brownian Motion."""
+    from app.backtest.models import Bar
+
+    start_price, vol, drift, base_vol = _SYMBOL_PARAMS.get(symbol, _DEFAULT_PARAMS)
+    dt = _INTERVAL_DT.get(interval, 1.0)
+    bar_secs = _INTERVAL_SECS.get(interval, 86_400)
+    n_bars = int(days / dt)
+
+    rng = np.random.default_rng(seed)
+
+    # Generate log-normal price path
+    noise = rng.standard_normal(n_bars)
+    log_returns = (drift / 365.0 - 0.5 * vol ** 2) * dt + vol * np.sqrt(dt) * noise
+    price_path = np.empty(n_bars + 1)
+    price_path[0] = start_price
+    for i in range(n_bars):
+        price_path[i + 1] = price_path[i] * np.exp(log_returns[i])
+
+    # Generate bar-level wick and volume noise
+    wick_noise = np.abs(rng.normal(0, 0.008, n_bars))
+    vol_noise = np.abs(rng.normal(0, 0.6, n_bars))
+
+    # Starting timestamp: `days` ago from UTC midnight
+    now_ts = int(datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+    start_ts = now_ts - days * 86_400
+
+    bars = []
+    for i in range(n_bars):
+        open_price = price_path[i]
+        close_price = price_path[i + 1]
+        high = max(open_price, close_price) * (1.0 + wick_noise[i])
+        low  = min(open_price, close_price) * (1.0 - wick_noise[i])
+        volume = base_vol * (0.5 + vol_noise[i])
+        ts = start_ts + int(i * bar_secs)
+        bars.append(Bar(
+            timestamp=datetime.fromtimestamp(ts, tz=timezone.utc).replace(tzinfo=None),
+            open=round(open_price, 8),
+            high=round(high, 8),
+            low=round(low, 8),
+            close=round(close_price, 8),
+            volume=round(volume, 2),
+        ))
+    return bars
+
+
+@router.post("/seed-demo")
+async def seed_demo(req: SeedDemoRequest):
+    """Seed the DuckDB bar cache with synthetic GBM data for demo/testing."""
+    seeded = []
+    total_bars = 0
+    for symbol in req.symbols:
+        for interval in req.intervals:
+            bars = await asyncio.to_thread(
+                _generate_gbm_bars, symbol, interval, req.days
+            )
+            count = await asyncio.to_thread(
+                bar_storage.upsert_bars, symbol, interval, bars
+            )
+            seeded.append({"symbol": symbol, "interval": interval, "bar_count": count})
+            total_bars += count
+    return {"seeded": seeded, "total_bars": total_bars}
+
+
+# ── Parquet export ─────────────────────────────────────────────────────────────
+
+@router.post("/export-parquet")
+async def export_parquet():
+    """Export all cached bars to a Parquet file and stream it back."""
+    import tempfile
+    out_dir = tempfile.mkdtemp()
+    path = await asyncio.to_thread(bar_storage.export_parquet, out_dir)
+    return FileResponse(path, filename="bars.parquet", media_type="application/octet-stream")
 
 
 # ── Anomaly scanning ───────────────────────────────────────────────────────────
