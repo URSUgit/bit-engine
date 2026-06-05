@@ -411,9 +411,10 @@ class SeedDemoRequest(BaseModel):
     symbols: list[str] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]
     intervals: list[str] = ["1d", "4h", "1h"]
     days: int = 365
+    start_date: str = "2023-01-01"  # anchor date so data aligns with typical backtest ranges
 
 
-def _generate_gbm_bars(symbol: str, interval: str, days: int, seed: int = 42) -> list:
+def _generate_gbm_bars(symbol: str, interval: str, days: int, seed: int = 42, start_date: str = "2023-01-01") -> list:
     """Generate synthetic OHLCV bars using Geometric Brownian Motion."""
     from app.backtest.models import Bar
 
@@ -436,9 +437,12 @@ def _generate_gbm_bars(symbol: str, interval: str, days: int, seed: int = 42) ->
     wick_noise = np.abs(rng.normal(0, 0.008, n_bars))
     vol_noise = np.abs(rng.normal(0, 0.6, n_bars))
 
-    # Starting timestamp: `days` ago from UTC midnight
-    now_ts = int(datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
-    start_ts = now_ts - days * 86_400
+    # Parse caller-supplied anchor date so bars align with backtest date ranges.
+    try:
+        anchor = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        anchor = datetime(2023, 1, 1, tzinfo=timezone.utc)
+    start_ts = int(anchor.timestamp())
 
     bars = []
     for i in range(n_bars):
@@ -467,7 +471,7 @@ async def seed_demo(req: SeedDemoRequest):
     for symbol in req.symbols:
         for interval in req.intervals:
             bars = await asyncio.to_thread(
-                _generate_gbm_bars, symbol, interval, req.days
+                _generate_gbm_bars, symbol, interval, req.days, 42, req.start_date
             )
             count = await asyncio.to_thread(
                 bar_storage.upsert_bars, symbol, interval, bars
