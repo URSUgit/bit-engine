@@ -192,12 +192,24 @@ def check_security_patterns() -> list[Finding]:
          "high", "Use of exec()", "Avoid exec(); refactor to explicit code paths."),
     ]
 
+    # Files that define the audit patterns themselves are excluded to avoid
+    # false positives (the pattern strings match themselves).
+    _SELF_EXCLUDE = {
+        os.path.abspath(__file__),                           # this checker
+        os.path.abspath(__file__.replace(".pyc", ".py")),
+    }
+
     all_files = _py_files() + _ts_files()
     for path in all_files:
+        if os.path.abspath(path) in _SELF_EXCLUDE:
+            continue
         try:
             with open(path, encoding="utf-8", errors="ignore") as f:
                 lines = f.readlines()
             for lineno, text in enumerate(lines, 1):
+                # Respect inline suppression comments (# noqa: or // noqa:)
+                if re.search(r"#\s*noqa\b|//\s*noqa\b", text):
+                    continue
                 for pat, priority, title, fix_hint in secret_patterns:
                     if pat.search(text):
                         rel = path.replace(PROJECT_ROOT + "/", "")
