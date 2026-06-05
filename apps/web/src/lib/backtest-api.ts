@@ -593,6 +593,27 @@ export const backtestApi = {
       body: JSON.stringify(req),
     }),
 
+  // ── Strategy comparison ───────────────────────────────────────────────────
+  compareStrategies: async (
+    strategies: string[],
+    params: Omit<BacktestParams, "strategy">,
+  ): Promise<{ strategy: string; result: BacktestResult | null; error: string | null }[]> => {
+    const results = await Promise.all(
+      strategies.map(async (strategy) => {
+        try {
+          const result = await call<BacktestResult>("/api/v1/backtest/run", {
+            method: "POST",
+            body: JSON.stringify({ ...params, strategy }),
+          });
+          return { strategy, result, error: null };
+        } catch (e) {
+          return { strategy, result: null, error: e instanceof Error ? e.message : String(e) };
+        }
+      }),
+    );
+    return results;
+  },
+
   // ── Data warehouse ────────────────────────────────────────────────────────
   dataQuality: (symbol: string, interval = "1d") => {
     const q = new URLSearchParams({ symbol, interval });
@@ -613,4 +634,22 @@ export const backtestApi = {
       method: "POST",
       body: JSON.stringify(req),
     }),
+
+  // ── Export ────────────────────────────────────────────────────────────────
+  exportParquet: async (): Promise<void> => {
+    const res = await fetch(`${BACKTEST_BASE}/api/v1/backtest/export-parquet`, {
+      method: "POST",
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`${res.status}: ${body || res.statusText}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "bars.parquet";
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 };

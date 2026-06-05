@@ -387,7 +387,7 @@ _SYMBOL_PARAMS: dict[str, tuple[float, float, float, float]] = {
 _DEFAULT_PARAMS = (100.0, 0.80, 0.30, 100_000.0)
 
 # Bar duration in days for each interval label
-_INTERVAL_DT: dict[str, float] = {
+_INTERVAL_DT_DAYS: dict[str, float] = {
     "1d": 1.0,
     "4h": 1.0 / 6.0,
     "1h": 1.0 / 24.0,
@@ -411,47 +411,52 @@ class SeedDemoRequest(BaseModel):
     symbols: list[str] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]
     intervals: list[str] = ["1d", "4h", "1h"]
     days: int = 365
-    start_date: str = "2023-01-01"  # anchor date so data aligns with typical backtest ranges
 
 
-def _generate_gbm_bars(symbol: str, interval: str, days: int, seed: int = 42, start_date: str = "2023-01-01") -> list:
-    """Generate synthetic OHLCV bars using Geometric Brownian Motion."""
+def _generate_gbm_bars(symbol: str, interval: str, days: int, seed: int = 42) -> list:
+    """Generate synthetic OHLCV bars using Geometric Brownian Motion.
+
+    Uses standard GBM discretization:
+      price[t+1] = price[t] * exp((drift - vol²/2) * dt + vol * sqrt(dt) * Z)
+    where drift and vol are annual rates and dt is the bar duration in years.
+    """
     from app.backtest.models import Bar
 
     start_price, vol, drift, base_vol = _SYMBOL_PARAMS.get(symbol, _DEFAULT_PARAMS)
-    dt = _INTERVAL_DT.get(interval, 1.0)
+    dt_days = _INTERVAL_DT_DAYS.get(interval, 1.0)
+    # dt in years — the natural unit for annual drift/vol parameters
+    dt = dt_days / 365.0
     bar_secs = _INTERVAL_SECS.get(interval, 86_400)
-    n_bars = int(days / dt)
+    n_bars = int(days / dt_days)
 
     rng = np.random.default_rng(seed)
 
-    # Generate log-normal price path
+    # Log-normal price path: drift and vol are annual, dt is in years
     noise = rng.standard_normal(n_bars)
-    log_returns = (drift / 365.0 - 0.5 * vol ** 2) * dt + vol * np.sqrt(dt) * noise
+    log_returns = (drift - 0.5 * vol ** 2) * dt + vol * np.sqrt(dt) * noise
     price_path = np.empty(n_bars + 1)
     price_path[0] = start_price
-    for i in range(n_bars):
-        price_path[i + 1] = price_path[i] * np.exp(log_returns[i])
+    np.cumprod(np.exp(log_returns), out=price_path[1:])
+    price_path[1:] *= start_price
 
-    # Generate bar-level wick and volume noise
-    wick_noise = np.abs(rng.normal(0, 0.008, n_bars))
-    vol_noise = np.abs(rng.normal(0, 0.6, n_bars))
+    # Bar-level wick and volume noise
+    wick_noise = np.abs(rng.normal(0.0, 0.008, n_bars))
+    vol_noise = np.abs(rng.normal(0.0, 0.6, n_bars))
 
-    # Parse caller-supplied anchor date so bars align with backtest date ranges.
-    try:
-        anchor = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    except ValueError:
-        anchor = datetime(2023, 1, 1, tzinfo=timezone.utc)
-    start_ts = int(anchor.timestamp())
+    # Anchor at 2024-01-01 so bars fall in the typical backtest range
+    anchor_ts = int(datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp())
 
     bars = []
     for i in range(n_bars):
-        open_price = price_path[i]
-        close_price = price_path[i + 1]
+        open_price = float(price_path[i])
+        close_price = float(price_path[i + 1])
+        # Guard against degenerate values (should not occur with normal GBM params)
+        if open_price <= 0 or close_price <= 0:
+            continue
         high = max(open_price, close_price) * (1.0 + wick_noise[i])
         low  = min(open_price, close_price) * (1.0 - wick_noise[i])
         volume = base_vol * (0.5 + vol_noise[i])
-        ts = start_ts + int(i * bar_secs)
+        ts = anchor_ts + int(i * bar_secs)
         bars.append(Bar(
             timestamp=datetime.fromtimestamp(ts, tz=timezone.utc).replace(tzinfo=None),
             open=round(open_price, 8),
@@ -471,7 +476,7 @@ async def seed_demo(req: SeedDemoRequest):
     for symbol in req.symbols:
         for interval in req.intervals:
             bars = await asyncio.to_thread(
-                _generate_gbm_bars, symbol, interval, req.days, 42, req.start_date
+                _generate_gbm_bars, symbol, interval, req.days
             )
             count = await asyncio.to_thread(
                 bar_storage.upsert_bars, symbol, interval, bars

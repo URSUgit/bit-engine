@@ -72,6 +72,10 @@ export default function BacktesterPage() {
   const [optimizeResult, setOptimizeResult] = useState<OptimizeResult | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
 
+  // Strategy comparison (all strategies for one symbol)
+  const [stratCompareResults, setStratCompareResults] = useState<{ strategy: string; result: BacktestResult | null; error: string | null }[] | null>(null);
+  const [stratCompareRunning, setStratCompareRunning] = useState(false);
+
   // Realism config
   const [spreadBps, setSpreadBps] = useState(0);
   const [leverage, setLeverage] = useState(1.0);
@@ -310,6 +314,40 @@ export default function BacktesterPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally { setRunning(false); }
+  }
+
+  async function runCompareAllStrategies() {
+    const strategyNames = strategies
+      .map((s) => s.name)
+      .filter((n) => n !== "buy_and_hold");
+    if (strategyNames.length === 0) return;
+    setStratCompareRunning(true);
+    setStratCompareResults(null);
+    try {
+      const params = {
+        symbol: singleSymbol,
+        start_date: isoDaysAgo(periodDays),
+        end_date: isoDaysAgo(0),
+        interval,
+        initial_capital: initialCapital,
+        commission_pct: commissionPct / 100,
+        slippage_pct: slippagePct / 100,
+        position_size_pct: positionPct / 100,
+        strategy_params: {},
+        spread_bps: spreadBps,
+        enable_market_impact: enableMarketImpact,
+        execution_latency_ms: latencyMs,
+        use_funding_rates: useFundingRates,
+        leverage,
+        run_anomaly_scan: false,
+      };
+      const results = await backtestApi.compareStrategies(strategyNames, params);
+      setStratCompareResults(results);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setStratCompareRunning(false);
+    }
   }
 
   async function openHistoryRun(id: string) {
@@ -594,7 +632,7 @@ export default function BacktesterPage() {
 
               <button
                 onClick={onRun}
-                disabled={running}
+                disabled={running || stratCompareRunning}
                 className="w-full py-3 rounded-md bg-cyan-500 hover:bg-cyan-400 disabled:bg-zinc-700 disabled:text-zinc-500 text-zinc-950 font-semibold transition"
               >
                 {running ? "Running…" :
@@ -602,6 +640,16 @@ export default function BacktesterPage() {
                  mode === "compare" ? `Compare ${compareSymbols.length} pairs` :
                  "Optimize Parameters"}
               </button>
+
+              {mode === "single" && (
+                <button
+                  onClick={runCompareAllStrategies}
+                  disabled={running || stratCompareRunning}
+                  className="w-full py-2 rounded-md bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-900 disabled:text-zinc-600 text-zinc-200 text-sm font-medium transition border border-zinc-700"
+                >
+                  {stratCompareRunning ? "Comparing strategies…" : "Compare All Strategies"}
+                </button>
+              )}
 
               {error && (
                 <div className="text-sm text-red-400 bg-red-950/30 border border-red-900 p-2 rounded">
@@ -623,6 +671,17 @@ export default function BacktesterPage() {
                     resultTab={resultTab}
                     setResultTab={setResultTab}
                   />
+                  {(stratCompareRunning || stratCompareResults) && (
+                    <StrategyComparisonTable
+                      results={stratCompareResults}
+                      running={stratCompareRunning}
+                      onLoad={(r) => {
+                        setSingleResult(r);
+                        setStrategyName(r.strategy);
+                        setResultTab("charts");
+                      }}
+                    />
+                  )}
                   <BacktesterChat
                     symbol={singleSymbol}
                     strategy={strategyName}
@@ -1248,6 +1307,109 @@ function HistoryView({
                 </td>
               </tr>
             ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Strategy comparison table ───────────────────────────────────────────────
+
+type StratCompareRow = { strategy: string; result: BacktestResult | null; error: string | null };
+
+function StrategyComparisonTable({
+  results,
+  running,
+  onLoad,
+}: {
+  results: StratCompareRow[] | null;
+  running: boolean;
+  onLoad: (r: BacktestResult) => void;
+}) {
+  if (running && !results) {
+    return (
+      <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-6 text-center text-zinc-400 text-sm">
+        Running all strategies…
+      </div>
+    );
+  }
+  if (!results) return null;
+
+  const successRows = results.filter((r) => r.result !== null);
+
+  // Find best value per column
+  const bestReturn = Math.max(...successRows.map((r) => r.result!.metrics.total_return_pct));
+  const bestSharpe = Math.max(...successRows.map((r) => r.result!.metrics.sharpe_ratio));
+  const bestWinRate = Math.max(...successRows.map((r) => r.result!.metrics.win_rate_pct));
+  const bestTrades = Math.max(...successRows.map((r) => r.result!.metrics.total_trades));
+  const bestMaxDD = Math.min(...successRows.map((r) => r.result!.metrics.max_drawdown_pct));
+
+  return (
+    <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg overflow-hidden">
+      <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-zinc-200">Strategy Comparison</h3>
+        <span className="text-xs text-zinc-500">{successRows.length}/{results.length} strategies succeeded</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[700px]">
+          <thead>
+            <tr className="text-left text-xs text-zinc-500 uppercase tracking-wide border-b border-zinc-800 bg-zinc-900/40">
+              <th className="px-4 py-2">Strategy</th>
+              <th className="px-4 py-2 text-right">Return %</th>
+              <th className="px-4 py-2 text-right">Sharpe</th>
+              <th className="px-4 py-2 text-right">Win Rate</th>
+              <th className="px-4 py-2 text-right">Trades</th>
+              <th className="px-4 py-2 text-right">Max DD</th>
+              <th className="px-4 py-2 text-right"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-800/60">
+            {results.map(({ strategy, result, error }) => {
+              if (!result) {
+                return (
+                  <tr key={strategy} className="hover:bg-zinc-800/30">
+                    <td className="px-4 py-2 font-medium text-zinc-400">{strategy}</td>
+                    <td colSpan={5} className="px-4 py-2 text-xs text-red-400">{error ?? "Failed"}</td>
+                    <td />
+                  </tr>
+                );
+              }
+              const m = result.metrics;
+              const isBestReturn = m.total_return_pct === bestReturn;
+              const isBestSharpe = m.sharpe_ratio === bestSharpe;
+              const isBestWinRate = m.win_rate_pct === bestWinRate;
+              const isBestTrades = m.total_trades === bestTrades;
+              const isBestDD = m.max_drawdown_pct === bestMaxDD;
+              return (
+                <tr key={strategy} className="hover:bg-zinc-800/30 transition-colors">
+                  <td className="px-4 py-2 font-medium text-zinc-200">{strategy}</td>
+                  <td className={`px-4 py-2 text-right font-mono ${isBestReturn ? "text-emerald-400 font-bold" : m.total_return_pct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                    {m.total_return_pct >= 0 ? "+" : ""}{m.total_return_pct.toFixed(2)}%
+                  </td>
+                  <td className={`px-4 py-2 text-right font-mono ${isBestSharpe ? "text-emerald-400 font-bold" : "text-zinc-300"}`}>
+                    {m.sharpe_ratio.toFixed(2)}
+                  </td>
+                  <td className={`px-4 py-2 text-right font-mono ${isBestWinRate ? "text-emerald-400 font-bold" : "text-zinc-300"}`}>
+                    {m.win_rate_pct.toFixed(1)}%
+                  </td>
+                  <td className={`px-4 py-2 text-right font-mono ${isBestTrades ? "text-emerald-400 font-bold" : "text-zinc-500"}`}>
+                    {m.total_trades}
+                  </td>
+                  <td className={`px-4 py-2 text-right font-mono ${isBestDD ? "text-emerald-400 font-bold" : "text-red-400"}`}>
+                    -{m.max_drawdown_pct.toFixed(1)}%
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <button
+                      onClick={() => onLoad(result)}
+                      className="text-xs text-cyan-400 hover:text-cyan-300 transition-colors"
+                    >
+                      Load
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
