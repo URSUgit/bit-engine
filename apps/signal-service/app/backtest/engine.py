@@ -151,11 +151,11 @@ class Backtest:
         # Spread
         half_spread_frac = self.spread_bps / 20_000
         spread_adj = raw_price * half_spread_frac * (1 if is_buy else -1)
-        spread_usd = abs(spread_adj) * (order_usd / raw_price)
+        spread_usd = abs(spread_adj) * (order_usd / raw_price) if raw_price else 0.0
 
         # Slippage (bar volatility-based)
         slip_adj = raw_price * self.slippage_pct * (1 if is_buy else -1)
-        slippage_usd = abs(slip_adj) * (order_usd / raw_price)
+        slippage_usd = abs(slip_adj) * (order_usd / raw_price) if raw_price else 0.0
 
         # Market impact
         impact_frac = self._market_impact(order_usd, avg_daily_vol)
@@ -345,6 +345,9 @@ class Backtest:
         n = len(bars)
         report_every = max(1, n // 40)
         fill_next = self._should_fill_next_bar(interval)
+        # Cap history window so strategies see at most 500 bars — any lookback
+        # longer than this is unreasonable for scalping and prevents O(N²) growth.
+        _HISTORY_WINDOW = 500
 
         # Pending order buffer for latency simulation
         pending_signal: Signal | None = None
@@ -371,8 +374,9 @@ class Backtest:
                     if ts <= bar_ts:
                         funding_rate = r
 
+            history_start = max(0, i + 1 - _HISTORY_WINDOW)
             ctx = StrategyContext(
-                history=bars[:i + 1],
+                history=bars[history_start:i + 1],
                 position=self.position,
                 properties={"funding_rate": funding_rate},
             )
