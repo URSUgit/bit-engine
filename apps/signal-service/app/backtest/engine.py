@@ -182,6 +182,8 @@ class Backtest:
 
         fill_price, slip_usd, spread_usd = self._fill_price(raw_price, is_buy, allocation, avg_daily_vol)
 
+        if fill_price <= 0:
+            return
         units = allocation / (fill_price * (1 + self.commission_pct))
         cost = units * fill_price
         fee = cost * self.commission_pct

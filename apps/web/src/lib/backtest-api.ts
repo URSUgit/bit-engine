@@ -652,4 +652,15 @@ export const backtestApi = {
     a.click();
     URL.revokeObjectURL(url);
   },
+
+  // ── Demo data ─────────────────────────────────────────────────────────────
+  seedDemo: (req?: {
+    symbols?: string[];
+    intervals?: string[];
+    days?: number;
+  }) =>
+    call<{ seeded: { symbol: string; interval: string; bar_count: number }[]; total_bars: number }>(
+      "/api/v1/backtest/seed-demo",
+      { method: "POST", body: JSON.stringify(req ?? {}) },
+    ),
 };

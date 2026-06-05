@@ -74,7 +74,7 @@ class BacktestParams(BaseModel):
     initial_capital: float = Field(10000, gt=0)
     commission_pct: float = Field(0.001, ge=0, le=0.05, description="0.001 = 0.1%")
     slippage_pct: float = Field(0.0005, ge=0, le=0.01, description="0.0005 = 5 bps")
-    position_size_pct: float = Field(1.0, gt=0, le=1.0, description="1.0 = all-in")
+    position_size_pct: float = Field(0.25, gt=0, le=1.0, description="0.25 = 25% of capital per trade")
     strategy_params: dict = Field(default_factory=dict)
     # ── Realism upgrades (optional, defaults preserve existing behavior) ──────
     spread_bps: float = Field(0.0, ge=0, le=200, description="Bid/ask spread bps (0=disabled)")

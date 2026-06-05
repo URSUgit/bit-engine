@@ -45,6 +45,8 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [seeding, setSeeding] = useState(false);
+  const [seedResult, setSeedResult] = useState<string | null>(null);
 
   // Custom symbol input state
   const [customTicker, setCustomTicker] = useState("");
@@ -103,6 +105,25 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
     }
   }
 
+  async function handleSeedDemo() {
+    setSeeding(true);
+    setSeedResult(null);
+    setError(null);
+    try {
+      const r = await backtestApi.seedDemo({
+        symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"],
+        intervals: ["1d", "4h", "1h"],
+        days: 365,
+      });
+      setSeedResult(`Seeded ${r.total_bars.toLocaleString()} bars for ${r.seeded.map((s) => s.symbol).filter((v, i, a) => a.indexOf(v) === i).join(", ")}`);
+      await fetchCache();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSeeding(false);
+    }
+  }
+
   async function handleFetchCustom() {
     const ticker = customTicker.trim().toUpperCase();
     if (!ticker) { setCustomError("Enter a ticker symbol"); return; }
@@ -152,25 +173,39 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
   return (
     <div className="space-y-4">
       {/* Summary bar */}
-      <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg px-4 py-3 flex items-center gap-6 text-sm">
+      <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg px-4 py-3 flex items-center gap-4 text-sm flex-wrap">
         <span className="text-zinc-200 font-medium">
           {cacheStatus?.total_series ?? 0} datasets
         </span>
         <span className="text-zinc-500">·</span>
         <span className="text-zinc-400">
-          {(cacheStatus?.total_bars ?? 0).toLocaleString()} total bars
+          {(cacheStatus?.total_bars ?? 0).toLocaleString()} bars
         </span>
         <span className="text-zinc-500">·</span>
-        <span className="text-zinc-400">
-          Last refresh: {formatLastRefresh(series)}
+        <span className="text-zinc-400 text-xs">
+          Refreshed: {formatLastRefresh(series)}
         </span>
-        <button
-          onClick={fetchCache}
-          className="ml-auto text-xs text-cyan-500 hover:text-cyan-400 transition"
-        >
-          Reload
-        </button>
+        <div className="ml-auto flex items-center gap-3">
+          <button
+            onClick={handleSeedDemo}
+            disabled={seeding}
+            className="px-3 py-1 text-xs bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 rounded transition disabled:opacity-50"
+          >
+            {seeding ? "Seeding…" : "Seed Demo Data"}
+          </button>
+          <button
+            onClick={fetchCache}
+            className="text-xs text-zinc-500 hover:text-zinc-300 transition"
+          >
+            Reload
+          </button>
+        </div>
       </div>
+      {seedResult && (
+        <div className="text-xs text-emerald-400 bg-emerald-950/30 border border-emerald-900 p-2 rounded">
+          ✓ {seedResult}
+        </div>
+      )}
 
       {error && (
         <div className="text-sm text-red-400 bg-red-950/30 border border-red-900 p-2 rounded">

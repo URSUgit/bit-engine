@@ -44,18 +44,18 @@ export default function BacktesterPage() {
   const [intervalInfos, setIntervalInfos] = useState<IntervalInfo[]>([]);
   const [strategies, setStrategies] = useState<StrategyInfo[]>([]);
   const [strategyName, setStrategyName] = useState("rsi");
-  const [periodDays, setPeriodDays] = useState(365 * 5);
+  const [periodDays, setPeriodDays] = useState(365);
   const [interval, setIntervalValue] = useState("1d");
   const [initialCapital, setInitialCapital] = useState(10000);
   const [commissionPct, setCommissionPct] = useState(0.1);
   const [slippagePct, setSlippagePct] = useState(0.05);
-  const [positionPct, setPositionPct] = useState(100);
+  const [positionPct, setPositionPct] = useState(25);
   const [strategyParams, setStrategyParams] = useState<Record<string, number>>({});
 
-  // Mode-specific
-  const [singleSymbol, setSingleSymbol] = useState("BTC-USD");
-  const [compareSymbols, setCompareSymbols] = useState<string[]>(["BTC-USD", "ETH-USD", "SOL-USD"]);
-  const [optimizeSymbol, setOptimizeSymbol] = useState("BTC-USD");
+  // Mode-specific — default to BTCUSDT so demo-seeded data is used immediately
+  const [singleSymbol, setSingleSymbol] = useState("BTCUSDT");
+  const [compareSymbols, setCompareSymbols] = useState<string[]>(["BTCUSDT", "ETHUSDT", "SOLUSDT"]);
+  const [optimizeSymbol, setOptimizeSymbol] = useState("BTCUSDT");
   const [optimizeMetric, setOptimizeMetric] = useState("sharpe_ratio");
 
   // Custom symbols added via Data tab
