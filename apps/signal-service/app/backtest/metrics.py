@@ -134,9 +134,39 @@ def compute_metrics(
         # exposure: fraction of bars spent in a position
         in_trade_bars = sum(t.duration_bars for t in trades)
         exposure = in_trade_bars / max(len(equity) - 1, 1) * 100
+
+        # Extended metrics
+        avg_win_pct  = sum(t.pnl_pct for t in wins)   / len(wins)   if wins   else 0.0
+        avg_loss_pct = sum(t.pnl_pct for t in losses) / len(losses) if losses else 0.0
+        avg_win_loss = abs(avg_win_pct / avg_loss_pct) if avg_loss_pct != 0 else 0.0
+
+        pnl_pcts = [t.pnl_pct for t in trades]
+        n = len(pnl_pcts)
+        mean_pnl = avg_pct
+        if n >= 2:
+            var_pnl = sum((p - mean_pnl) ** 2 for p in pnl_pcts) / (n - 1)
+            std_pnl = math.sqrt(var_pnl)
+            sqn = (math.sqrt(n) * mean_pnl / std_pnl) if std_pnl > 0 else 0.0
+        else:
+            sqn = 0.0
+
+        recovery_factor = (total_return_pct / max_dd_pct) if max_dd_pct > 0 else 0.0
+
+        # Consecutive wins / losses
+        max_consec_wins = max_consec_losses = 0
+        cur_w = cur_l = 0
+        for t in trades:
+            if t.is_win:
+                cur_w += 1; cur_l = 0
+                max_consec_wins = max(max_consec_wins, cur_w)
+            else:
+                cur_l += 1; cur_w = 0
+                max_consec_losses = max(max_consec_losses, cur_l)
     else:
         win_rate = profit_factor = avg_pct = best = worst = avg_duration = exposure = 0.0
         wins, losses = [], []
+        avg_win_pct = avg_loss_pct = avg_win_loss = sqn = recovery_factor = 0.0
+        max_consec_wins = max_consec_losses = 0
 
     return PerformanceMetrics(
         total_return_pct=round(total_return_pct, 2),
@@ -157,6 +187,13 @@ def compute_metrics(
         exposure_pct=round(min(exposure, 100), 2),
         final_equity=round(final_equity, 2),
         initial_capital=round(initial_capital, 2),
+        recovery_factor=round(recovery_factor, 2),
+        sqn=round(sqn, 2),
+        avg_win_pct=round(avg_win_pct, 2),
+        avg_loss_pct=round(avg_loss_pct, 2),
+        avg_win_loss_ratio=round(avg_win_loss, 2),
+        max_consecutive_wins=max_consec_wins,
+        max_consecutive_losses=max_consec_losses,
     )
 
 
@@ -168,4 +205,6 @@ def _empty_metrics(initial_capital: float) -> PerformanceMetrics:
         avg_trade_pnl_pct=0, best_trade_pct=0, worst_trade_pct=0,
         avg_trade_duration_bars=0, exposure_pct=0,
         final_equity=initial_capital, initial_capital=initial_capital,
+        recovery_factor=0, sqn=0, avg_win_pct=0, avg_loss_pct=0,
+        avg_win_loss_ratio=0, max_consecutive_wins=0, max_consecutive_losses=0,
     )

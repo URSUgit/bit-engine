@@ -90,6 +90,32 @@ async def lifespan(app: FastAPI):
         live_ingester.start()
     except Exception as exc:
         log.warning("live ingester failed to start: %s", exc)
+
+    # Auto-seed demo GBM data if the bar cache is empty. This ensures the
+    # backtester works immediately on first launch without any manual steps.
+    async def _auto_seed():
+        try:
+            from app.backtest.storage import bar_storage
+            rows = bar_storage.list_symbols()
+            demo_symbols = {"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"}
+            cached_syms = {r["symbol"] for r in rows}
+            if not demo_symbols.issubset(cached_syms):
+                log.info("startup: no demo data found — auto-seeding 730 days of GBM bars")
+                from app.routers.backtest import _generate_gbm_bars
+                import asyncio as _aio
+                seeded_bars = 0
+                for sym in demo_symbols:
+                    for itvl in ("1d", "4h", "1h"):
+                        bars = await _aio.to_thread(_generate_gbm_bars, sym, itvl, 730)
+                        bar_storage.delete_bars(sym)
+                        count = await _aio.to_thread(bar_storage.upsert_bars, sym, itvl, bars)
+                        seeded_bars += count
+                log.info("startup: auto-seeded %d GBM bars", seeded_bars)
+        except Exception as exc:
+            log.warning("startup auto-seed failed (non-fatal): %s", exc)
+
+    asyncio.create_task(_auto_seed())
+
     yield
     log.info("shutdown: stopping signal engine")
     signal_engine.stop()

@@ -96,6 +96,14 @@ export type Metrics = {
   exposure_pct: number;
   final_equity: number;
   initial_capital: number;
+  // Extended risk/quality metrics (optional for backward compat with cached results)
+  recovery_factor?: number;
+  sqn?: number;
+  avg_win_pct?: number;
+  avg_loss_pct?: number;
+  avg_win_loss_ratio?: number;
+  max_consecutive_wins?: number;
+  max_consecutive_losses?: number;
 };
 
 export type FeatureStats = {

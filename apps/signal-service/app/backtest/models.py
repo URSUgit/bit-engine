@@ -122,6 +122,14 @@ class PerformanceMetrics(BaseModel):
     exposure_pct: float
     final_equity: float
     initial_capital: float
+    # Extended risk/quality metrics
+    recovery_factor: float = 0.0          # total_return / max_drawdown
+    sqn: float = 0.0                      # System Quality Number = sqrt(n) * mean/std of pnl_pct
+    avg_win_pct: float = 0.0             # average winning trade %
+    avg_loss_pct: float = 0.0            # average losing trade %
+    avg_win_loss_ratio: float = 0.0      # avg_win / abs(avg_loss)
+    max_consecutive_wins: int = 0
+    max_consecutive_losses: int = 0
 
 
 class FeatureStats(BaseModel):

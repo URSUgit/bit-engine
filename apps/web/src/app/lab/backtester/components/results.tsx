@@ -160,6 +160,7 @@ export function MetricsGrid({ result }: { result: BacktestResult }) {
           )}
         </div>
       </div>
+      {/* Primary metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <MetricCard label="Total return" value={fmtPct(m.total_return_pct)} positive={m.total_return_pct >= 0} />
         <MetricCard label="CAGR" value={fmtPct(m.cagr_pct)} positive={m.cagr_pct >= 0} />
@@ -174,6 +175,46 @@ export function MetricsGrid({ result }: { result: BacktestResult }) {
         <MetricCard label="Avg trade" value={fmtPct(m.avg_trade_pnl_pct)} positive={m.avg_trade_pnl_pct >= 0} />
         <MetricCard label="Final equity" value={`$${m.final_equity.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} positive={m.final_equity > m.initial_capital} />
       </div>
+
+      {/* Extended quality metrics */}
+      {(m.recovery_factor !== undefined || m.sqn !== undefined) && (
+        <div className="mt-3 pt-3 border-t border-zinc-800">
+          <div className="text-[10px] uppercase tracking-wide text-zinc-600 mb-2">Risk &amp; Quality</div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {m.recovery_factor !== undefined && (
+              <MetricCard label="Recovery factor" value={m.recovery_factor.toFixed(2)} positive={m.recovery_factor >= 1} />
+            )}
+            {m.sqn !== undefined && (
+              <MetricCard
+                label="SQN"
+                value={m.sqn.toFixed(2)}
+                positive={m.sqn >= 1.6}
+                tooltip="System Quality Number — √n × mean_pnl / std_pnl. >1.6 good, >2.5 excellent"
+              />
+            )}
+            {m.avg_win_pct !== undefined && m.avg_loss_pct !== undefined && (
+              <MetricCard
+                label="Avg win / loss"
+                value={`${fmtPct(m.avg_win_pct)} / ${m.avg_loss_pct.toFixed(2)}%`}
+                positive={Math.abs(m.avg_win_pct) > Math.abs(m.avg_loss_pct)}
+              />
+            )}
+            {m.avg_win_loss_ratio !== undefined && (
+              <MetricCard label="Win/Loss ratio" value={m.avg_win_loss_ratio.toFixed(2)} positive={m.avg_win_loss_ratio >= 1.5} />
+            )}
+            {m.max_consecutive_wins !== undefined && m.max_consecutive_losses !== undefined && (
+              <MetricCard
+                label="Max streak W/L"
+                value={`${m.max_consecutive_wins} / ${m.max_consecutive_losses}`}
+                positive={m.max_consecutive_wins >= m.max_consecutive_losses}
+              />
+            )}
+            <MetricCard label="Exposure" value={`${m.exposure_pct.toFixed(1)}%`} positive muted />
+            <MetricCard label="Best / Worst trade" value={`${fmtPct(m.best_trade_pct)} / ${m.worst_trade_pct.toFixed(2)}%`} positive={m.best_trade_pct > 0} />
+            <MetricCard label="Avg duration" value={`${m.avg_trade_duration_bars.toFixed(1)} bars`} positive muted />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -182,11 +223,15 @@ function fmtPct(n: number): string {
   return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
 }
 
-function MetricCard({ label, value, positive, muted }: { label: string; value: string; positive: boolean; muted?: boolean }) {
+function MetricCard({ label, value, positive, muted, tooltip }: {
+  label: string; value: string; positive: boolean; muted?: boolean; tooltip?: string;
+}) {
   const color = muted ? "text-zinc-400" : positive ? "text-emerald-400" : "text-red-400";
   return (
-    <div className="bg-zinc-950 border border-zinc-800 rounded p-3">
-      <div className="text-[10px] uppercase tracking-wide text-zinc-500">{label}</div>
+    <div className="bg-zinc-950 border border-zinc-800 rounded p-3" title={tooltip}>
+      <div className="text-[10px] uppercase tracking-wide text-zinc-500">
+        {label}{tooltip && <span className="ml-1 text-zinc-600 cursor-help">?</span>}
+      </div>
       <div className={`text-lg font-semibold mt-1 ${color}`}>{value}</div>
     </div>
   );
