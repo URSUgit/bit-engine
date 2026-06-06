@@ -113,7 +113,7 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
       const r = await backtestApi.seedDemo({
         symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"],
         intervals: ["1d", "4h", "1h"],
-        days: 365,
+        days: 730,
       });
       setSeedResult(`Seeded ${r.total_bars.toLocaleString()} bars for ${r.seeded.map((s) => s.symbol).filter((v, i, a) => a.indexOf(v) === i).join(", ")}`);
       await fetchCache();

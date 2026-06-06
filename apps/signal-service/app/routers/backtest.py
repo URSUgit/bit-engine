@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
@@ -378,13 +379,15 @@ async def clear_cached_symbol(symbol: str, interval: Optional[str] = Query(None)
 # ── Demo-data seed ─────────────────────────────────────────────────────────────
 
 # Per-symbol GBM parameters: (start_price, annual_vol, annual_drift, base_volume)
+# Volatility is deliberately conservative (≈ historical realized vol) so GBM
+# paths don't collapse over 2-year windows with unlucky seeds.
 _SYMBOL_PARAMS: dict[str, tuple[float, float, float, float]] = {
-    "BTCUSDT": (42_000.0, 0.75, 0.50, 28_000.0),
-    "ETHUSDT": ( 2_200.0, 0.85, 0.55, 150_000.0),
-    "SOLUSDT": (    95.0, 1.10, 0.60, 2_000_000.0),
-    "BNBUSDT": (   310.0, 0.65, 0.40, 500_000.0),
+    "BTCUSDT": (42_000.0, 0.55, 0.30, 28_000.0),
+    "ETHUSDT": ( 2_200.0, 0.65, 0.28, 150_000.0),
+    "SOLUSDT": (    95.0, 0.75, 0.25, 2_000_000.0),
+    "BNBUSDT": (   310.0, 0.50, 0.22, 500_000.0),
 }
-_DEFAULT_PARAMS = (100.0, 0.80, 0.30, 100_000.0)
+_DEFAULT_PARAMS = (100.0, 0.55, 0.20, 100_000.0)
 
 # Bar duration in days for each interval label
 _INTERVAL_DT_DAYS: dict[str, float] = {
@@ -410,28 +413,36 @@ _INTERVAL_SECS: dict[str, int] = {
 class SeedDemoRequest(BaseModel):
     symbols: list[str] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]
     intervals: list[str] = ["1d", "4h", "1h"]
-    days: int = 365
+    # Generate bars covering the last N days ending at now, so the default
+    # UI date-range (today − periodDays) always lands inside the seeded window.
+    days: int = 730
+    clear_existing: bool = True
 
 
-def _generate_gbm_bars(symbol: str, interval: str, days: int, seed: int = 42) -> list:
+def _generate_gbm_bars(symbol: str, interval: str, days: int) -> list:
     """Generate synthetic OHLCV bars using Geometric Brownian Motion.
 
+    Anchor: bars end at *now* and extend `days` backward, so the seeded
+    data always covers the most-recent date-range the UI requests.
+
     Uses standard GBM discretization:
-      price[t+1] = price[t] * exp((drift - vol²/2) * dt + vol * sqrt(dt) * Z)
-    where drift and vol are annual rates and dt is the bar duration in years.
+      price[t+1] = price[t] * exp((drift - vol²/2)*dt + vol*sqrt(dt)*Z)
+    where drift and vol are annualised rates and dt is the bar duration in years.
+    A price floor of 15 % of start_price prevents degenerate near-zero paths.
     """
     from app.backtest.models import Bar
 
     start_price, vol, drift, base_vol = _SYMBOL_PARAMS.get(symbol, _DEFAULT_PARAMS)
     dt_days = _INTERVAL_DT_DAYS.get(interval, 1.0)
-    # dt in years — the natural unit for annual drift/vol parameters
     dt = dt_days / 365.0
     bar_secs = _INTERVAL_SECS.get(interval, 86_400)
     n_bars = int(days / dt_days)
 
+    # Deterministic seed per (symbol, interval) via hashlib so the same data
+    # is produced across Python processes regardless of PYTHONHASHSEED.
+    seed = int(hashlib.md5(f"{symbol}_{interval}".encode()).hexdigest()[:8], 16) % 999_983
     rng = np.random.default_rng(seed)
 
-    # Log-normal price path: drift and vol are annual, dt is in years
     noise = rng.standard_normal(n_bars)
     log_returns = (drift - 0.5 * vol ** 2) * dt + vol * np.sqrt(dt) * noise
     price_path = np.empty(n_bars + 1)
@@ -439,29 +450,32 @@ def _generate_gbm_bars(symbol: str, interval: str, days: int, seed: int = 42) ->
     np.cumprod(np.exp(log_returns), out=price_path[1:])
     price_path[1:] *= start_price
 
-    # Bar-level wick and volume noise
-    wick_noise = np.abs(rng.normal(0.0, 0.008, n_bars))
-    vol_noise = np.abs(rng.normal(0.0, 0.6, n_bars))
+    # Enforce a floor so no bar ever drops below 15 % of the opening price.
+    floor = start_price * 0.15
+    np.maximum(price_path, floor, out=price_path)
 
-    # Anchor at 2024-01-01 so bars fall in the typical backtest range
-    anchor_ts = int(datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp())
+    wick_noise = np.abs(rng.normal(0.0, 0.008, n_bars))
+    vol_noise  = np.abs(rng.normal(0.0, 0.6,   n_bars))
+
+    # Anchor at (now − days) so bars end at approximately today.
+    anchor = datetime.now(timezone.utc) - timedelta(days=days)
+    anchor_ts = int(anchor.timestamp())
 
     bars = []
     for i in range(n_bars):
-        open_price = float(price_path[i])
+        open_price  = float(price_path[i])
         close_price = float(price_path[i + 1])
-        # Guard against degenerate values (should not occur with normal GBM params)
         if open_price <= 0 or close_price <= 0:
             continue
-        high = max(open_price, close_price) * (1.0 + wick_noise[i])
-        low  = min(open_price, close_price) * (1.0 - wick_noise[i])
+        high   = max(open_price, close_price) * (1.0 + wick_noise[i])
+        low    = min(open_price, close_price) * (1.0 - wick_noise[i])
         volume = base_vol * (0.5 + vol_noise[i])
         ts = anchor_ts + int(i * bar_secs)
         bars.append(Bar(
             timestamp=datetime.fromtimestamp(ts, tz=timezone.utc).replace(tzinfo=None),
-            open=round(open_price, 8),
-            high=round(high, 8),
-            low=round(low, 8),
+            open=round(open_price,  8),
+            high=round(high,        8),
+            low=round(low,          8),
             close=round(close_price, 8),
             volume=round(volume, 2),
         ))
@@ -470,7 +484,15 @@ def _generate_gbm_bars(symbol: str, interval: str, days: int, seed: int = 42) ->
 
 @router.post("/seed-demo")
 async def seed_demo(req: SeedDemoRequest):
-    """Seed the DuckDB bar cache with synthetic GBM data for demo/testing."""
+    """Seed the DuckDB bar cache with synthetic GBM data for demo/testing.
+
+    By default clears *all* existing bars for the requested symbols first so
+    stale data from previous sessions never pollutes the new seed.
+    """
+    if req.clear_existing:
+        for symbol in req.symbols:
+            await asyncio.to_thread(bar_storage.delete_bars, symbol)
+
     seeded = []
     total_bars = 0
     for symbol in req.symbols:
