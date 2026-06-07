@@ -434,6 +434,7 @@ export default function BacktesterPage() {
             initialCapital={initialCapital}
             commissionPct={commissionPct}
             slippagePct={slippagePct}
+            positionPct={positionPct}
             onSelectStrategy={(name) => {
               setStrategyName(name);
               setMode("single");

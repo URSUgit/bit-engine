@@ -3,6 +3,7 @@ from .base import Strategy, StrategyContext
 from .rsi import RSIStrategy
 from .buyhold import BuyHoldStrategy
 from .ma_cross import MACrossStrategy
+from .macd import MACDStrategy
 from .momentum import MomentumStrategy
 from .bollinger import BollingerStrategy
 from .oracle_scalper import OracleScalperStrategy
@@ -17,6 +18,7 @@ STRATEGIES: dict[str, type[Strategy]] = {
     "rsi": RSIStrategy,
     "buy_and_hold": BuyHoldStrategy,
     "ma_cross": MACrossStrategy,
+    "macd": MACDStrategy,
     "momentum": MomentumStrategy,
     "bollinger": BollingerStrategy,
     "oracle_scalper": OracleScalperStrategy,
