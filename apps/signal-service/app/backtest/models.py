@@ -179,6 +179,7 @@ class BacktestResult(BaseModel):
     friction_breakdown: Optional[dict] = None  # commission/slippage/spread/funding breakdown
     anomalies: Optional[list[dict]] = None     # detected market anomalies
     short_trades: int = 0                      # number of short trades executed
+    benchmark: Optional[BacktestResult] = None  # buy-and-hold benchmark comparison
 
 
 class StrategyInfo(BaseModel):

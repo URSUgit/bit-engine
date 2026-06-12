@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from app.limiter import limiter
 
 from app.backtest import HistoricalDataLoader
+from app.backtest.cache import backtest_cache
 from app.backtest.data import SYMBOL_CATALOG, all_symbols
 from app.backtest.engine import run_backtest
 from app.backtest.history import backtest_history
@@ -80,8 +81,49 @@ async def list_intervals():
 @limiter.limit("20/minute")
 async def run(request: Request, params: BacktestParams):
     """Execute a backtest. Returns full result with metrics, trades, equity curve."""
+    # Build cache key from deterministic params
+    _cache_fields = [
+        "symbol", "strategy", "start_date", "end_date", "interval",
+        "initial_capital", "commission_pct", "slippage_pct",
+        "position_size_pct", "strategy_params", "spread_bps",
+        "leverage", "enable_market_impact", "use_funding_rates",
+    ]
+    cache_key = {f: getattr(params, f, None) for f in _cache_fields}
+
+    cached = backtest_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     try:
-        return await run_backtest(params)
+        # Run main strategy and buy-and-hold benchmark in parallel
+        bh_params = BacktestParams(
+            symbol=params.symbol,
+            strategy="buy_and_hold",
+            start_date=params.start_date,
+            end_date=params.end_date,
+            interval=params.interval,
+            initial_capital=params.initial_capital,
+            commission_pct=params.commission_pct,
+            slippage_pct=params.slippage_pct,
+            position_size_pct=1.0,
+            strategy_params={},
+            spread_bps=params.spread_bps,
+            leverage=1.0,
+            enable_market_impact=params.enable_market_impact,
+            use_funding_rates=params.use_funding_rates,
+        )
+
+        if params.strategy == "buy_and_hold":
+            result = await run_backtest(params)
+        else:
+            result, bh_result = await asyncio.gather(
+                run_backtest(params),
+                run_backtest(bh_params),
+            )
+            result.benchmark = bh_result
+
+        backtest_cache.set(cache_key, result)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -150,6 +192,25 @@ async def run_stream(request: Request, params: BacktestParams):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ── Result cache management ───────────────────────────────────────────────────
+
+@router.get("/result-cache/stats")
+async def result_cache_stats():
+    """Return LRU backtest result cache statistics."""
+    return {
+        "size": backtest_cache.size,
+        "max_size": backtest_cache._max,
+        "ttl_seconds": backtest_cache._ttl,
+    }
+
+
+@router.delete("/result-cache")
+async def clear_result_cache():
+    """Clear the LRU backtest result cache."""
+    backtest_cache.invalidate()
+    return {"cleared": True}
 
 
 # ── Multi-pair comparison ──────────────────────────────────────────────────────
