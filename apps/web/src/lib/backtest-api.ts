@@ -515,6 +515,31 @@ export async function* runBacktestStream(
   }
 }
 
+export type MonteCarloResult = {
+  n_simulations: number;
+  initial_capital: number;
+  p5_equity: number;
+  p25_equity: number;
+  p50_equity: number;
+  p75_equity: number;
+  p95_equity: number;
+  p5_max_dd: number;
+  p50_max_dd: number;
+  p95_max_dd: number;
+  ruin_probability: number;
+  positive_probability: number;
+  equity_band: {
+    step: number;
+    p5: number;
+    p25: number;
+    p50: number;
+    p75: number;
+    p95: number;
+  }[];
+  expected_final_equity: number;
+  std_final_equity: number;
+};
+
 export const backtestApi = {
   symbols: (category?: string) => {
     const q = category ? `?category=${category}` : "";
@@ -671,4 +696,15 @@ export const backtestApi = {
       "/api/v1/backtest/seed-demo",
       { method: "POST", body: JSON.stringify(req ?? {}) },
     ),
+
+  // ── Monte Carlo ───────────────────────────────────────────────────────────
+  monteCarlo: (
+    trades: Trade[],
+    initial_capital: number,
+    n_simulations = 1000,
+  ) =>
+    call<MonteCarloResult>("/api/v1/backtest/monte_carlo", {
+      method: "POST",
+      body: JSON.stringify({ trades, initial_capital, n_simulations }),
+    }),
 };

@@ -33,9 +33,10 @@ import { DataStatusTab } from "./components/data-status";
 import { StrategyScannerView } from "./components/strategy-scanner";
 import { BacktesterChat } from "./components/chat-panel";
 import { KeyboardShortcutsLayer } from "./components/keyboard-shortcuts";
+import { MonteCarloPanel } from "./components/monte-carlo";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data"];
 
@@ -921,10 +922,11 @@ function ModeTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void 
 // ─── Result view components ───────────────────────────────────────────────────
 
 function ResultTabs({
-  active, onChange, hasFriction, hasAnomalies, hasAnalysis, hasMonthly,
+  active, onChange, hasFriction, hasAnomalies, hasAnalysis, hasMonthly, hasMonteCarlo,
 }: {
   active: ResultTab; onChange: (t: ResultTab) => void;
   hasFriction: boolean; hasAnomalies: boolean; hasAnalysis: boolean; hasMonthly: boolean;
+  hasMonteCarlo: boolean;
 }) {
   const tabs: { value: ResultTab; label: string }[] = [
     { value: "charts", label: "Charts" },
@@ -934,6 +936,7 @@ function ResultTabs({
     ...(hasAnalysis ? [{ value: "analysis" as ResultTab, label: "Analysis" }] : []),
     ...(hasFriction ? [{ value: "friction" as ResultTab, label: "Friction" }] : []),
     ...(hasAnomalies ? [{ value: "anomalies" as ResultTab, label: "Anomalies" }] : []),
+    ...(hasMonteCarlo ? [{ value: "montecarlo" as ResultTab, label: "Monte Carlo" }] : []),
   ];
   return (
     <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
@@ -1099,6 +1102,8 @@ function SingleResultsView({
   setResultTab: (t: ResultTab) => void;
   autoRunPending: boolean;
 }) {
+  const hasMonteCarlo = !!(result && result.trades.length >= 5);
+
   return (
     <>
       <MetadataPanel symbol={symbol} />
@@ -1131,6 +1136,7 @@ function SingleResultsView({
               hasAnomalies={!!(result.anomalies && result.anomalies.length > 0)}
               hasAnalysis={!!result.entry_analysis}
               hasMonthly={result.trades.length > 0}
+              hasMonteCarlo={hasMonteCarlo}
             />
             <ExportMenu result={result} />
           </div>
@@ -1157,6 +1163,9 @@ function SingleResultsView({
           )}
           {resultTab === "anomalies" && result.anomalies && (
             <AnomaliesPanel anomalies={result.anomalies} />
+          )}
+          {resultTab === "montecarlo" && hasMonteCarlo && (
+            <MonteCarloPanel result={result} />
           )}
         </div>
       )}

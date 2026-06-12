@@ -1004,3 +1004,39 @@ async def ingest_control(req: IngestControlRequest):
         if not added:
             raise HTTPException(status_code=400, detail=f"{req.symbol} is not a supported live symbol")
     return live_ingester.status()
+
+
+# ── Monte Carlo simulation ─────────────────────────────────────────────────────
+
+class MonteCarloRequest(BaseModel):
+    trades: list[dict]
+    initial_capital: float
+    n_simulations: int = 1000
+
+
+@router.post("/monte_carlo")
+async def monte_carlo(req: MonteCarloRequest):
+    """Run Monte Carlo simulation: randomize trade order N times to show outcome distribution."""
+    from dataclasses import asdict
+    from app.backtest.monte_carlo import run_monte_carlo
+
+    n_sims = min(req.n_simulations, 5000)
+    if req.initial_capital <= 0:
+        raise HTTPException(status_code=400, detail="initial_capital must be > 0")
+
+    # Validate that trades have a 'pnl' field
+    for i, t in enumerate(req.trades):
+        if "pnl" not in t:
+            raise HTTPException(status_code=400, detail=f"Trade at index {i} missing 'pnl' field")
+
+    try:
+        result = await asyncio.to_thread(
+            run_monte_carlo,
+            req.trades,
+            req.initial_capital,
+            n_sims,
+        )
+        return asdict(result)
+    except Exception as e:
+        log.error("Monte Carlo failed", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Simulation failed: {e}")
