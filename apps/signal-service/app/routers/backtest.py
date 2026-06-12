@@ -1040,3 +1040,226 @@ async def monte_carlo(req: MonteCarloRequest):
     except Exception as e:
         log.error("Monte Carlo failed", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Simulation failed: {e}")
+
+
+# ── Live Forward Test ──────────────────────────────────────────────────────────
+
+# Default prices when no cached bar is found for a symbol
+_FT_DEFAULT_PRICES: dict[str, float] = {
+    "BTCUSDT": 42000.0,
+    "ETHUSDT": 2200.0,
+    "SOLUSDT": 95.0,
+    "BNBUSDT": 310.0,
+}
+_FT_DEFAULT_PRICE = 100.0
+
+# Forward-test GBM parameters per interval
+_FT_ANNUAL_VOL: dict[str, float] = {"1d": 0.55, "4h": 0.55, "1h": 0.55}
+_FT_BARS_PER_YEAR: dict[str, int] = {"1d": 365, "4h": 365 * 6, "1h": 365 * 24}
+_FT_BAR_SECS: dict[str, int] = {"1d": 86_400, "4h": 14_400, "1h": 3_600}
+
+
+def _next_gbm_bar(last_price: float, interval: str, last_ts: int) -> dict:
+    """Generate one synthetic GBM bar anchored to last_price using GBM."""
+    import math as _math
+    annual_vol = _FT_ANNUAL_VOL.get(interval, 0.55)
+    n_bars = _FT_BARS_PER_YEAR.get(interval, 365)
+    bar_secs = _FT_BAR_SECS.get(interval, 86_400)
+    dt = 1.0 / n_bars
+    vol = annual_vol * _math.sqrt(dt)
+    drift = 0.0001
+    ret = (drift - vol ** 2 / 2) * dt + vol * np.random.randn()
+    close = max(last_price * _math.exp(ret), last_price * 0.01)
+    high = close * (1 + abs(np.random.normal(0, 0.003)))
+    low = close * (1 - abs(np.random.normal(0, 0.003)))
+    low = min(low, close)
+    high = max(high, close)
+    return {
+        "open": last_price,
+        "high": round(high, 8),
+        "low": round(low, 8),
+        "close": round(close, 8),
+        "volume": 1000.0,
+        "ts": last_ts + bar_secs,
+    }
+
+
+@router.get("/forward_test_stream")
+async def forward_test_stream(
+    symbol: str = "BTCUSDT",
+    strategy: str = "rsi",
+    interval: str = "1d",
+    initial_capital: float = 10000.0,
+    commission_pct: float = 0.001,
+    slippage_pct: float = 0.0005,
+    position_size_pct: float = 0.25,
+    speed: int = 1,
+    params_json: str = "{}",
+):
+    """
+    Live Forward Test: streams synthetic GBM bars one-by-one via SSE, running
+    the chosen strategy bar-by-bar and emitting equity updates in real time.
+
+    Events:
+      {type:"bar", bar_num, timestamp, close, signal, equity, position, total_return_pct}
+      {type:"done"}
+    """
+    if strategy not in STRATEGIES:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=400,
+            content={"detail": f"Unknown strategy '{strategy}'"},
+        )
+
+    try:
+        strategy_params = json.loads(params_json)
+    except Exception:
+        strategy_params = {}
+
+    # ── 1. Find last known price from storage for warmup ───────────────────
+    meta = bar_storage.get_meta(symbol, interval)
+    last_price: float = _FT_DEFAULT_PRICES.get(symbol, _FT_DEFAULT_PRICE)
+    warmup_bars: list = []
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    current_ts = now_ts
+
+    if meta and meta.get("latest_ts"):
+        latest_ts = int(meta["latest_ts"])
+        bar_secs = _FT_BAR_SECS.get(interval, 86_400)
+        # Pull up to 250 warmup bars so indicators have enough history
+        start_ts = latest_ts - 250 * bar_secs
+        warmup_bars = bar_storage.get_bars(symbol, interval, start_ts, latest_ts)
+        if warmup_bars:
+            last_price = warmup_bars[-1].close
+            current_ts = warmup_bars[-1].ts
+
+    # ── 2. Instantiate strategy and warm up with historical bars ───────────
+    strategy_cls = STRATEGIES[strategy]
+    strat = strategy_cls(**strategy_params)
+    if warmup_bars:
+        strat.prepare(warmup_bars)
+
+    # ── 3. Set up position/equity tracker ─────────────────────────────────
+    from app.backtest.models import Bar as BacktestBar, Position
+    from datetime import datetime as _dt
+    from app.backtest.strategies.base import StrategyContext
+
+    MAX_BARS = 500
+    speed_clamped = max(1, min(speed, 50))
+
+    cash = initial_capital
+    position: "Optional[Position]" = None
+    bar_history = list(warmup_bars)
+
+    def _mark_equity(close: float) -> float:
+        if position is None:
+            return cash
+        if position.side == "long":
+            return cash + position.size * close
+        pnl = (position.entry_price - close) * position.size
+        return cash + position.cost + pnl
+
+    def _enter(close: float, bar: "BacktestBar") -> None:
+        nonlocal cash, position
+        if position is not None or cash <= 0:
+            return
+        allocation = cash * position_size_pct
+        fill = close * (1 + slippage_pct)
+        if fill <= 0:
+            return
+        units = allocation / (fill * (1 + commission_pct))
+        cost = units * fill
+        fee = cost * commission_pct
+        total = cost + fee
+        if total > cash:
+            units = cash / (fill * (1 + commission_pct))
+            cost = units * fill
+            fee = cost * commission_pct
+            total = cost + fee
+        if units <= 0:
+            return
+        cash -= total
+        position = Position(
+            symbol=symbol, side="long",
+            entry_price=fill, entry_time=bar.timestamp,
+            size=units, cost=total,
+        )
+
+    def _exit(close: float) -> None:
+        nonlocal cash, position
+        if position is None:
+            return
+        fill = close * (1 - slippage_pct)
+        gross = position.size * fill
+        fee = gross * commission_pct
+        cash += gross - fee
+        position = None
+
+    # ── 4. SSE event generator ─────────────────────────────────────────────
+    async def event_gen():
+        nonlocal cash, position, bar_history, current_ts, last_price
+
+        for bar_num in range(1, MAX_BARS + 1):
+            await asyncio.sleep(1.0 / speed_clamped)
+
+            # Generate next synthetic bar via GBM
+            gbm = _next_gbm_bar(last_price, interval, current_ts)
+            current_ts = gbm["ts"]
+            last_price = gbm["close"]
+
+            new_bar = BacktestBar(
+                timestamp=_dt.fromtimestamp(current_ts),
+                open=gbm["open"],
+                high=gbm["high"],
+                low=gbm["low"],
+                close=gbm["close"],
+                volume=gbm["volume"],
+            )
+            bar_history.append(new_bar)
+
+            # Rolling window of at most 500 bars passed to strategy
+            history_window = bar_history[-500:]
+
+            # Run strategy signal
+            ctx = StrategyContext(history=history_window, position=position)
+            signal = strat.on_bar(ctx)
+
+            # Execute fills at bar close price
+            if signal == "buy" and position is None:
+                _enter(gbm["close"], new_bar)
+            elif signal in ("sell", "close") and position is not None:
+                _exit(gbm["close"])
+
+            equity = _mark_equity(gbm["close"])
+            total_return_pct = (equity - initial_capital) / initial_capital * 100
+
+            pos_dict = None
+            if position is not None:
+                pnl_usd = (gbm["close"] - position.entry_price) * position.size
+                pnl_pct = pnl_usd / position.cost * 100 if position.cost > 0 else 0.0
+                pos_dict = {
+                    "entry_price": round(position.entry_price, 6),
+                    "size": round(position.size, 8),
+                    "pnl": round(pnl_usd, 2),
+                    "pnl_pct": round(pnl_pct, 2),
+                }
+
+            event_dict = {
+                "type": "bar",
+                "bar_num": bar_num,
+                "timestamp": current_ts,
+                "close": round(gbm["close"], 6),
+                "signal": signal,
+                "equity": round(equity, 2),
+                "position": pos_dict,
+                "total_return_pct": round(total_return_pct, 4),
+            }
+            yield f"data: {json.dumps(event_dict)}\n\n"
+
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

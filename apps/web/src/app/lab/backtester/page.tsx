@@ -34,11 +34,10 @@ import { StrategyScannerView } from "./components/strategy-scanner";
 import { BacktesterChat } from "./components/chat-panel";
 import { KeyboardShortcutsLayer } from "./components/keyboard-shortcuts";
 import { MonteCarloPanel } from "./components/monte-carlo";
+import { ForwardTest } from "./components/forward-test";
 
-type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals";
+type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward";
 type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo";
-
-const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data"];
 
 export default function BacktesterPage() {
   const [mode, setMode] = useState<Mode>("single");
@@ -102,11 +101,6 @@ export default function BacktesterPage() {
   const [progress, setProgress] = useState<StreamProgressEvent | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
-
-  // Auto-run on param change
-  const [autoRun, setAutoRun] = useState(false);
-  const [autoRunPending, setAutoRunPending] = useState(false);
-  const autoRunTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load symbols + strategies on mount
   useEffect(() => {
@@ -190,18 +184,6 @@ export default function BacktesterPage() {
     () => Array.from(new Set(symbols.map((s) => s.category))),
     [symbols],
   );
-
-  // Auto-run debounce — fires runSingle() 450ms after params change when autoRun is enabled
-  useEffect(() => {
-    if (!autoRun || mode !== "single" || running) return;
-    setAutoRunPending(true);
-    if (autoRunTimer.current) clearTimeout(autoRunTimer.current);
-    autoRunTimer.current = setTimeout(() => {
-      setAutoRunPending(false);
-      runSingle();
-    }, 450);
-    return () => { if (autoRunTimer.current) clearTimeout(autoRunTimer.current); };
-  }, [strategyParams, interval, periodDays, autoRun, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Run handlers ──────────────────────────────────────────────────────
 
@@ -421,23 +403,11 @@ export default function BacktesterPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-50 p-6">
       <div className="max-w-7xl mx-auto space-y-6">
-        <header className="border-b border-zinc-800 pb-4 flex items-start justify-between">
-          <div>
-            <h1 className="text-3xl font-semibold">Backtester</h1>
-            <p className="text-zinc-400 text-sm mt-1">
-              {symbols.length} pairs · {strategies.length} strategies · 10+ years of daily data · second-granular for crypto
-            </p>
-          </div>
-          <button
-            onClick={() => {
-              // Dispatch a synthetic "?" keydown so KeyboardShortcutsLayer handles it
-              window.dispatchEvent(new KeyboardEvent("keydown", { key: "?", bubbles: true }));
-            }}
-            className="mt-1 px-2 py-1 rounded border border-zinc-700 text-xs text-zinc-500 hover:text-zinc-200 hover:border-zinc-500 transition font-mono"
-            title="Keyboard shortcuts"
-          >
-            ?
-          </button>
+        <header className="border-b border-zinc-800 pb-4">
+          <h1 className="text-3xl font-semibold">Backtester</h1>
+          <p className="text-zinc-400 text-sm mt-1">
+            {symbols.length} pairs · {strategies.length} strategies · 10+ years of daily data · second-granular for crypto
+          </p>
         </header>
 
         <ModeTabs mode={mode} onChange={setMode} />
@@ -514,6 +484,19 @@ export default function BacktesterPage() {
                 interval={interval}
               />
             </main>
+          </div>
+        ) : mode === "forward" ? (
+          <div className="max-w-4xl mx-auto">
+            <ForwardTest
+              symbol={singleSymbol}
+              strategy={strategyName}
+              strategyParams={strategyParams}
+              interval={interval}
+              initialCapital={initialCapital}
+              commissionPct={commissionPct}
+              slippagePct={slippagePct}
+              positionPct={positionPct}
+            />
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
@@ -664,44 +647,16 @@ export default function BacktesterPage() {
                 )}
               </div>
 
-              {mode === "single" && (
-                <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer select-none">
-                  <div
-                    onClick={() => setAutoRun(a => !a)}
-                    className={`relative w-8 h-4 rounded-full transition-colors cursor-pointer ${autoRun ? 'bg-cyan-500' : 'bg-zinc-700'}`}
-                  >
-                    <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all ${autoRun ? 'left-4' : 'left-0.5'}`} />
-                  </div>
-                  Auto-run on param change
-                </label>
-              )}
-
-              <div className="relative">
-                <button
-                  onClick={onRun}
-                  disabled={running || stratCompareRunning}
-                  className={`w-full py-3 rounded-md font-semibold transition text-zinc-950 ${
-                    running || stratCompareRunning
-                      ? "bg-zinc-700 text-zinc-500"
-                      : autoRunPending
-                      ? "bg-cyan-500/80 hover:bg-cyan-400 animate-pulse"
-                      : "bg-cyan-500 hover:bg-cyan-400"
-                  }`}
-                >
-                  {running
-                    ? (autoRun && mode === "single" ? "Updating…" : "Running…")
-                    : mode === "single"
-                    ? "Run Backtest"
-                    : mode === "compare"
-                    ? `Compare ${compareSymbols.length} pairs`
-                    : "Optimize Parameters"}
-                </button>
-                {autoRun && mode === "single" && !running && (
-                  <span className="absolute top-1 right-2 px-1.5 py-0.5 rounded text-[9px] font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 uppercase tracking-wide">
-                    Auto
-                  </span>
-                )}
-              </div>
+              <button
+                onClick={onRun}
+                disabled={running || stratCompareRunning}
+                className="w-full py-3 rounded-md bg-cyan-500 hover:bg-cyan-400 disabled:bg-zinc-700 disabled:text-zinc-500 text-zinc-950 font-semibold transition"
+              >
+                {running ? "Running…" :
+                 mode === "single" ? "Run Backtest" :
+                 mode === "compare" ? `Compare ${compareSymbols.length} pairs` :
+                 "Optimize Parameters"}
+              </button>
 
               {mode === "single" && (
                 <button
@@ -732,7 +687,6 @@ export default function BacktesterPage() {
                     elapsedMs={elapsedMs}
                     resultTab={resultTab}
                     setResultTab={setResultTab}
-                    autoRunPending={autoRunPending}
                   />
                   {(stratCompareRunning || stratCompareResults) && (
                     <StrategyComparisonTable
@@ -773,25 +727,6 @@ export default function BacktesterPage() {
           </div>
         )}
       </div>
-      <KeyboardShortcutsLayer
-        onRunBacktest={() => {
-          if (mode === "single") runSingle();
-          else if (mode === "compare") runCompare();
-          else if (mode === "optimize") runOptimize();
-        }}
-        onSwitchTab={(n) => {
-          const m = MODE_ORDER[n - 1];
-          if (m) setMode(m);
-        }}
-        onSwitchResultTab={(dir) => {
-          const RESULT_TABS: ResultTab[] = ["charts", "editor", "trades", "monthly", "analysis", "friction", "anomalies"];
-          setResultTab((prev) => {
-            const idx = RESULT_TABS.indexOf(prev);
-            const next = (idx + dir + RESULT_TABS.length) % RESULT_TABS.length;
-            return RESULT_TABS[next];
-          });
-        }}
-      />
     </div>
   );
 }
@@ -896,6 +831,7 @@ function ModeTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void 
     { value: "optimize", label: "Optimize", hint: "Find best parameters" },
     { value: "scan", label: "Scan", hint: "Best strategy finder" },
     { value: "signals", label: "Signals", hint: "Live signal feed" },
+    { value: "forward", label: "Forward", hint: "Live simulation" },
     { value: "history", label: "History", hint: "Past runs" },
     { value: "data", label: "Data", hint: "Cache · Custom symbols" },
   ];
@@ -1032,66 +968,9 @@ function AnomaliesPanel({ anomalies }: { anomalies: Anomaly[] }) {
   );
 }
 
-function ExportMenu({ result }: { result: BacktestResult }) {
-  const [open, setOpen] = useState(false);
-
-  function exportJSON() {
-    const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `backtest_${result.symbol}_${result.strategy}_${new Date().toISOString().slice(0,10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setOpen(false);
-  }
-
-  function exportCSV() {
-    const headers = ['entry_time','exit_time','side','entry_price','exit_price','pnl','pnl_pct','reason'];
-    const rows = result.trades.map(t => headers.map(h => t[h as keyof typeof t] ?? '').join(','));
-    const csv = [headers.join(','), ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `trades_${result.symbol}_${result.strategy}_${new Date().toISOString().slice(0,10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setOpen(false);
-  }
-
-  function copySummary() {
-    const m = result.metrics;
-    const text = `${result.strategy} on ${result.symbol}/${result.interval}: ${m.total_return_pct >= 0 ? '+' : ''}${m.total_return_pct.toFixed(2)}% return · Sharpe ${m.sharpe_ratio.toFixed(2)} · ${m.win_rate_pct.toFixed(1)}% win rate · ${m.total_trades} trades · Max DD -${m.max_drawdown_pct.toFixed(1)}%`;
-    navigator.clipboard.writeText(text);
-    setOpen(false);
-  }
-
-  return (
-    <div className="relative">
-      <button onClick={() => setOpen(o => !o)} className="px-3 py-1.5 rounded-md text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 transition">
-        Export ▾
-      </button>
-      {open && (
-        <div className="absolute right-0 top-full mt-1 w-44 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-10 py-1" onMouseLeave={() => setOpen(false)}>
-          {[
-            { label: 'Export JSON', fn: exportJSON },
-            { label: 'Export trades CSV', fn: exportCSV },
-            { label: 'Copy summary', fn: copySummary },
-          ].map(({ label, fn }) => (
-            <button key={label} onClick={fn} className="w-full text-left px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition">
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function SingleResultsView({
   symbol, result, running, progress, elapsedMs,
-  resultTab, setResultTab, autoRunPending,
+  resultTab, setResultTab,
 }: {
   symbol: string;
   result: BacktestResult | null;
@@ -1100,7 +979,6 @@ function SingleResultsView({
   elapsedMs: number;
   resultTab: ResultTab;
   setResultTab: (t: ResultTab) => void;
-  autoRunPending: boolean;
 }) {
   const hasMonteCarlo = !!(result && result.trades.length >= 5);
 
