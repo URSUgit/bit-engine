@@ -404,6 +404,31 @@ export type CacheStatus = {
   series: CachedSeries[];
 };
 
+export type WalkForwardFold = {
+  fold: number;
+  train_start: string;
+  train_end: string;
+  test_start: string;
+  test_end: string;
+  in_sample_return: number;
+  out_sample_return: number;
+  in_sample_sharpe: number;
+  out_sample_sharpe: number;
+  in_sample_trades: number;
+  out_sample_trades: number;
+};
+
+export type WalkForwardResult = {
+  folds: WalkForwardFold[];
+  avg_in_sample_sharpe: number;
+  avg_out_sample_sharpe: number;
+  avg_in_sample_return: number;
+  avg_out_sample_return: number;
+  degradation_ratio: number;
+  consistency_score: number;
+  overfitting_warning: boolean;
+};
+
 export type HistoryRow = {
   id: string;
   created_at: number;
@@ -706,5 +731,16 @@ export const backtestApi = {
     call<MonteCarloResult>("/api/v1/backtest/monte_carlo", {
       method: "POST",
       body: JSON.stringify({ trades, initial_capital, n_simulations }),
+    }),
+
+  // ── Walk-forward validation ────────────────────────────────────────────────
+  walkForward: (params: BacktestParams & {
+    n_splits?: number;
+    train_pct?: number;
+    anchored?: boolean;
+  }) =>
+    call<WalkForwardResult>("/api/v1/backtest/walk_forward", {
+      method: "POST",
+      body: JSON.stringify(params),
     }),
 };

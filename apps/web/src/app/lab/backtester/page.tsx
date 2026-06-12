@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";import {
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
   backtestApi,
   runBacktestStream,
   compareStream,
@@ -35,9 +36,10 @@ import { BacktesterChat } from "./components/chat-panel";
 import { MonteCarloPanel } from "./components/monte-carlo";
 import { ForwardTest } from "./components/forward-test";
 import { KeyboardShortcutsLayer } from "./components/keyboard-shortcuts";
+import { WalkForwardPanel } from "./components/walk-forward";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data"];
 
@@ -747,6 +749,14 @@ export default function BacktesterPage() {
                     resultTab={resultTab}
                     setResultTab={setResultTab}
                     autoRunPending={autoRunPending}
+                    strategy={strategyName}
+                    strategyParams={strategyParams}
+                    periodDays={periodDays}
+                    interval={interval}
+                    initialCapital={initialCapital}
+                    commissionPct={commissionPct}
+                    slippagePct={slippagePct}
+                    positionPct={positionPct}
                   />
                   {(stratCompareRunning || stratCompareResults) && (
                     <StrategyComparisonTable
@@ -951,6 +961,7 @@ function ResultTabs({
     ...(hasFriction ? [{ value: "friction" as ResultTab, label: "Friction" }] : []),
     ...(hasAnomalies ? [{ value: "anomalies" as ResultTab, label: "Anomalies" }] : []),
     ...(hasMonteCarlo ? [{ value: "montecarlo" as ResultTab, label: "Monte Carlo" }] : []),
+    { value: "walk_forward", label: "Walk-Forward" },
   ];
   return (
     <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
@@ -1106,6 +1117,8 @@ function ExportMenu({ result }: { result: BacktestResult }) {
 function SingleResultsView({
   symbol, result, running, progress, elapsedMs,
   resultTab, setResultTab, autoRunPending,
+  strategy, strategyParams, periodDays, interval,
+  initialCapital, commissionPct, slippagePct, positionPct,
 }: {
   symbol: string;
   result: BacktestResult | null;
@@ -1115,6 +1128,14 @@ function SingleResultsView({
   resultTab: ResultTab;
   setResultTab: (t: ResultTab) => void;
   autoRunPending: boolean;
+  strategy: string;
+  strategyParams: Record<string, number>;
+  periodDays: number;
+  interval: string;
+  initialCapital: number;
+  commissionPct: number;
+  slippagePct: number;
+  positionPct: number;
 }) {
   const hasMonteCarlo = !!(result && result.trades.length >= 5);
 
@@ -1180,6 +1201,19 @@ function SingleResultsView({
           )}
           {resultTab === "montecarlo" && hasMonteCarlo && (
             <MonteCarloPanel result={result} />
+          )}
+          {resultTab === "walk_forward" && (
+            <WalkForwardPanel
+              symbol={symbol}
+              strategy={strategy}
+              strategyParams={strategyParams}
+              periodDays={periodDays}
+              interval={interval}
+              initialCapital={initialCapital}
+              commissionPct={commissionPct}
+              slippagePct={slippagePct}
+              positionPct={positionPct}
+            />
           )}
         </div>
       )}

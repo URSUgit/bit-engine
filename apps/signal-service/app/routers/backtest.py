@@ -1263,3 +1263,91 @@ async def forward_test_stream(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ── Walk-forward validation ────────────────────────────────────────────────────
+
+class WalkForwardRequest(BacktestParams):
+    n_splits: int = 5
+    train_pct: float = 0.7
+    anchored: bool = False
+
+    class Config:
+        # Inherit BacktestParams validators
+        pass
+
+
+@router.post("/walk_forward")
+@limiter.limit("10/minute")
+async def walk_forward(request: Request, req: WalkForwardRequest):
+    """
+    Run walk-forward validation — splits historical data into N folds and
+    measures how well in-sample performance transfers to out-of-sample.
+
+    A degradation_ratio > 0.7 indicates genuine edge; < 0.5 suggests overfitting.
+    """
+    from app.backtest.walk_forward import run_walk_forward, WalkForwardResult
+    from app.backtest.engine import Backtest
+    from dataclasses import asdict
+
+    # Validate split params
+    if not (2 <= req.n_splits <= 10):
+        raise HTTPException(status_code=400, detail="n_splits must be between 2 and 10")
+    if not (0.5 <= req.train_pct <= 0.9):
+        raise HTTPException(status_code=400, detail="train_pct must be between 0.5 and 0.9")
+
+    if req.strategy not in STRATEGIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown strategy '{req.strategy}'. Available: {list(STRATEGIES)}",
+        )
+
+    try:
+        loader = HistoricalDataLoader()
+        bars = await loader.load(
+            symbol=req.symbol,
+            start_date=req.start_date,
+            end_date=req.end_date,
+            interval=req.interval,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Data load failed: {e}")
+
+    if len(bars) < 40:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient data for walk-forward: {len(bars)} bars (need ≥ 40).",
+        )
+
+    # Build an engine factory so each fold gets a fresh Backtest instance
+    def engine_factory() -> Backtest:
+        return Backtest(
+            initial_capital=req.initial_capital,
+            commission_pct=req.commission_pct,
+            slippage_pct=req.slippage_pct,
+            position_size_pct=req.position_size_pct,
+            spread_bps=getattr(req, "spread_bps", 0.0),
+            execution_latency_ms=getattr(req, "execution_latency_ms", 0),
+            enable_market_impact=getattr(req, "enable_market_impact", False),
+            use_funding_rates=False,  # skip funding for walk-forward speed
+        )
+
+    try:
+        result = await asyncio.to_thread(
+            run_walk_forward,
+            bars=bars,
+            engine_factory=engine_factory,
+            strategy_name=req.strategy,
+            strategy_params=req.strategy_params,
+            n_splits=req.n_splits,
+            train_pct=req.train_pct,
+            anchored=req.anchored,
+            symbol=req.symbol,
+            interval=req.interval,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Walk-forward failed: {e}")
+
+    return asdict(result)
