@@ -1454,7 +1454,6 @@ def _exec_strategy(code: str):
     from app.backtest.strategies.base import Strategy, StrategyContext
     from app.backtest.models import Bar, Signal
 
-    # Build a restricted builtins dict
     import builtins as _builtins
     safe_builtins = {
         k: v for k, v in vars(_builtins).items()
@@ -1481,7 +1480,6 @@ def _exec_strategy(code: str):
     except Exception as e:
         raise ValueError(f"Error loading strategy code: {e}") from e
 
-    # Find the first Strategy subclass defined by the user
     strat_cls = None
     for obj in namespace.values():
         try:
@@ -1520,7 +1518,6 @@ async def run_custom_strategy(req: CustomStrategyRequest):
             detail="Strategy code exceeds the 10,000-character limit.",
         )
 
-    # Exec and find the strategy class (may raise ValueError on bad code)
     try:
         strat_cls = await asyncio.to_thread(_exec_strategy, req.strategy_code)
     except ValueError as e:
@@ -1529,7 +1526,6 @@ async def run_custom_strategy(req: CustomStrategyRequest):
         log.error("Custom strategy exec failed", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Strategy execution error: {e}")
 
-    # Load historical data
     try:
         loader = HistoricalDataLoader()
         bars = await loader.load(
@@ -1550,9 +1546,8 @@ async def run_custom_strategy(req: CustomStrategyRequest):
             ),
         )
 
-    # Run backtest in a thread (CPU-bound)
     from app.backtest.engine import Backtest, _asset_class
-    from app.backtest.metrics import compute_metrics
+    from app.backtest.metrics import build_equity_curve, compute_metrics
     from app.backtest.models import TradeRecord
     from app.backtest.strategies import STRATEGIES as _STRATEGIES
 
@@ -1570,7 +1565,7 @@ async def run_custom_strategy(req: CustomStrategyRequest):
             slippage_pct=req.slippage_pct,
             position_size_pct=req.position_size_pct,
         )
-        trades, equity = bt.run(
+        trades, raw_equity = bt.run(
             bars, strategy,
             symbol=req.symbol,
             interval=req.interval,
@@ -1579,11 +1574,12 @@ async def run_custom_strategy(req: CustomStrategyRequest):
         asset_cls = _asset_class(req.symbol)
         metrics = compute_metrics(
             initial_capital=req.initial_capital,
-            equity=equity,
+            equity=raw_equity,
             trades=trades,
             interval=req.interval,
             asset_class=asset_cls,
         )
+        equity_curve = build_equity_curve(raw_equity)
 
         # Buy-and-hold benchmark
         bh_bt = Backtest(
@@ -1592,13 +1588,13 @@ async def run_custom_strategy(req: CustomStrategyRequest):
             slippage_pct=req.slippage_pct,
             position_size_pct=req.position_size_pct,
         )
-        bh_trades, bh_equity = bh_bt.run(
+        bh_trades, bh_raw_equity = bh_bt.run(
             bars, _STRATEGIES["buy_and_hold"](),
             symbol=req.symbol, interval=req.interval,
         )
         bench_metrics = compute_metrics(
             initial_capital=req.initial_capital,
-            equity=bh_equity,
+            equity=bh_raw_equity,
             trades=bh_trades,
             interval=req.interval,
             asset_class=asset_cls,
@@ -1631,14 +1627,7 @@ async def run_custom_strategy(req: CustomStrategyRequest):
                 )
                 for t in trades
             ],
-            equity_curve=[
-                {
-                    "t": int(p.timestamp.timestamp()),
-                    "equity": round(p.equity, 2),
-                    "drawdown_pct": round(p.drawdown_pct, 4),
-                }
-                for p in equity
-            ],
+            equity_curve=equity_curve,
             bars_processed=len(bars),
             runtime_ms=round(runtime_ms, 1),
             entry_analysis=None,
