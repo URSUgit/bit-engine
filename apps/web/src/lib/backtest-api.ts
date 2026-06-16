@@ -763,4 +763,21 @@ export const backtestApi = {
       method: "POST",
       body: JSON.stringify(params),
     }),
+
+  // ── Custom strategy (in-browser editor) ──────────────────────────────────
+  runCustomStrategy: (code: string, params: {
+    symbol: string;
+    start_date: string;
+    end_date: string;
+    interval: string;
+    initial_capital: number;
+    commission_pct: number;
+    slippage_pct: number;
+    position_size_pct: number;
+    strategy_params?: Record<string, number>;
+  }) =>
+    call<BacktestResult>("/api/v1/backtest/run_custom", {
+      method: "POST",
+      body: JSON.stringify({ strategy_code: code, ...params }),
+    }),
 };
