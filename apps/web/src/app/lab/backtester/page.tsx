@@ -38,11 +38,12 @@ import { ForwardTest } from "./components/forward-test";
 import { KeyboardShortcutsLayer } from "./components/keyboard-shortcuts";
 import { WalkForwardPanel } from "./components/walk-forward";
 import { CustomStrategyEditor } from "./components/custom-strategy-editor";
+import { PortfolioView } from "./components/portfolio-view";
 
-type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom";
+type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
 type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward";
 
-const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom"];
+const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio"];
 
 export default function BacktesterPage() {
   const [mode, setMode] = useState<Mode>("single");
@@ -549,6 +550,18 @@ export default function BacktesterPage() {
               }}
             />
           </div>
+        ) : mode === "portfolio" ? (
+          <div className="max-w-5xl mx-auto">
+            <PortfolioView
+              symbol={singleSymbol}
+              strategies={strategies}
+              periodDays={periodDays}
+              interval={interval}
+              initialCapital={initialCapital}
+              commissionPct={commissionPct}
+              slippagePct={slippagePct}
+            />
+          </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
             {/* ─── Control panel ─── */}
@@ -942,6 +955,7 @@ function ModeTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void 
     { value: "history", label: "History", hint: "Past runs" },
     { value: "data", label: "Data", hint: "Cache · Custom symbols" },
     { value: "custom", label: "Editor", hint: "Write your own strategy" },
+    { value: "portfolio", label: "Portfolio", hint: "Multi-strategy allocation" },
   ];
   return (
     <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">

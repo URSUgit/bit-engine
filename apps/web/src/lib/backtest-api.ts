@@ -780,4 +780,50 @@ export const backtestApi = {
       method: "POST",
       body: JSON.stringify({ strategy_code: code, ...params }),
     }),
+
+  // ── Portfolio multi-strategy run ──────────────────────────────────────────
+  portfolioRun: (req: PortfolioRunRequest) =>
+    call<PortfolioResult>("/api/v1/backtest/portfolio_run", {
+      method: "POST",
+      body: JSON.stringify(req),
+    }),
+};
+
+// ── Portfolio types ────────────────────────────────────────────────────────────
+
+export type PortfolioAllocation = { strategy: string; allocation_pct: number };
+
+export type PortfolioRunRequest = {
+  symbol: string;
+  allocations: PortfolioAllocation[];
+  start_date: string;
+  end_date?: string;
+  interval: string;
+  initial_capital: number;
+  commission_pct: number;
+  slippage_pct: number;
+  rebalance?: boolean;
+};
+
+export type PortfolioStrategyResult = {
+  strategy: string;
+  allocation_pct: number;
+  allocated_capital: number;
+  metrics: Partial<Metrics>;
+  equity_curve: { t: number; equity: number }[];
+};
+
+export type PortfolioResult = {
+  symbol: string;
+  strategies: PortfolioStrategyResult[];
+  combined_equity_curve: { t: number; equity: number }[];
+  combined_metrics: {
+    total_return_pct: number;
+    sharpe_ratio: number;
+    max_drawdown_pct: number;
+    final_equity: number;
+    initial_capital: number;
+  };
+  correlation_matrix: Record<string, Record<string, number | null>>;
+  diversification_benefit: number;
 };

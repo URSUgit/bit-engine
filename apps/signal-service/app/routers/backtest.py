@@ -1321,6 +1321,281 @@ async def yfinance_symbols():
     return supported_symbols()
 
 
+# ── Portfolio multi-strategy backtesting ──────────────────────────────────────
+
+class PortfolioAllocation(BaseModel):
+    strategy: str
+    allocation_pct: float  # 0-100, sum across all must = 100
+
+
+class PortfolioRunRequest(BaseModel):
+    symbol: str = "BTCUSDT"
+    allocations: list[PortfolioAllocation]
+    start_date: str
+    end_date: Optional[str] = None
+    interval: str = "1d"
+    initial_capital: float = 10000.0
+    commission_pct: float = 0.001
+    slippage_pct: float = 0.0005
+    rebalance: bool = False  # future feature, always False for now
+
+
+class PortfolioStrategyResult(BaseModel):
+    strategy: str
+    allocation_pct: float
+    allocated_capital: float
+    metrics: dict
+    equity_curve: list[dict]  # {t, equity}
+
+
+class PortfolioResult(BaseModel):
+    symbol: str
+    strategies: list[PortfolioStrategyResult]
+    combined_equity_curve: list[dict]   # {t, equity}
+    combined_metrics: dict              # computed from combined equity curve
+    correlation_matrix: dict            # {strategy1: {strategy2: corr_coeff}}
+    diversification_benefit: float      # (weighted_avg_volatility - portfolio_volatility) / weighted_avg_volatility
+
+
+def _compute_combined_metrics(
+    initial_capital: float,
+    equity_curve: list[dict],
+    interval: str,
+) -> dict:
+    """Compute key performance metrics directly from a combined equity curve."""
+    import math as _math
+
+    if not equity_curve:
+        return {
+            "total_return_pct": 0.0,
+            "sharpe_ratio": 0.0,
+            "max_drawdown_pct": 0.0,
+            "final_equity": initial_capital,
+            "initial_capital": initial_capital,
+        }
+
+    equity_values = [pt["equity"] for pt in equity_curve]
+    final_equity = equity_values[-1]
+    total_return_pct = (final_equity - initial_capital) / initial_capital * 100
+
+    # Returns
+    returns = []
+    for i in range(1, len(equity_values)):
+        prev = equity_values[i - 1]
+        if prev > 0:
+            returns.append((equity_values[i] - prev) / prev)
+
+    # Sharpe — annualise using approximate trading periods per year
+    ann_factor = 365.0 if interval in ("1d", "4h", "1h", "1m", "5m", "15m", "30m") else 52.0
+    sharpe = 0.0
+    if len(returns) >= 2:
+        mean_r = sum(returns) / len(returns)
+        var_r = sum((r - mean_r) ** 2 for r in returns) / (len(returns) - 1)
+        std_r = _math.sqrt(var_r)
+        if std_r > 0:
+            sharpe = round((mean_r / std_r) * _math.sqrt(ann_factor), 4)
+
+    # Max drawdown
+    peak = equity_values[0]
+    max_dd = 0.0
+    for v in equity_values:
+        if v > peak:
+            peak = v
+        dd = (peak - v) / peak if peak > 0 else 0.0
+        if dd > max_dd:
+            max_dd = dd
+
+    return {
+        "total_return_pct": round(total_return_pct, 4),
+        "sharpe_ratio": round(sharpe, 4),
+        "max_drawdown_pct": round(max_dd * 100, 4),
+        "final_equity": round(final_equity, 2),
+        "initial_capital": round(initial_capital, 2),
+    }
+
+
+def _portfolio_correlation_matrix(
+    strategy_curves: list[tuple[str, list[dict]]],
+) -> dict:
+    """Compute Pearson correlation matrix between strategy equity return series."""
+    curve_maps: list[tuple[str, dict[int, float]]] = []
+    for name, curve in strategy_curves:
+        m: dict[int, float] = {pt["t"]: pt["equity"] for pt in curve}
+        curve_maps.append((name, m))
+
+    if len(curve_maps) < 2:
+        if len(curve_maps) == 1:
+            name = curve_maps[0][0]
+            return {name: {name: 1.0}}
+        return {}
+
+    common_ts = sorted(
+        set.intersection(*[set(m.keys()) for _, m in curve_maps])
+    )
+
+    def _returns_from_map(m: dict[int, float]) -> list[float]:
+        vals = [m[ts] for ts in common_ts]
+        return [(vals[i] - vals[i - 1]) / vals[i - 1] for i in range(1, len(vals)) if vals[i - 1] > 0]
+
+    ret_map: dict[str, list[float]] = {name: _returns_from_map(m) for name, m in curve_maps}
+
+    names = [name for name, _ in curve_maps]
+    matrix: dict[str, dict[str, Optional[float]]] = {}
+    for n1 in names:
+        matrix[n1] = {}
+        for n2 in names:
+            if n1 == n2:
+                matrix[n1][n2] = 1.0
+            else:
+                r1, r2 = ret_map[n1], ret_map[n2]
+                n = min(len(r1), len(r2))
+                if n < 3:
+                    matrix[n1][n2] = None
+                else:
+                    corr = _pearson(r1[:n], r2[:n])
+                    matrix[n1][n2] = round(corr, 4)
+
+    return matrix
+
+
+@router.post("/portfolio_run", response_model=PortfolioResult)
+@limiter.limit("10/minute")
+async def portfolio_run(request: Request, req: PortfolioRunRequest):
+    """
+    Run multiple strategies on the same symbol with capital allocation.
+    Returns combined equity curve, correlation matrix, and per-strategy metrics.
+    """
+    if not req.allocations:
+        raise HTTPException(status_code=400, detail="At least one allocation required")
+    if len(req.allocations) > 10:
+        raise HTTPException(status_code=400, detail="Max 10 strategies per portfolio run")
+
+    total_alloc = sum(a.allocation_pct for a in req.allocations)
+    if abs(total_alloc - 100.0) > 0.1:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Allocations must sum to 100% (got {total_alloc:.2f}%)"
+        )
+
+    for alloc in req.allocations:
+        if alloc.strategy not in STRATEGIES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown strategy '{alloc.strategy}'. Available: {list(STRATEGIES)}"
+            )
+
+    async def _run_one(alloc: PortfolioAllocation) -> PortfolioStrategyResult:
+        allocated_capital = req.initial_capital * alloc.allocation_pct / 100.0
+        params = BacktestParams(
+            symbol=req.symbol,
+            strategy=alloc.strategy,
+            start_date=req.start_date,
+            end_date=req.end_date,
+            interval=req.interval,
+            initial_capital=allocated_capital,
+            commission_pct=req.commission_pct,
+            slippage_pct=req.slippage_pct,
+            position_size_pct=1.0,
+            strategy_params={},
+        )
+
+        async def _async_run() -> "BacktestResult":
+            return await run_backtest(params)
+
+        result = await asyncio.to_thread(lambda: asyncio.run(_async_run()))
+
+        equity_curve_simple = [
+            {"t": pt.t, "equity": pt.equity}
+            for pt in result.equity_curve
+        ]
+
+        return PortfolioStrategyResult(
+            strategy=alloc.strategy,
+            allocation_pct=alloc.allocation_pct,
+            allocated_capital=round(allocated_capital, 2),
+            metrics=result.metrics.model_dump(),
+            equity_curve=equity_curve_simple,
+        )
+
+    try:
+        strategy_results: list[PortfolioStrategyResult] = list(
+            await asyncio.gather(*[_run_one(alloc) for alloc in req.allocations])
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        log.error("Portfolio run failed", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Portfolio run failed: {e}")
+
+    # Align equity curves — outer join with forward-fill
+    all_ts: set[int] = set()
+    for sr in strategy_results:
+        for pt in sr.equity_curve:
+            all_ts.add(pt["t"])
+    sorted_ts = sorted(all_ts)
+
+    aligned: dict[str, list[float]] = {}
+    for sr in strategy_results:
+        ts_map: dict[int, float] = {pt["t"]: pt["equity"] for pt in sr.equity_curve}
+        last_val = sr.allocated_capital
+        vals: list[float] = []
+        for ts in sorted_ts:
+            if ts in ts_map:
+                last_val = ts_map[ts]
+            vals.append(last_val)
+        aligned[sr.strategy] = vals
+
+    combined_equity_vals = [
+        sum(aligned[sr.strategy][i] for sr in strategy_results)
+        for i in range(len(sorted_ts))
+    ]
+    combined_equity_curve = [
+        {"t": ts, "equity": round(eq, 2)}
+        for ts, eq in zip(sorted_ts, combined_equity_vals)
+    ]
+
+    combined_metrics = _compute_combined_metrics(
+        initial_capital=req.initial_capital,
+        equity_curve=combined_equity_curve,
+        interval=req.interval,
+    )
+
+    strategy_curves = [(sr.strategy, sr.equity_curve) for sr in strategy_results]
+    correlation_matrix = _portfolio_correlation_matrix(strategy_curves)
+
+    import math as _math
+
+    def _vol(equity_vals: list[float]) -> float:
+        if len(equity_vals) < 2:
+            return 0.0
+        rets = [(equity_vals[i] - equity_vals[i - 1]) / equity_vals[i - 1]
+                for i in range(1, len(equity_vals)) if equity_vals[i - 1] > 0]
+        if len(rets) < 2:
+            return 0.0
+        mean = sum(rets) / len(rets)
+        var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
+        return _math.sqrt(var)
+
+    portfolio_vol = _vol(combined_equity_vals)
+    weighted_avg_vol = sum(
+        (sr.allocation_pct / 100.0) * _vol(aligned[sr.strategy])
+        for sr in strategy_results
+    )
+    diversification_benefit = (
+        (weighted_avg_vol - portfolio_vol) / weighted_avg_vol
+        if weighted_avg_vol > 0 else 0.0
+    )
+
+    return PortfolioResult(
+        symbol=req.symbol,
+        strategies=strategy_results,
+        combined_equity_curve=combined_equity_curve,
+        combined_metrics=combined_metrics,
+        correlation_matrix=correlation_matrix,
+        diversification_benefit=round(diversification_benefit, 4),
+    )
+
+
 # ── Walk-forward validation ────────────────────────────────────────────────────
 
 class WalkForwardRequest(BacktestParams):
