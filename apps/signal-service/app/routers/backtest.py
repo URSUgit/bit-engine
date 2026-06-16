@@ -1265,6 +1265,62 @@ async def forward_test_stream(
     )
 
 
+# ── yfinance real data fetch ────────────────────────────────────────────────────
+
+class FetchRealDataRequest(BaseModel):
+    symbol: str
+    interval: str = "1d"
+    days: int = 730  # how many days of history to fetch
+
+
+@router.post("/data/fetch_real")
+async def fetch_real_data(req: FetchRealDataRequest):
+    """Fetch real OHLCV bars from yfinance and cache them in the bar storage."""
+    from app.backtest.yfinance_loader import fetch_bars
+    from app.backtest.models import Bar as _Bar
+    from datetime import datetime as _dt
+
+    if req.days < 1 or req.days > 3650:
+        raise HTTPException(400, "days must be 1\u20133650")
+
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=req.days)
+    start_str = start.strftime("%Y-%m-%d")
+    end_str = end.strftime("%Y-%m-%d")
+
+    bars_raw = await asyncio.to_thread(fetch_bars, req.symbol, req.interval, start_str, end_str)
+    if not bars_raw:
+        raise HTTPException(404, f"No data found for {req.symbol}. Check the symbol is supported by yfinance.")
+
+    # Convert to Bar objects and upsert into storage
+    bar_objs = [
+        _Bar(
+            timestamp=_dt.fromtimestamp(b["timestamp"], tz=timezone.utc),
+            open=b["open"], high=b["high"], low=b["low"],
+            close=b["close"], volume=b["volume"],
+        )
+        for b in bars_raw
+    ]
+
+    count = await asyncio.to_thread(bar_storage.upsert_bars, req.symbol, req.interval, bar_objs)
+    return {
+        "symbol": req.symbol,
+        "interval": req.interval,
+        "bars_fetched": len(bars_raw),
+        "bars_stored": count,
+        "start": start_str,
+        "end": end_str,
+        "source": "yfinance",
+    }
+
+
+@router.get("/data/yfinance_symbols")
+async def yfinance_symbols():
+    """List all symbols fetchable via yfinance."""
+    from app.backtest.yfinance_loader import supported_symbols
+    return supported_symbols()
+
+
 # ── Walk-forward validation ────────────────────────────────────────────────────
 
 class WalkForwardRequest(BacktestParams):
