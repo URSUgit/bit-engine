@@ -13,6 +13,11 @@ from .vwap_reversion import VWAPReversionStrategy
 from .breakout_scalp import BreakoutScalpStrategy
 from .funding_arb import FundingArbStrategy
 from .anomaly_fade import AnomalyFadeStrategy
+from .ichimoku import IchimokuStrategy
+from .stoch_rsi import StochRSIStrategy
+from .psar import ParabolicSARStrategy
+from .cci import CCIStrategy
+from .elder_impulse import ElderImpulseStrategy
 
 STRATEGIES: dict[str, type[Strategy]] = {
     "rsi": RSIStrategy,
@@ -28,7 +33,11 @@ STRATEGIES: dict[str, type[Strategy]] = {
     "breakout_scalp": BreakoutScalpStrategy,
     "funding_arb": FundingArbStrategy,
     "anomaly_fade": AnomalyFadeStrategy,
+    "ichimoku": IchimokuStrategy,
+    "stoch_rsi": StochRSIStrategy,
+    "psar": ParabolicSARStrategy,
+    "cci": CCIStrategy,
+    "elder_impulse": ElderImpulseStrategy,
 }
 
 __all__ = ["Strategy", "StrategyContext", "STRATEGIES"]
-
