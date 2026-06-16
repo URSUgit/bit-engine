@@ -39,9 +39,10 @@ import { KeyboardShortcutsLayer } from "./components/keyboard-shortcuts";
 import { WalkForwardPanel } from "./components/walk-forward";
 import { CustomStrategyEditor } from "./components/custom-strategy-editor";
 import { PortfolioView } from "./components/portfolio-view";
+import { RollingAnalysisPanel } from "./components/rolling-analysis";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio"];
 
@@ -839,7 +840,7 @@ export default function BacktesterPage() {
           if (m) setMode(m);
         }}
         onSwitchResultTab={(dir) => {
-          const RESULT_TABS: ResultTab[] = ["charts", "editor", "trades", "monthly", "analysis", "friction", "anomalies"];
+          const RESULT_TABS: ResultTab[] = ["charts", "editor", "trades", "monthly", "analysis", "friction", "anomalies", "rolling"];
           setResultTab((prev) => {
             const idx = RESULT_TABS.indexOf(prev);
             const next = (idx + dir + RESULT_TABS.length) % RESULT_TABS.length;
@@ -980,10 +981,10 @@ function ModeTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void 
 // ─── Result view components ───────────────────────────────────────────────────
 
 function ResultTabs({
-  active, onChange, hasFriction, hasAnomalies, hasAnalysis, hasMonthly, hasMonteCarlo,
+  active, onChange, hasFriction, hasAnomalies, hasAnalysis, hasMonthly, hasMonteCarlo, hasRolling,
 }: {
   active: ResultTab; onChange: (t: ResultTab) => void;
-  hasFriction: boolean; hasAnomalies: boolean; hasAnalysis: boolean; hasMonthly: boolean; hasMonteCarlo?: boolean;
+  hasFriction: boolean; hasAnomalies: boolean; hasAnalysis: boolean; hasMonthly: boolean; hasMonteCarlo?: boolean; hasRolling?: boolean;
 }) {
   const tabs: { value: ResultTab; label: string }[] = [
     { value: "charts", label: "Charts" },
@@ -995,6 +996,7 @@ function ResultTabs({
     ...(hasAnomalies ? [{ value: "anomalies" as ResultTab, label: "Anomalies" }] : []),
     ...(hasMonteCarlo ? [{ value: "montecarlo" as ResultTab, label: "Monte Carlo" }] : []),
     { value: "walk_forward", label: "Walk-Forward" },
+    ...(hasRolling ? [{ value: "rolling" as ResultTab, label: "Deep Analysis" }] : []),
   ];
   return (
     <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
@@ -1171,6 +1173,7 @@ function SingleResultsView({
   positionPct: number;
 }) {
   const hasMonteCarlo = !!(result && result.trades.length >= 5);
+  const hasRolling = !!(result && result.equity_curve.length >= 20);
 
   return (
     <>
@@ -1205,6 +1208,7 @@ function SingleResultsView({
               hasAnalysis={!!result.entry_analysis}
               hasMonthly={result.trades.length > 0}
               hasMonteCarlo={hasMonteCarlo}
+              hasRolling={hasRolling}
             />
             <ExportMenu result={result} />
           </div>
@@ -1247,6 +1251,9 @@ function SingleResultsView({
               slippagePct={slippagePct}
               positionPct={positionPct}
             />
+          )}
+          {resultTab === "rolling" && hasRolling && (
+            <RollingAnalysisPanel result={result} />
           )}
         </div>
       )}
