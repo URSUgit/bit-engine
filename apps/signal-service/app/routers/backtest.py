@@ -1407,3 +1407,252 @@ async def walk_forward(request: Request, req: WalkForwardRequest):
         raise HTTPException(status_code=500, detail=f"Walk-forward failed: {e}")
 
     return asdict(result)
+
+
+# ── Custom strategy (in-browser editor) ───────────────────────────────────────
+
+class CustomStrategyRequest(BaseModel):
+    strategy_code: str          # full Python source code of the strategy
+    symbol: str = "BTCUSDT"
+    start_date: str = "2024-01-01"
+    end_date: str = "2025-01-01"
+    interval: str = "1d"
+    initial_capital: float = 10000.0
+    commission_pct: float = 0.001
+    slippage_pct: float = 0.0005
+    position_size_pct: float = 0.25
+    strategy_params: dict = {}
+
+
+ALLOWED_IMPORTS = {
+    "math", "statistics", "itertools", "collections", "typing",
+    "dataclasses", "enum", "functools", "operator", "decimal",
+}
+
+BLOCKED_IMPORTS = {
+    "os", "sys", "subprocess", "socket", "importlib", "builtins",
+    "shutil", "pathlib", "tempfile", "io", "open", "__import__",
+    "pty", "nis", "pwd", "grp", "resource", "signal", "mmap",
+    "ctypes", "cffi", "pickle", "marshal", "shelve",
+}
+
+
+def _safe_import(name, *args, **kwargs):
+    top = name.split(".")[0]
+    if top in BLOCKED_IMPORTS:
+        raise ImportError(f"Import of '{name}' is not allowed in custom strategies")
+    if top not in ALLOWED_IMPORTS and not name.startswith("app.backtest"):
+        raise ImportError(
+            f"Import of '{name}' is not allowed. Allowed: {sorted(ALLOWED_IMPORTS)}"
+        )
+    import builtins as _builtins
+    return _builtins.__import__(name, *args, **kwargs)
+
+
+def _exec_strategy(code: str):
+    """Exec user code and return the first Strategy subclass found."""
+    from app.backtest.strategies.base import Strategy, StrategyContext
+    from app.backtest.models import Bar, Signal
+
+    # Build a restricted builtins dict
+    import builtins as _builtins
+    safe_builtins = {
+        k: v for k, v in vars(_builtins).items()
+        if k not in ("open", "exec", "eval", "compile", "__import__",
+                     "breakpoint", "input", "memoryview", "vars")
+    }
+    safe_builtins["__import__"] = _safe_import
+
+    namespace: dict = {
+        "__builtins__": safe_builtins,
+        "__import__": _safe_import,
+        "Strategy": Strategy,
+        "StrategyContext": StrategyContext,
+        "Bar": Bar,
+        "Signal": Signal,
+    }
+
+    try:
+        exec(compile(code, "<custom_strategy>", "exec"), namespace)  # noqa: S102
+    except SyntaxError as e:
+        raise ValueError(f"Syntax error in strategy code: {e}") from e
+    except ImportError as e:
+        raise ValueError(str(e)) from e
+    except Exception as e:
+        raise ValueError(f"Error loading strategy code: {e}") from e
+
+    # Find the first Strategy subclass defined by the user
+    strat_cls = None
+    for obj in namespace.values():
+        try:
+            if (
+                isinstance(obj, type)
+                and issubclass(obj, Strategy)
+                and obj is not Strategy
+            ):
+                strat_cls = obj
+                break
+        except TypeError:
+            continue
+
+    if strat_cls is None:
+        raise ValueError(
+            "No Strategy subclass found in the code. "
+            "Define a class that extends Strategy."
+        )
+
+    return strat_cls
+
+
+@router.post("/run_custom", response_model=BacktestResult)
+async def run_custom_strategy(req: CustomStrategyRequest):
+    """
+    Run a user-supplied Python strategy. The code is exec()'d in a restricted
+    namespace. The first Strategy subclass found is instantiated and backtested.
+    Returns a full BacktestResult identical to the regular /run endpoint.
+    """
+    import time as _time
+    import uuid as _uuid
+
+    if len(req.strategy_code) > 10_000:
+        raise HTTPException(
+            status_code=400,
+            detail="Strategy code exceeds the 10,000-character limit.",
+        )
+
+    # Exec and find the strategy class (may raise ValueError on bad code)
+    try:
+        strat_cls = await asyncio.to_thread(_exec_strategy, req.strategy_code)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        log.error("Custom strategy exec failed", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Strategy execution error: {e}")
+
+    # Load historical data
+    try:
+        loader = HistoricalDataLoader()
+        bars = await loader.load(
+            symbol=req.symbol,
+            start_date=req.start_date,
+            end_date=req.end_date,
+            interval=req.interval,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Data load failed: {e}")
+
+    if len(bars) < 20:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Insufficient historical data for {req.symbol} ({req.interval}). "
+                f"Got {len(bars)} bars. Try a longer date range."
+            ),
+        )
+
+    # Run backtest in a thread (CPU-bound)
+    from app.backtest.engine import Backtest, _asset_class
+    from app.backtest.metrics import compute_metrics
+    from app.backtest.models import TradeRecord
+    from app.backtest.strategies import STRATEGIES as _STRATEGIES
+
+    t0 = _time.perf_counter()
+
+    def _run_in_thread():
+        try:
+            strategy = strat_cls(**req.strategy_params)
+        except Exception as e:
+            raise ValueError(f"Could not instantiate strategy: {e}") from e
+
+        bt = Backtest(
+            initial_capital=req.initial_capital,
+            commission_pct=req.commission_pct,
+            slippage_pct=req.slippage_pct,
+            position_size_pct=req.position_size_pct,
+        )
+        trades, equity = bt.run(
+            bars, strategy,
+            symbol=req.symbol,
+            interval=req.interval,
+        )
+
+        asset_cls = _asset_class(req.symbol)
+        metrics = compute_metrics(
+            initial_capital=req.initial_capital,
+            equity=equity,
+            trades=trades,
+            interval=req.interval,
+            asset_class=asset_cls,
+        )
+
+        # Buy-and-hold benchmark
+        bh_bt = Backtest(
+            initial_capital=req.initial_capital,
+            commission_pct=req.commission_pct,
+            slippage_pct=req.slippage_pct,
+            position_size_pct=req.position_size_pct,
+        )
+        bh_trades, bh_equity = bh_bt.run(
+            bars, _STRATEGIES["buy_and_hold"](),
+            symbol=req.symbol, interval=req.interval,
+        )
+        bench_metrics = compute_metrics(
+            initial_capital=req.initial_capital,
+            equity=bh_equity,
+            trades=bh_trades,
+            interval=req.interval,
+            asset_class=asset_cls,
+        )
+
+        runtime_ms = (_time.perf_counter() - t0) * 1000
+        friction = bt.friction_breakdown()
+
+        return BacktestResult(
+            id=str(_uuid.uuid4()),
+            symbol=req.symbol,
+            strategy=getattr(strat_cls, "name", "custom"),
+            interval=req.interval,
+            start_date=bars[0].timestamp.date().isoformat(),
+            end_date=bars[-1].timestamp.date().isoformat(),
+            params_used=strategy.params,
+            metrics=metrics,
+            benchmark_metrics=bench_metrics,
+            trades=[
+                TradeRecord(
+                    side=t.side,
+                    entry_time=t.entry_time.isoformat(),
+                    exit_time=t.exit_time.isoformat(),
+                    entry_price=round(t.entry_price, 6),
+                    exit_price=round(t.exit_price, 6),
+                    size=round(t.size, 8),
+                    pnl=round(t.pnl, 2),
+                    pnl_pct=round(t.pnl_pct, 2),
+                    duration_bars=t.duration_bars,
+                )
+                for t in trades
+            ],
+            equity_curve=[
+                {
+                    "t": int(p.timestamp.timestamp()),
+                    "equity": round(p.equity, 2),
+                    "drawdown_pct": round(p.drawdown_pct, 4),
+                }
+                for p in equity
+            ],
+            bars_processed=len(bars),
+            runtime_ms=round(runtime_ms, 1),
+            entry_analysis=None,
+            friction_breakdown=friction,
+            anomalies=None,
+            short_trades=sum(1 for t in trades if t.side == "short"),
+        )
+
+    try:
+        result = await asyncio.to_thread(_run_in_thread)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        log.error("Custom strategy backtest failed", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Backtest failed: {e}")
+
+    return result

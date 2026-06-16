@@ -723,6 +723,25 @@ export const backtestApi = {
       { method: "POST", body: JSON.stringify(req ?? {}) },
     ),
 
+  // ── yfinance real data ────────────────────────────────────────────────────
+  fetchRealData: (req: { symbol: string; interval?: string; days?: number }) =>
+    call<{
+      symbol: string;
+      interval: string;
+      bars_fetched: number;
+      bars_stored: number;
+      start: string;
+      end: string;
+      source: string;
+    }>("/api/v1/backtest/data/fetch_real", {
+      method: "POST",
+      body: JSON.stringify(req),
+    }),
+  yfinanceSymbols: () =>
+    call<{ symbol: string; yf_ticker: string; category: string }[]>(
+      "/api/v1/backtest/data/yfinance_symbols",
+    ),
+
   // ── Monte Carlo ───────────────────────────────────────────────────────────
   monteCarlo: (
     trades: Trade[],

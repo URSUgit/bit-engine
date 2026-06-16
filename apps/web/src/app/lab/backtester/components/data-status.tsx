@@ -56,6 +56,14 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
   const [customError, setCustomError] = useState<string | null>(null);
   const [customSuccess, setCustomSuccess] = useState<string | null>(null);
 
+  // yfinance "Fetch Real Data" state
+  const [yfSymbol, setYfSymbol] = useState("");
+  const [yfInterval, setYfInterval] = useState("1d");
+  const [yfDays, setYfDays] = useState(730);
+  const [yfFetching, setYfFetching] = useState(false);
+  const [yfError, setYfError] = useState<string | null>(null);
+  const [yfSuccess, setYfSuccess] = useState<string | null>(null);
+
   const fetchCache = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -149,6 +157,31 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
       setCustomError(e instanceof Error ? e.message : String(e));
     } finally {
       setFetchingCustom(false);
+    }
+  }
+
+  async function handleFetchReal(symbolOverride?: string) {
+    const ticker = (symbolOverride ?? yfSymbol).trim().toUpperCase();
+    if (!ticker) { setYfError("Enter a ticker symbol"); return; }
+    setYfFetching(true);
+    setYfError(null);
+    setYfSuccess(null);
+    try {
+      const result = await backtestApi.fetchRealData({
+        symbol: ticker,
+        interval: yfInterval,
+        days: yfDays,
+      });
+      setYfSuccess(
+        `Fetched ${result.bars_fetched.toLocaleString()} bars for ${ticker} via Yahoo Finance (${result.start} → ${result.end})`
+      );
+      onSymbolAdded(ticker);
+      if (!symbolOverride) setYfSymbol("");
+      await fetchCache();
+    } catch (e) {
+      setYfError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setYfFetching(false);
     }
   }
 
@@ -292,6 +325,83 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
       <CorrelationHeatmap
         activeSymbols={series.length > 0 ? series.slice(0, 8).map((s) => s.symbol) : undefined}
       />
+
+      {/* Fetch Real Data from Yahoo Finance via yfinance */}
+      <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+            Fetch Real Data
+          </h3>
+          <span className="text-xs text-zinc-600 bg-zinc-800 px-2 py-0.5 rounded-full">Yahoo Finance</span>
+        </div>
+        <p className="text-xs text-zinc-500">
+          Download real OHLCV history for stocks, ETFs, crypto and forex — no API key required.
+        </p>
+
+        {/* Quick-fetch grid */}
+        <div>
+          <p className="text-xs text-zinc-600 mb-2">Quick fetch (730 days, 1d):</p>
+          <div className="flex flex-wrap gap-2">
+            {["AAPL", "MSFT", "NVDA", "TSLA", "META", "GOOGL", "AMZN", "SPY", "QQQ", "GLD"].map((sym) => (
+              <button
+                key={sym}
+                onClick={() => handleFetchReal(sym)}
+                disabled={yfFetching}
+                className="px-3 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 rounded transition disabled:opacity-40"
+              >
+                {sym}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Custom symbol form */}
+        <div className="flex gap-2 flex-wrap">
+          <input
+            type="text"
+            value={yfSymbol}
+            onChange={(e) => setYfSymbol(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleFetchReal(); }}
+            placeholder="Ticker (e.g. AAPL, BTC-USD)"
+            className="flex-1 min-w-[140px] px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-md text-sm focus:border-cyan-500 focus:outline-none"
+          />
+          <select
+            value={yfInterval}
+            onChange={(e) => setYfInterval(e.target.value)}
+            className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-md text-sm focus:border-cyan-500 focus:outline-none"
+          >
+            <option value="1d">1d</option>
+            <option value="1h">1h</option>
+          </select>
+          <select
+            value={yfDays}
+            onChange={(e) => setYfDays(Number(e.target.value))}
+            className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-md text-sm focus:border-cyan-500 focus:outline-none"
+          >
+            <option value={90}>90 days</option>
+            <option value={365}>1 year</option>
+            <option value={730}>2 years</option>
+            <option value={1825}>5 years</option>
+          </select>
+          <button
+            onClick={() => handleFetchReal()}
+            disabled={yfFetching || !yfSymbol.trim()}
+            className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 disabled:bg-zinc-700 disabled:text-zinc-500 text-zinc-950 font-semibold text-sm rounded-md transition"
+          >
+            {yfFetching ? "Fetching…" : "Fetch from Yahoo Finance"}
+          </button>
+        </div>
+        {yfError && (
+          <div className="text-xs text-red-400 bg-red-950/30 border border-red-900 p-2 rounded">
+            {yfError}
+          </div>
+        )}
+        {yfSuccess && (
+          <div className="text-xs text-emerald-400 bg-emerald-950/30 border border-emerald-900 p-2 rounded">
+            {yfSuccess}
+          </div>
+        )}
+      </div>
 
       {/* Add Custom Symbol section */}
       <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4 space-y-3">

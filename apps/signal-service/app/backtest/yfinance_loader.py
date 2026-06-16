@@ -69,7 +69,6 @@ def fetch_bars(
             interval=yf_interval,
             auto_adjust=True,
             progress=False,
-            show_errors=False,
         )
     except Exception as e:
         log.warning(f"yfinance download failed for {symbol}: {e}")
