@@ -40,9 +40,12 @@ import { WalkForwardPanel } from "./components/walk-forward";
 import { CustomStrategyEditor } from "./components/custom-strategy-editor";
 import { PortfolioView } from "./components/portfolio-view";
 import { RollingAnalysisPanel } from "./components/rolling-analysis";
+import { HeatCalendar } from "./components/heat-calendar";
+import { KellyPanel } from "./components/kelly-panel";
+import { SensitivityChart } from "./components/sensitivity-chart";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio"];
 
@@ -782,6 +785,7 @@ export default function BacktesterPage() {
                     setResultTab={setResultTab}
                     autoRunPending={autoRunPending}
                     strategy={strategyName}
+                    strategies={strategies}
                     strategyParams={strategyParams}
                     periodDays={periodDays}
                     interval={interval}
@@ -997,6 +1001,8 @@ function ResultTabs({
     ...(hasMonteCarlo ? [{ value: "montecarlo" as ResultTab, label: "Monte Carlo" }] : []),
     { value: "walk_forward", label: "Walk-Forward" },
     ...(hasRolling ? [{ value: "rolling" as ResultTab, label: "Deep Analysis" }] : []),
+    ...(hasMonthly ? [{ value: "calendar" as ResultTab, label: "Calendar" }] : []),
+    ...(hasMonthly ? [{ value: "sensitivity" as ResultTab, label: "Sensitivity" }] : []),
   ];
   return (
     <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
@@ -1152,7 +1158,7 @@ function ExportMenu({ result }: { result: BacktestResult }) {
 function SingleResultsView({
   symbol, result, running, progress, elapsedMs,
   resultTab, setResultTab, autoRunPending,
-  strategy, strategyParams, periodDays, interval,
+  strategy, strategies, strategyParams, periodDays, interval,
   initialCapital, commissionPct, slippagePct, positionPct,
 }: {
   symbol: string;
@@ -1164,6 +1170,7 @@ function SingleResultsView({
   setResultTab: (t: ResultTab) => void;
   autoRunPending: boolean;
   strategy: string;
+  strategies: StrategyInfo[];
   strategyParams: Record<string, number>;
   periodDays: number;
   interval: string;
@@ -1174,6 +1181,7 @@ function SingleResultsView({
 }) {
   const hasMonteCarlo = !!(result && result.trades.length >= 5);
   const hasRolling = !!(result && result.equity_curve.length >= 20);
+  const currentStrategy = strategies.find((s) => s.name === strategy);
 
   return (
     <>
@@ -1199,6 +1207,9 @@ function SingleResultsView({
           <div className={`rounded-lg ${autoRunPending ? "ring-1 ring-cyan-500/50 animate-pulse" : ""}`}>
             <MetricsGrid result={result} />
           </div>
+          {result.metrics.total_trades >= 10 && (
+            <KellyPanel metrics={result.metrics} />
+          )}
           <div className="flex items-center justify-between gap-3 mt-4">
             <ResultTabs
               active={resultTab}
@@ -1254,6 +1265,22 @@ function SingleResultsView({
           )}
           {resultTab === "rolling" && hasRolling && (
             <RollingAnalysisPanel result={result} />
+          )}
+          {resultTab === "calendar" && result.trades.length > 0 && (
+            <HeatCalendar trades={result.trades} initialCapital={result.metrics.initial_capital} />
+          )}
+          {resultTab === "sensitivity" && currentStrategy && (
+            <SensitivityChart
+              strategy={currentStrategy}
+              symbol={symbol}
+              periodDays={periodDays}
+              interval={interval}
+              initialCapital={initialCapital}
+              commissionPct={commissionPct}
+              slippagePct={slippagePct}
+              positionPct={positionPct}
+              currentParams={strategyParams}
+            />
           )}
         </div>
       )}

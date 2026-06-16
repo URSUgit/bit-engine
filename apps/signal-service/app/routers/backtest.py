@@ -1920,3 +1920,79 @@ async def run_custom_strategy(req: CustomStrategyRequest):
         raise HTTPException(status_code=500, detail=f"Backtest failed: {e}")
 
     return result
+
+
+# ── Parameter Sensitivity ──────────────────────────────────────────────────────
+
+class SensitivityRequest(BaseModel):
+    symbol: str
+    strategy: str
+    param_name: str
+    param_values: list[float]
+    start_date: str
+    end_date: str = ""
+    interval: str = "1d"
+    initial_capital: float = 10000.0
+    commission_pct: float = 0.001
+    slippage_pct: float = 0.0005
+    position_size_pct: float = 0.25
+    base_params: dict = {}
+    metric: str = "sharpe_ratio"
+
+
+class SensitivityPoint(BaseModel):
+    param_value: float
+    metric_value: float | None = None
+    total_return_pct: float | None = None
+    total_trades: int = 0
+    success: bool
+    error: str | None = None
+
+
+@router.post("/sensitivity", response_model=list[SensitivityPoint])
+async def param_sensitivity(req: SensitivityRequest):
+    """Sweep one strategy parameter across values, return metric at each point."""
+    if len(req.param_values) > 20:
+        raise HTTPException(status_code=400, detail="Max 20 param values per sensitivity sweep")
+    if req.strategy not in STRATEGIES:
+        raise HTTPException(status_code=400, detail=f"Unknown strategy: {req.strategy}")
+
+    async def _run_one(val: float) -> SensitivityPoint:
+        try:
+            params_dict = dict(req.base_params)
+            params_dict[req.param_name] = val
+            bp = BacktestParams(
+                symbol=req.symbol,
+                strategy=req.strategy,
+                start_date=req.start_date,
+                end_date=req.end_date if req.end_date else None,
+                interval=req.interval,
+                initial_capital=req.initial_capital,
+                commission_pct=req.commission_pct,
+                slippage_pct=req.slippage_pct,
+                position_size_pct=req.position_size_pct,
+                strategy_params=params_dict,
+            )
+            result = await run_backtest(bp)
+            metric_val = getattr(result.metrics, req.metric, None)
+            if metric_val is not None:
+                metric_val = float(metric_val)
+            return SensitivityPoint(
+                param_value=val,
+                metric_value=metric_val,
+                total_return_pct=float(result.metrics.total_return_pct),
+                total_trades=int(result.metrics.total_trades),
+                success=True,
+            )
+        except Exception as e:
+            return SensitivityPoint(
+                param_value=val,
+                metric_value=None,
+                total_return_pct=None,
+                total_trades=0,
+                success=False,
+                error=str(e),
+            )
+
+    results = await asyncio.gather(*[_run_one(v) for v in req.param_values])
+    return list(results)
