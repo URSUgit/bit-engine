@@ -526,12 +526,13 @@ function exportEquityCurveCSV(result: BacktestResult): void {
 
 export function EquityChart({ result }: { result: BacktestResult }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const bh = result.benchmark;
 
   useEffect(() => {
     if (!containerRef.current) return;
     const chart = createChart(containerRef.current, {
       width: containerRef.current.clientWidth,
-      height: 260,
+      height: 280,
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: "#a1a1aa",
@@ -541,17 +542,32 @@ export function EquityChart({ result }: { result: BacktestResult }) {
       rightPriceScale: { borderColor: "#27272a" },
     });
 
+    // Buy & hold benchmark line (behind the strategy)
+    if (bh && bh.equity_curve.length > 0) {
+      const bhSeries = chart.addLineSeries({
+        color: "rgba(161,161,170,0.45)",
+        lineWidth: 1,
+        lineStyle: 2, // dashed
+        priceLineVisible: false,
+        lastValueVisible: false,
+        title: "B&H",
+      });
+      bhSeries.setData(bh.equity_curve.map((p) => ({ time: p.t as Time, value: p.equity })));
+    }
+
     const equitySeries = chart.addAreaSeries({
       topColor: "rgba(6, 182, 212, 0.4)",
       bottomColor: "rgba(6, 182, 212, 0.05)",
       lineColor: "#06b6d4",
       lineWidth: 2,
       priceLineVisible: false,
+      title: result.strategy,
     });
     equitySeries.setData(result.equity_curve.map((p) => ({ time: p.t as Time, value: p.equity })));
 
     const ddSeries = chart.addLineSeries({
       color: "#ef4444", lineWidth: 1, priceScaleId: "left",
+      priceLineVisible: false, lastValueVisible: false,
     });
     chart.priceScale("left").applyOptions({ borderColor: "#27272a", visible: true });
     ddSeries.setData(result.equity_curve.map((p) => ({ time: p.t as Time, value: -p.drawdown_pct })));
@@ -565,20 +581,47 @@ export function EquityChart({ result }: { result: BacktestResult }) {
       window.removeEventListener("resize", onResize);
       chart.remove();
     };
-  }, [result.equity_curve]);
+  }, [result.equity_curve, bh, result.strategy]);
+
+  // Compute B&H return for legend
+  const bhReturn = bh?.metrics?.total_return_pct;
+  const stratReturn = result.metrics.total_return_pct;
+  const outperforms = bhReturn != null && stratReturn > bhReturn;
 
   return (
     <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-semibold">
-          Equity curve <span className="text-zinc-500 text-xs ml-2">(cyan: portfolio · red: drawdown %)</span>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h3 className="font-semibold flex items-center gap-3">
+          Equity curve
+          <span className="flex items-center gap-2 text-xs font-normal">
+            <span className="inline-flex items-center gap-1">
+              <span className="w-3 h-0.5 bg-cyan-400 inline-block rounded" />
+              <span className="text-cyan-400">{result.strategy}</span>
+              <span className={stratReturn >= 0 ? "text-emerald-400" : "text-red-400"}>
+                {stratReturn >= 0 ? "+" : ""}{stratReturn.toFixed(1)}%
+              </span>
+            </span>
+            {bhReturn != null && (
+              <span className="inline-flex items-center gap-1">
+                <span className="w-3 h-0.5 bg-zinc-500 inline-block rounded" style={{ borderTop: "1px dashed #71717a" }} />
+                <span className="text-zinc-500">B&H {bhReturn >= 0 ? "+" : ""}{bhReturn.toFixed(1)}%</span>
+                {outperforms
+                  ? <span className="text-emerald-400 text-[10px]">▲ +{(stratReturn - bhReturn).toFixed(1)}%</span>
+                  : <span className="text-red-400 text-[10px]">▼ {(stratReturn - bhReturn).toFixed(1)}%</span>
+                }
+              </span>
+            )}
+          </span>
         </h3>
-        <button
-          onClick={() => exportEquityCurveCSV(result)}
-          className="px-2.5 py-1 text-xs rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 border border-zinc-700 transition"
-        >
-          ↓ CSV
-        </button>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-zinc-600">red: drawdown</span>
+          <button
+            onClick={() => exportEquityCurveCSV(result)}
+            className="px-2.5 py-1 text-xs rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 border border-zinc-700 transition"
+          >
+            ↓ CSV
+          </button>
+        </div>
       </div>
       <div ref={containerRef} className="w-full" />
     </div>

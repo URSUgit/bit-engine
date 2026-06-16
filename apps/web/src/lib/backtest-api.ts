@@ -292,6 +292,7 @@ export type BacktestResult = {
   friction_breakdown: FrictionBreakdown | null;
   anomalies: Anomaly[] | null;
   short_trades: number;
+  benchmark?: BacktestResult | null;
 };
 
 export type CompareResult = {
