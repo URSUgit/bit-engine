@@ -1996,3 +1996,197 @@ async def param_sensitivity(req: SensitivityRequest):
 
     results = await asyncio.gather(*[_run_one(v) for v in req.param_values])
     return list(results)
+
+
+# ── Market Regime Analysis ─────────────────────────────────────────────────────
+
+class RegimeAnalysisRequest(BaseModel):
+    symbol: str
+    strategy: str
+    interval: str = "1d"
+    period_days: int = 180
+    initial_capital: float = 10000.0
+    commission_pct: float = 0.001
+    slippage_pct: float = 0.0005
+    position_size_pct: float = 0.25
+    strategy_params: dict = {}
+
+
+@router.post("/regime_analysis")
+async def regime_analysis(req: RegimeAnalysisRequest):
+    """Classify bars into market regimes and show strategy performance per regime."""
+    from dataclasses import asdict
+    from app.backtest.regime import classify_regimes, compute_regime_stats
+
+    start_date = _iso_days_ago(req.period_days)
+    bp = BacktestParams(
+        symbol=req.symbol,
+        strategy=req.strategy,
+        start_date=start_date,
+        interval=req.interval,
+        initial_capital=req.initial_capital,
+        commission_pct=req.commission_pct,
+        slippage_pct=req.slippage_pct,
+        position_size_pct=req.position_size_pct,
+        strategy_params=req.strategy_params,
+    )
+
+    try:
+        result = await run_backtest(bp)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Backtest failed: {e}")
+
+    # Load bars for regime classification
+    loader = HistoricalDataLoader()
+    try:
+        bars = await loader.load(req.symbol, start_date, None, req.interval)
+    except Exception:
+        bars = []
+
+    if len(bars) < 30:
+        # Auto-generate GBM bars
+        gbm_bars = await asyncio.to_thread(_generate_gbm_bars, req.symbol, req.interval, req.period_days)
+        await asyncio.to_thread(bar_storage.upsert_bars, req.symbol, req.interval, gbm_bars)
+        bars = await loader.load(req.symbol, start_date, None, req.interval)
+
+    if len(bars) < 20:
+        raise HTTPException(status_code=400, detail="Insufficient bar data for regime analysis")
+
+    # Build DataFrame from Bar objects
+    import pandas as pd
+    df = pd.DataFrame([{
+        "ts": str(b.ts),
+        "open": float(b.open),
+        "high": float(b.high),
+        "low": float(b.low),
+        "close": float(b.close),
+        "volume": float(b.volume),
+    } for b in bars])
+
+    regime_per_bar = await asyncio.to_thread(classify_regimes, df)
+
+    trades_as_dicts = [
+        {
+            "entry_time": str(t.entry_time),
+            "exit_time": str(t.exit_time),
+            "pnl": float(t.pnl),
+            "pnl_pct": float(t.pnl_pct),
+            "side": str(t.side),
+        }
+        for t in result.trades
+    ]
+
+    stats = await asyncio.to_thread(
+        compute_regime_stats, regime_per_bar, trades_as_dicts, len(regime_per_bar)
+    )
+
+    # Determine dominant + best regime
+    dominant = max(stats, key=lambda s: s.bar_count).regime if stats else "ranging"
+    qualified = [s for s in stats if s.trade_count >= 3]
+    if qualified:
+        best_reg = max(qualified, key=lambda s: s.win_rate).regime
+        best_stat = next(s for s in stats if s.regime == best_reg)
+        insight = f"This strategy performs best in {best_reg.replace('_', ' ')} conditions (win rate {best_stat.win_rate:.0f}%)"
+    else:
+        insight = "Not enough trades per regime for a reliable recommendation."
+        best_reg = dominant
+
+    return {
+        "regime_per_bar": regime_per_bar,
+        "stats": [asdict(s) for s in stats],
+        "dominant_regime": dominant,
+        "best_regime": best_reg,
+        "insight": insight,
+    }
+
+
+# ── Strategy Leaderboard ───────────────────────────────────────────────────────
+
+class LeaderboardRequest(BaseModel):
+    symbol: str = "BTCUSDT"
+    interval: str = "1d"
+    period_days: int = 180
+    initial_capital: float = 10000.0
+    commission_pct: float = 0.001
+    slippage_pct: float = 0.0005
+    position_size_pct: float = 0.25
+    sort_by: str = "sharpe_ratio"
+
+
+@router.post("/leaderboard")
+async def strategy_leaderboard(req: LeaderboardRequest):
+    """Run all strategies on the same data and rank them."""
+    start_date = _iso_days_ago(req.period_days)
+    skip = {"buy_and_hold"}
+
+    async def _run_one(name: str) -> dict:
+        try:
+            bp = BacktestParams(
+                symbol=req.symbol,
+                strategy=name,
+                start_date=start_date,
+                interval=req.interval,
+                initial_capital=req.initial_capital,
+                commission_pct=req.commission_pct,
+                slippage_pct=req.slippage_pct,
+                position_size_pct=req.position_size_pct,
+            )
+            r = await run_backtest(bp)
+            m = r.metrics
+
+            # Downsample equity curve to 20 points for sparkline
+            eq = [e.get("equity", req.initial_capital) for e in (r.equity_curve or [])]
+            if len(eq) > 20:
+                indices = [int(i * (len(eq) - 1) / 19) for i in range(20)]
+                eq = [eq[i] for i in indices]
+            elif len(eq) == 0:
+                eq = [req.initial_capital]
+
+            strategy_info = STRATEGIES.get(name)
+            display_name = getattr(strategy_info, "name", name) if strategy_info else name
+            description = getattr(strategy_info, "description", "") if strategy_info else ""
+
+            return {
+                "strategy_name": name,
+                "display_name": display_name,
+                "description": description,
+                "sharpe_ratio": round(float(m.sharpe_ratio), 3),
+                "sortino_ratio": round(float(m.sortino_ratio), 3),
+                "calmar_ratio": round(float(m.calmar_ratio), 3),
+                "total_return_pct": round(float(m.total_return_pct), 2),
+                "max_drawdown_pct": round(float(m.max_drawdown_pct), 2),
+                "win_rate_pct": round(float(m.win_rate_pct), 1),
+                "profit_factor": round(float(m.profit_factor), 3),
+                "total_trades": int(m.total_trades),
+                "avg_trade_duration_bars": round(float(getattr(m, "avg_duration_bars", 0)), 1),
+                "equity_curve_sample": [round(v, 2) for v in eq],
+                "error": None,
+            }
+        except Exception as e:
+            return {
+                "strategy_name": name,
+                "display_name": name,
+                "description": "",
+                "sharpe_ratio": -999.0,
+                "sortino_ratio": 0.0,
+                "calmar_ratio": 0.0,
+                "total_return_pct": 0.0,
+                "max_drawdown_pct": 0.0,
+                "win_rate_pct": 0.0,
+                "profit_factor": 0.0,
+                "total_trades": 0,
+                "avg_trade_duration_bars": 0.0,
+                "equity_curve_sample": [req.initial_capital],
+                "error": str(e),
+            }
+
+    names = [n for n in STRATEGIES if n not in skip]
+    entries = await asyncio.gather(*[_run_one(n) for n in names])
+
+    valid_sort = {"sharpe_ratio", "sortino_ratio", "calmar_ratio", "total_return_pct", "win_rate_pct", "profit_factor"}
+    sort_key = req.sort_by if req.sort_by in valid_sort else "sharpe_ratio"
+    sorted_entries = sorted(entries, key=lambda e: e[sort_key], reverse=True)
+    for i, e in enumerate(sorted_entries):
+        e["rank"] = i + 1
+
+    return sorted_entries

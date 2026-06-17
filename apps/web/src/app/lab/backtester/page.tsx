@@ -43,9 +43,11 @@ import { RollingAnalysisPanel } from "./components/rolling-analysis";
 import { HeatCalendar } from "./components/heat-calendar";
 import { KellyPanel } from "./components/kelly-panel";
 import { SensitivityChart } from "./components/sensitivity-chart";
+import { RegimeAnalysis } from "./components/regime-analysis";
+import { StrategyLeaderboard } from "./components/strategy-leaderboard";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio"];
 
@@ -468,20 +470,37 @@ export default function BacktesterPage() {
             }}
           />
         ) : mode === "scan" ? (
-          <StrategyScannerView
-            symbol={singleSymbol}
-            strategies={strategies}
-            periodDays={periodDays}
-            interval={interval}
-            initialCapital={initialCapital}
-            commissionPct={commissionPct}
-            slippagePct={slippagePct}
-            positionPct={positionPct}
-            onSelectStrategy={(name) => {
-              setStrategyName(name);
-              setMode("single");
-            }}
-          />
+          <div className="space-y-6">
+            <StrategyScannerView
+              symbol={singleSymbol}
+              strategies={strategies}
+              periodDays={periodDays}
+              interval={interval}
+              initialCapital={initialCapital}
+              commissionPct={commissionPct}
+              slippagePct={slippagePct}
+              positionPct={positionPct}
+              onSelectStrategy={(name) => {
+                setStrategyName(name);
+                setMode("single");
+              }}
+            />
+            <div className="border-t border-zinc-800 pt-6">
+              <StrategyLeaderboard
+                symbol={singleSymbol}
+                interval={interval}
+                periodDays={periodDays}
+                initialCapital={initialCapital}
+                commissionPct={commissionPct}
+                slippagePct={slippagePct}
+                positionPct={positionPct}
+                onSelectStrategy={(name) => {
+                  setStrategyName(name);
+                  setMode("single");
+                }}
+              />
+            </div>
+          </div>
         ) : mode === "signals" ? (
           <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
             <aside className="space-y-4 bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
@@ -1003,6 +1022,7 @@ function ResultTabs({
     ...(hasRolling ? [{ value: "rolling" as ResultTab, label: "Deep Analysis" }] : []),
     ...(hasMonthly ? [{ value: "calendar" as ResultTab, label: "Calendar" }] : []),
     ...(hasMonthly ? [{ value: "sensitivity" as ResultTab, label: "Sensitivity" }] : []),
+    { value: "regime", label: "Regime" },
   ];
   return (
     <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
@@ -1280,6 +1300,19 @@ function SingleResultsView({
               slippagePct={slippagePct}
               positionPct={positionPct}
               currentParams={strategyParams}
+            />
+          )}
+          {resultTab === "regime" && (
+            <RegimeAnalysis
+              symbol={symbol}
+              strategy={strategy}
+              strategyParams={strategyParams}
+              interval={interval}
+              periodDays={periodDays}
+              initialCapital={initialCapital}
+              commissionPct={commissionPct}
+              slippagePct={slippagePct}
+              positionPct={positionPct}
             />
           )}
         </div>
