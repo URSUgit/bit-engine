@@ -100,6 +100,28 @@ const INDICATORS: { key: IndicatorKey; label: string; color: string }[] = [
   { key: "macd",   label: "MACD",    color: "#34d399" },
 ];
 
+function PerformanceRating({ m }: { m: BacktestResult["metrics"] }) {
+  let score = 0;
+  if (m.sharpe_ratio >= 1) score += 20;
+  if (m.sharpe_ratio >= 2) score += 10;
+  if (m.total_return_pct > 20) score += 20;
+  if (m.max_drawdown_pct < 15) score += 15;
+  if (m.win_rate_pct > 55) score += 15;
+  if (m.profit_factor > 1.5) score += 20;
+
+  const rating = score >= 80 ? "Excellent" : score >= 60 ? "Good" : score >= 40 ? "Fair" : "Poor";
+  const cls =
+    score >= 80 ? "text-green-400 border-green-800 bg-green-950/30" :
+    score >= 60 ? "text-yellow-400 border-yellow-800 bg-yellow-950/30" :
+    score >= 40 ? "text-orange-400 border-orange-800 bg-orange-950/30" :
+    "text-red-400 border-red-800 bg-red-950/30";
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-xs font-semibold ${cls}`}>
+      {rating} <span className="opacity-60">({score}/100)</span>
+    </span>
+  );
+}
+
 export function MetricsGrid({ result }: { result: BacktestResult }) {
   const m = result.metrics;
   const b = result.benchmark_metrics;
@@ -132,8 +154,11 @@ export function MetricsGrid({ result }: { result: BacktestResult }) {
     <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
         <div>
-          <h3 className="font-semibold">{result.symbol} · {result.strategy}</h3>
-          <p className="text-xs text-zinc-500">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="font-semibold">{result.symbol} · {result.strategy}</h3>
+            <PerformanceRating m={m} />
+          </div>
+          <p className="text-xs text-zinc-500 mt-0.5">
             {result.start_date} → {result.end_date} · {result.bars_processed} bars · {result.runtime_ms}ms
           </p>
         </div>
@@ -890,10 +915,24 @@ export function TradesTable({
       </div>
     );
   }
+  const wins = trades.filter((t) => t.pnl >= 0);
+  const losses = trades.filter((t) => t.pnl < 0);
+  const maxAbsPnlPct = Math.max(...trades.map((t) => Math.abs(t.pnl_pct)), 1);
+
   return (
     <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-semibold">Trades ({trades.length})</h3>
+        <div className="flex items-center gap-3">
+          <h3 className="font-semibold">Trades ({trades.length})</h3>
+          <div className="flex gap-2 text-xs">
+            <span className="text-emerald-400">{wins.length}W</span>
+            <span className="text-zinc-600">/</span>
+            <span className="text-red-400">{losses.length}L</span>
+            {trades.length - wins.length - losses.length > 0 && (
+              <><span className="text-zinc-600">/</span><span className="text-zinc-400">{trades.length - wins.length - losses.length}B</span></>
+            )}
+          </div>
+        </div>
         <div className="flex gap-2">
           <button
             onClick={() => exportTradesCSV(trades, symbol)}
@@ -926,19 +965,28 @@ export function TradesTable({
           <tbody>
             {trades.map((t, i) => {
               const win = t.pnl >= 0;
+              const barPct = Math.min(Math.abs(t.pnl_pct) / maxAbsPnlPct * 45, 45);
               return (
-                <tr key={i} className="border-b border-zinc-800/60">
+                <tr key={i} className="border-b border-zinc-800/60 hover:bg-zinc-800/20 transition">
                   <td className="py-2 pr-3 text-zinc-500">{i + 1}</td>
                   <td className="py-2 pr-3 text-zinc-300">{t.entry_time.slice(0, 10)}</td>
                   <td className="py-2 pr-3 text-zinc-300">{t.exit_time.slice(0, 10)}</td>
                   <td className="py-2 pr-3 text-right text-zinc-300">{t.entry_price.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
                   <td className="py-2 pr-3 text-right text-zinc-300">{t.exit_price.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
                   <td className="py-2 pr-3 text-right text-zinc-500">{t.duration_bars}</td>
-                  <td className={`py-2 pr-3 text-right ${win ? "text-emerald-400" : "text-red-400"}`}>
+                  <td className={`py-2 pr-3 text-right font-medium ${win ? "text-emerald-400" : "text-red-400"}`}>
                     {win ? "+" : ""}{t.pnl.toFixed(2)}
                   </td>
-                  <td className={`py-2 text-right ${win ? "text-emerald-400" : "text-red-400"}`}>
-                    {win ? "+" : ""}{t.pnl_pct.toFixed(2)}%
+                  <td className="py-2 text-right">
+                    <div className="relative inline-flex items-center justify-end w-24">
+                      <div
+                        className={`absolute right-0 inset-y-0 rounded-sm opacity-20 ${win ? "bg-emerald-500" : "bg-red-500"}`}
+                        style={{ width: `${barPct}%` }}
+                      />
+                      <span className={`relative text-xs font-medium ${win ? "text-emerald-400" : "text-red-400"}`}>
+                        {win ? "+" : ""}{t.pnl_pct.toFixed(2)}%
+                      </span>
+                    </div>
                   </td>
                 </tr>
               );
