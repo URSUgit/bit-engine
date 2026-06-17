@@ -2135,7 +2135,12 @@ async def strategy_leaderboard(req: LeaderboardRequest):
             m = r.metrics
 
             # Downsample equity curve to 20 points for sparkline
-            eq = [e.get("equity", req.initial_capital) for e in (r.equity_curve or [])]
+            raw_eq = r.equity_curve or []
+            eq = [
+                float(getattr(e, "equity", None) or e.get("equity", req.initial_capital))
+                if not isinstance(e, dict) else e.get("equity", req.initial_capital)
+                for e in raw_eq
+            ]
             if len(eq) > 20:
                 indices = [int(i * (len(eq) - 1) / 19) for i in range(20)]
                 eq = [eq[i] for i in indices]
