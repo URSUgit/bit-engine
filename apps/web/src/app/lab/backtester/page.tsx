@@ -53,9 +53,10 @@ import { SymbolScanner } from "./components/symbol-scanner";
 import { DrawdownAnalysis } from "./components/drawdown-analysis";
 import { ConfigPresets, type BacktestConfig } from "./components/config-presets";
 import { TradeJournal } from "./components/trade-journal";
+import { MultiTimeframePanel } from "./components/multi-timeframe";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio"];
 
@@ -1189,6 +1190,7 @@ function ResultTabs({
     { value: "attribution", label: "Attribution" },
     { value: "drawdown", label: "Drawdowns" },
     ...(hasMonthly ? [{ value: "journal" as ResultTab, label: "Journal" }] : []),
+    { value: "multi_tf" as ResultTab, label: "Multi-TF" },
   ];
   return (
     <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
@@ -1372,13 +1374,25 @@ function SingleResultsView({
   return (
     <>
       <MetadataPanel symbol={symbol} />
-      {!result && !running && (
+      {!result && !running && resultTab !== "multi_tf" && (
         <div className="bg-zinc-900/30 border border-dashed border-zinc-800 rounded-lg p-12 text-center">
           <h3 className="text-xl font-medium text-zinc-300 mb-2">Pick a pair and hit Run</h3>
           <p className="text-sm text-zinc-500 max-w-md mx-auto">
             Charts, 12 performance metrics, every trade marked on the candlestick chart.
           </p>
         </div>
+      )}
+      {!result && !running && resultTab === "multi_tf" && (
+        <MultiTimeframePanel
+          symbol={symbol}
+          strategy={strategy}
+          strategyParams={strategyParams}
+          periodDays={periodDays}
+          initialCapital={initialCapital}
+          commissionPct={commissionPct}
+          slippagePct={slippagePct}
+          positionPct={positionPct}
+        />
       )}
       {running && progress && (
         <ProgressDisplay progress={progress} elapsedMs={elapsedMs} />
@@ -1492,6 +1506,18 @@ function SingleResultsView({
           )}
           {resultTab === "journal" && (
             <TradeJournal result={result} />
+          )}
+          {resultTab === "multi_tf" && (
+            <MultiTimeframePanel
+              symbol={symbol}
+              strategy={strategy}
+              strategyParams={strategyParams}
+              periodDays={periodDays}
+              initialCapital={initialCapital}
+              commissionPct={commissionPct}
+              slippagePct={slippagePct}
+              positionPct={positionPct}
+            />
           )}
         </div>
       )}
