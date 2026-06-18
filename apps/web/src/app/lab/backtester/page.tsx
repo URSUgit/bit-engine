@@ -47,6 +47,7 @@ import { RegimeAnalysis } from "./components/regime-analysis";
 import { StrategyLeaderboard } from "./components/strategy-leaderboard";
 
 import { RiskAnalyticsPanel } from "./components/risk-analytics";
+import { EfficientFrontier } from "./components/efficient-frontier";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
 type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk";
@@ -586,6 +587,18 @@ export default function BacktesterPage() {
               commissionPct={commissionPct}
               slippagePct={slippagePct}
             />
+            <div className="border-t border-zinc-800 pt-6 mt-6">
+              <EfficientFrontier
+                symbol={singleSymbol}
+                interval={interval}
+                periodDays={periodDays}
+                initialCapital={initialCapital}
+                commissionPct={commissionPct}
+                slippagePct={slippagePct}
+                positionPct={positionPct}
+                strategies={strategies}
+              />
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">

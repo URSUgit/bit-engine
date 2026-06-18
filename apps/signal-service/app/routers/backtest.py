@@ -2200,3 +2200,81 @@ async def strategy_leaderboard(req: LeaderboardRequest):
         e["rank"] = i + 1
 
     return sorted_entries
+
+
+# ── Efficient Frontier ─────────────────────────────────────────────────────────
+
+import dataclasses as _dataclasses
+from app.backtest.frontier import compute_frontier, FrontierResult  # noqa: E402
+
+
+class FrontierRequest(BaseModel):
+    strategies: list[str]            # 2-10 strategy names
+    symbol: str = "BTCUSDT"
+    interval: str = "1d"
+    period_days: int = 365
+    initial_capital: float = 10000.0
+    commission_pct: float = 0.001
+    slippage_pct: float = 0.0005
+    position_size_pct: float = 0.25
+    risk_free_rate: float = 0.05     # annual
+
+
+@router.post("/frontier")
+async def efficient_frontier(req: FrontierRequest):
+    """Compute Markowitz efficient frontier for a set of strategies."""
+    if len(req.strategies) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 strategies are required.")
+    if len(req.strategies) > 10:
+        raise HTTPException(status_code=400, detail="At most 10 strategies are supported.")
+
+    unknown = [s for s in req.strategies if s not in STRATEGIES]
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown strategies: {unknown}. Available: {list(STRATEGIES)}",
+        )
+
+    from datetime import datetime, timezone, timedelta
+    end_dt = datetime.now(timezone.utc)
+    start_dt = end_dt - timedelta(days=req.period_days)
+    start_date = start_dt.strftime("%Y-%m-%d")
+    end_date = end_dt.strftime("%Y-%m-%d")
+
+    async def _run_one(strategy_name: str) -> tuple[str, list[float]]:
+        params = BacktestParams(
+            symbol=req.symbol,
+            strategy=strategy_name,
+            start_date=start_date,
+            end_date=end_date,
+            interval=req.interval,
+            initial_capital=req.initial_capital,
+            commission_pct=req.commission_pct,
+            slippage_pct=req.slippage_pct,
+            position_size_pct=req.position_size_pct,
+            strategy_params={},
+        )
+        result = await run_backtest(params)
+        equity_values = [pt.equity for pt in result.equity_curve]
+        return strategy_name, equity_values
+
+    try:
+        pairs = await asyncio.gather(*[_run_one(s) for s in req.strategies])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        log.error("Frontier backtest run failed", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Backtest run failed: {e}")
+
+    strategy_names = [p[0] for p in pairs]
+    equity_curves = [p[1] for p in pairs]
+
+    try:
+        result: FrontierResult = compute_frontier(strategy_names, equity_curves, req.risk_free_rate)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        log.error("Frontier computation failed", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Frontier computation failed: {e}")
+
+    return _dataclasses.asdict(result)
