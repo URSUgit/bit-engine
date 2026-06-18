@@ -49,6 +49,7 @@ import { StrategyLeaderboard } from "./components/strategy-leaderboard";
 import { RiskAnalyticsPanel } from "./components/risk-analytics";
 import { EfficientFrontier } from "./components/efficient-frontier";
 import { PerformanceAttribution } from "./components/performance-attribution";
+import { SymbolScanner } from "./components/symbol-scanner";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
 type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution";
@@ -589,13 +590,21 @@ export default function BacktesterPage() {
                 </div>
               )}
             </aside>
-            <main>
+            <main className="space-y-6">
               <LiveSignalsView
                 signals={liveSignals}
                 loading={liveSignalsLoading}
                 symbol={singleSymbol}
                 interval={interval}
               />
+              <div className="border-t border-zinc-800 pt-6">
+                <h3 className="font-semibold text-base mb-4">Symbol Scanner — scan all pairs for this strategy</h3>
+                <SymbolScanner
+                  strategies={strategies}
+                  interval={interval}
+                  onSelectSymbol={(sym) => { setSingleSymbol(sym); setMode("single"); }}
+                />
+              </div>
             </main>
           </div>
         ) : mode === "forward" ? (

@@ -797,6 +797,10 @@ export const backtestApi = {
       method: "POST",
       body: JSON.stringify(req),
     }),
+
+  // ── Multi-symbol signal scanner ────────────────────────────────────────────
+  scanSymbols: (params: { strategy: string; interval: string; symbols: string[]; bars?: number }) =>
+    call<SymbolScanResult>(`/api/v1/backtest/signals/scan?strategy=${encodeURIComponent(params.strategy)}&interval=${encodeURIComponent(params.interval)}&symbols=${encodeURIComponent(params.symbols.join(","))}&bars=${params.bars ?? 200}`),
 };
 
 // ── Portfolio types ────────────────────────────────────────────────────────────
@@ -836,4 +840,26 @@ export type PortfolioResult = {
   };
   correlation_matrix: Record<string, Record<string, number | null>>;
   diversification_benefit: number;
+};
+
+export type SymbolScanEntry = {
+  symbol: string;
+  signal: string;
+  confidence: number;
+  entry_price: number | null;
+  tp_price: number | null;
+  sl_price: number | null;
+  bar_count: number;
+  error: string | null;
+  close: number | null;
+  ret_5d: number;
+  ret_20d: number;
+  volume: number;
+};
+
+export type SymbolScanResult = {
+  strategy: string;
+  interval: string;
+  timestamp: string;
+  results: SymbolScanEntry[];
 };

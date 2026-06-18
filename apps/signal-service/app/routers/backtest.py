@@ -871,6 +871,67 @@ async def live_signals(
     }
 
 
+# ── Multi-symbol signal scanner ────────────────────────────────────────────────
+
+@router.get("/signals/scan")
+async def scan_symbol_signals(
+    strategy: str = Query("rsi"),
+    interval: str = Query("1d"),
+    symbols: str = Query("BTC-USD,ETH-USD,SOL-USD,BNB-USD,MATIC-USD,ADA-USD,AVAX-USD,DOT-USD"),
+    bars: int = Query(200, ge=20, le=1000),
+):
+    """Run one strategy across multiple symbols in parallel, return a signal grid."""
+    if strategy not in STRATEGIES:
+        raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}")
+
+    sym_list = [s.strip() for s in symbols.split(",") if s.strip()][:20]
+    loader = HistoricalDataLoader()
+    from app.backtest.strategies.base import StrategyContext
+
+    async def _scan_one(sym: str) -> dict:
+        try:
+            bar_data = await loader.load(sym, _iso_days_ago(400), None, interval)
+            bar_data = bar_data[-bars:] if len(bar_data) >= bars else bar_data
+            if len(bar_data) < 20:
+                return {"symbol": sym, "signal": "hold", "confidence": 0.0, "entry_price": None,
+                        "tp_price": None, "sl_price": None, "bar_count": len(bar_data), "error": "Insufficient data"}
+
+            last = bar_data[-1]
+            close = last.close
+            atr_vals = [abs(b.high - b.low) for b in bar_data[-20:]]
+            atr = sum(atr_vals) / len(atr_vals) if atr_vals else close * 0.01
+
+            strat = STRATEGIES[strategy]()
+            ctx = StrategyContext(history=bar_data, position=None)
+            sig = strat.on_bar(ctx)
+            entry_price = round(close, 4) if sig in ("buy", "sell", "short") else None
+            tp = round(close + 2 * atr, 4) if sig == "buy" else round(close - 2 * atr, 4) if sig in ("sell", "short") else None
+            sl = round(close - atr, 4) if sig == "buy" else round(close + atr, 4) if sig in ("sell", "short") else None
+
+            # Price change metrics
+            ret_5 = (bar_data[-1].close - bar_data[-5].close) / bar_data[-5].close * 100 if len(bar_data) >= 5 else 0.0
+            ret_20 = (bar_data[-1].close - bar_data[-20].close) / bar_data[-20].close * 100 if len(bar_data) >= 20 else 0.0
+            vol = float(bar_data[-1].volume) if bar_data[-1].volume else 0.0
+
+            return {
+                "symbol": sym, "signal": sig, "confidence": 0.0,
+                "entry_price": entry_price, "tp_price": tp, "sl_price": sl,
+                "bar_count": len(bar_data), "error": None,
+                "close": round(close, 4),
+                "ret_5d": round(ret_5, 2),
+                "ret_20d": round(ret_20, 2),
+                "volume": vol,
+            }
+        except Exception as e:
+            return {"symbol": sym, "signal": "hold", "confidence": 0.0,
+                    "entry_price": None, "tp_price": None, "sl_price": None,
+                    "bar_count": 0, "error": str(e), "close": None, "ret_5d": 0.0, "ret_20d": 0.0, "volume": 0.0}
+
+    results = await asyncio.gather(*[_scan_one(s) for s in sym_list])
+    now_iso = datetime.utcnow().isoformat() + "Z"
+    return {"strategy": strategy, "interval": interval, "timestamp": now_iso, "results": list(results)}
+
+
 # ── Signal validation ──────────────────────────────────────────────────────────
 
 class ValidateSignalRequest(BaseModel):
