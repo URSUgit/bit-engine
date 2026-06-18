@@ -55,6 +55,7 @@ import { ConfigPresets, type BacktestConfig } from "./components/config-presets"
 import { TradeJournal } from "./components/trade-journal";
 import { MultiTimeframePanel } from "./components/multi-timeframe";
 import { Watchlist } from "./components/watchlist";
+import { StrategyRadar } from "./components/strategy-radar";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
 type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf";
@@ -1429,6 +1430,7 @@ function SingleResultsView({
             <>
               <PriceChart result={result} />
               <EquityChart result={result} />
+              <StrategyRadar result={result} />
             </>
           )}
           {resultTab === "editor" && (
