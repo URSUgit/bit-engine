@@ -155,7 +155,7 @@ export function RiskAnalyticsPanel({ result }: { result: BacktestResult }) {
                   contentStyle={{ background: "#18181b", border: "1px solid #3f3f46", borderRadius: 6, fontSize: 11 }}
                   labelStyle={{ color: "#e4e4e7" }}
                   itemStyle={{ color: "#a1a1aa" }}
-                  formatter={(v: number) => [v, "Count"]}
+                  formatter={(v) => [typeof v === "number" ? v : String(v), "Count"]}
                 />
                 <ReferenceLine x="0%" stroke="#52525b" strokeDasharray="4 2" />
                 <Bar dataKey="count" radius={[2, 2, 0, 0]}>
