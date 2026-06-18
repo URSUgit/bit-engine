@@ -50,9 +50,10 @@ import { RiskAnalyticsPanel } from "./components/risk-analytics";
 import { EfficientFrontier } from "./components/efficient-frontier";
 import { PerformanceAttribution } from "./components/performance-attribution";
 import { SymbolScanner } from "./components/symbol-scanner";
+import { DrawdownAnalysis } from "./components/drawdown-analysis";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio"];
 
@@ -1146,6 +1147,7 @@ function ResultTabs({
     { value: "regime", label: "Regime" },
     { value: "risk", label: "Risk" },
     { value: "attribution", label: "Attribution" },
+    { value: "drawdown", label: "Drawdowns" },
   ];
   return (
     <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
@@ -1443,6 +1445,9 @@ function SingleResultsView({
           )}
           {resultTab === "attribution" && (
             <PerformanceAttribution result={result} />
+          )}
+          {resultTab === "drawdown" && (
+            <DrawdownAnalysis result={result} />
           )}
         </div>
       )}
