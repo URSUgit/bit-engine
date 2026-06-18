@@ -189,6 +189,36 @@ function PerformanceRating({ m }: { m: BacktestResult["metrics"] }) {
   );
 }
 
+function TradeStreakBar({ trades }: { trades: BacktestResult["trades"] }) {
+  if (trades.length === 0) return null;
+  // Show last 50 trades as colored squares
+  const recent = trades.slice(-50);
+  let maxStreak = 0, curStreak = 0, curWin = true;
+  for (const t of trades) {
+    const w = t.pnl >= 0;
+    if (w === curWin) { curStreak++; maxStreak = Math.max(maxStreak, curStreak); }
+    else { curStreak = 1; curWin = w; }
+  }
+
+  return (
+    <div className="mt-3 pt-3 border-t border-zinc-800">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[10px] uppercase tracking-wide text-zinc-600">Trade Sequence (last {recent.length})</div>
+        <div className="text-[10px] text-zinc-600">Current streak: <span className={`font-semibold ${curWin ? "text-emerald-400" : "text-red-400"}`}>{curStreak} {curWin ? "W" : "L"}</span> · Max: {maxStreak}</div>
+      </div>
+      <div className="flex gap-0.5 flex-wrap">
+        {recent.map((t, i) => (
+          <div
+            key={i}
+            title={`${t.entry_time.slice(0, 10)}: ${t.pnl >= 0 ? "+" : ""}${t.pnl_pct.toFixed(2)}%`}
+            className={`w-3 h-3 rounded-sm ${t.pnl >= 0 ? "bg-emerald-500" : "bg-red-500"}`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function MetricsGrid({ result }: { result: BacktestResult }) {
   const m = result.metrics;
   const b = result.benchmark_metrics;
@@ -306,6 +336,9 @@ export function MetricsGrid({ result }: { result: BacktestResult }) {
             <MetricCard label="Avg duration" value={`${m.avg_trade_duration_bars.toFixed(1)} bars`} positive muted />
           </div>
         </div>
+      )}
+      {result.trades && result.trades.length >= 5 && (
+        <TradeStreakBar trades={result.trades} />
       )}
     </div>
   );

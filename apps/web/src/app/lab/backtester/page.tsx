@@ -58,6 +58,8 @@ import { Watchlist } from "./components/watchlist";
 import { StrategyRadar } from "./components/strategy-radar";
 import { ResultSnapshot } from "./components/result-snapshot";
 import { ParamTuner } from "./components/param-tuner";
+import { useAutoSaveResults } from "@/lib/use-auto-save-results";
+import { RecentHistory } from "./components/recent-history";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
 type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf";
@@ -133,6 +135,9 @@ export default function BacktesterPage() {
   const [progress, setProgress] = useState<StreamProgressEvent | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
+
+  // Auto-save results history
+  const { history: autoHistory, push: autoSave, remove: autoRemove, clear: autoClear } = useAutoSaveResults();
 
   // Auto-run on param change
   const [autoRun, setAutoRun] = useState(false);
@@ -274,6 +279,7 @@ export default function BacktesterPage() {
           setProgress(event);
         } else if (event.type === "result") {
           setSingleResult(event.data);
+          if (event.data) autoSave(event.data);
         } else if (event.type === "error") {
           setError(event.message);
         }
@@ -962,6 +968,17 @@ export default function BacktesterPage() {
               {singleResult && (
                 <ResultSnapshot current={singleResult} />
               )}
+              <RecentHistory
+                history={autoHistory}
+                onLoad={(result) => {
+                  setSingleResult(result);
+                  setSingleSymbol(result.symbol);
+                  setStrategyName(result.strategy);
+                  setResultTab("charts");
+                }}
+                onRemove={autoRemove}
+                onClear={autoClear}
+              />
               <Watchlist onSelectSymbol={(sym) => setSingleSymbol(sym)} />
             </aside>
 
