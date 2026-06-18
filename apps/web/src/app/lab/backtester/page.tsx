@@ -114,6 +114,10 @@ export default function BacktesterPage() {
   const [liveSignals, setLiveSignals] = useState<LiveSignal[] | null>(null);
   const [liveSignalsLoading, setLiveSignalsLoading] = useState(false);
   const [liveSignalsError, setLiveSignalsError] = useState<string | null>(null);
+  const [liveSignalsAutoRefresh, setLiveSignalsAutoRefresh] = useState(false);
+  const [liveSignalsRefreshSec, setLiveSignalsRefreshSec] = useState(30);
+  const [liveSignalsCountdown, setLiveSignalsCountdown] = useState(0);
+  const liveSignalsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -423,6 +427,20 @@ export default function BacktesterPage() {
     }
   }
 
+  // Auto-refresh live signals
+  useEffect(() => {
+    if (liveSignalsTimerRef.current) clearInterval(liveSignalsTimerRef.current);
+    if (!liveSignalsAutoRefresh || mode !== "signals") return;
+    setLiveSignalsCountdown(liveSignalsRefreshSec);
+    liveSignalsTimerRef.current = setInterval(() => {
+      setLiveSignalsCountdown((c) => {
+        if (c <= 1) { fetchLiveSignals(); return liveSignalsRefreshSec; }
+        return c - 1;
+      });
+    }, 1000);
+    return () => { if (liveSignalsTimerRef.current) clearInterval(liveSignalsTimerRef.current); };
+  }, [liveSignalsAutoRefresh, liveSignalsRefreshSec, mode, singleSymbol, interval]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function toggleCompareSymbol(sym: string) {
     setCompareSymbols((cur) =>
       cur.includes(sym) ? cur.filter((s) => s !== sym) : [...cur, sym].slice(0, 20),
@@ -535,6 +553,36 @@ export default function BacktesterPage() {
               >
                 {liveSignalsLoading ? "Fetching…" : "Fetch Live Signals"}
               </button>
+              {/* Auto-refresh controls */}
+              <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-zinc-400 font-medium">Auto-refresh</span>
+                  <button
+                    onClick={() => setLiveSignalsAutoRefresh((v) => !v)}
+                    className={`relative w-10 h-5 rounded-full transition ${liveSignalsAutoRefresh ? "bg-cyan-600" : "bg-zinc-700"}`}
+                  >
+                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${liveSignalsAutoRefresh ? "translate-x-5" : "translate-x-0.5"}`} />
+                  </button>
+                </div>
+                {liveSignalsAutoRefresh && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      {[10, 30, 60].map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => setLiveSignalsRefreshSec(s)}
+                          className={`flex-1 py-1 text-xs rounded transition ${liveSignalsRefreshSec === s ? "bg-cyan-700 text-white" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"}`}
+                        >
+                          {s}s
+                        </button>
+                      ))}
+                    </div>
+                    <div className="text-xs text-zinc-500 text-center">
+                      Refresh in <span className="text-cyan-400 font-medium">{liveSignalsCountdown}s</span>
+                    </div>
+                  </div>
+                )}
+              </div>
               {liveSignalsError && (
                 <div className="text-sm text-red-400 bg-red-950/30 border border-red-900 p-2 rounded">
                   {liveSignalsError}
@@ -1533,21 +1581,52 @@ function LiveSignalsView({
       </div>
     );
   }
+  const [updatedAt] = useState(() => new Date());
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h3 className="font-semibold text-lg">
           Live signals · {symbol} · {interval}
         </h3>
-        <span className="text-xs text-zinc-500">
-          {signals.filter((s) => s.signal !== "hold" && !s.error).length} active signals
-        </span>
+        <div className="flex items-center gap-3 text-xs text-zinc-500">
+          <span>{signals.filter((s) => s.signal !== "hold" && !s.error).length} active</span>
+          <span>Updated {updatedAt.toLocaleTimeString()}</span>
+        </div>
       </div>
+      {/* Signal summary bar */}
+      {signals.length > 0 && (() => {
+        const buys = signals.filter((s) => s.signal === "buy").length;
+        const sells = signals.filter((s) => s.signal === "sell").length;
+        const holds = signals.filter((s) => s.signal === "hold" || s.signal === "close").length;
+        const total = signals.length;
+        const sentiment = buys > sells * 1.5 ? "Bullish" : sells > buys * 1.5 ? "Bearish" : "Neutral";
+        const sentColor = sentiment === "Bullish" ? "text-emerald-400" : sentiment === "Bearish" ? "text-red-400" : "text-yellow-400";
+        return (
+          <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-zinc-400">Overall sentiment</span>
+              <span className={`text-sm font-bold ${sentColor}`}>{sentiment}</span>
+            </div>
+            <div className="flex h-2 rounded-full overflow-hidden gap-px">
+              {buys > 0 && <div className="bg-emerald-500 transition-all" style={{ width: `${(buys / total) * 100}%` }} title={`${buys} buy`} />}
+              {sells > 0 && <div className="bg-red-500 transition-all" style={{ width: `${(sells / total) * 100}%` }} title={`${sells} sell`} />}
+              {holds > 0 && <div className="bg-zinc-600 transition-all" style={{ width: `${(holds / total) * 100}%` }} title={`${holds} hold`} />}
+            </div>
+            <div className="flex gap-4 mt-1.5 text-xs text-zinc-500">
+              <span className="text-emerald-400">{buys} buy</span>
+              <span className="text-red-400">{sells} sell</span>
+              <span className="text-zinc-500">{holds} hold</span>
+            </div>
+          </div>
+        );
+      })()}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {signals.map((sig) => {
           const colorClass = SIGNAL_COLORS[sig.signal] ?? SIGNAL_COLORS.hold;
           const validation = validations[sig.strategy];
           const canValidate = sig.signal !== "hold" && !sig.error;
+          const confPct = sig.confidence > 0 ? Math.round(sig.confidence * 100) : 0;
           return (
             <div key={sig.strategy} className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4 space-y-2">
               <div className="flex items-center justify-between">
@@ -1556,6 +1635,21 @@ function LiveSignalsView({
                   {sig.signal}
                 </span>
               </div>
+              {/* Confidence bar */}
+              {confPct > 0 && (
+                <div>
+                  <div className="flex justify-between text-xs text-zinc-500 mb-0.5">
+                    <span>Confidence</span>
+                    <span>{confPct}%</span>
+                  </div>
+                  <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${confPct >= 70 ? "bg-emerald-500" : confPct >= 40 ? "bg-yellow-500" : "bg-zinc-500"}`}
+                      style={{ width: `${confPct}%` }}
+                    />
+                  </div>
+                </div>
+              )}
               {sig.error ? (
                 <div className="text-xs text-red-400">{sig.error}</div>
               ) : (
@@ -1582,7 +1676,7 @@ function LiveSignalsView({
               )}
               <div className="flex items-center justify-between text-xs text-zinc-600">
                 <span>{sig.bar_count} bars</span>
-                <span>{sig.confidence > 0 ? `${(sig.confidence * 100).toFixed(0)}% conf.` : ""}</span>
+                <span>{sig.confidence > 0 ? `${confPct}% conf.` : ""}</span>
               </div>
               {canValidate && (
                 <div className="pt-1 border-t border-zinc-800">
