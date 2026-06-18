@@ -62,6 +62,7 @@ import { useAutoSaveResults } from "@/lib/use-auto-save-results";
 import { RecentHistory } from "./components/recent-history";
 import { RegimeBadge } from "./components/regime-badge";
 import { RobustnessTest } from "./components/robustness-test";
+import { PositionSizer } from "./components/position-sizer";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
 type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness";
@@ -976,6 +977,12 @@ export default function BacktesterPage() {
               {singleResult && (
                 <ResultSnapshot current={singleResult} />
               )}
+              <PositionSizer
+                accountSize={initialCapital}
+                winRatePct={singleResult?.metrics.win_rate_pct}
+                avgWinPct={singleResult?.metrics.avg_win_pct}
+                avgLossPct={singleResult ? Math.abs(singleResult.metrics.avg_loss_pct ?? singleResult.metrics.avg_win_pct ?? 2) : undefined}
+              />
               <RecentHistory
                 history={autoHistory}
                 onLoad={(result) => {

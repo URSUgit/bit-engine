@@ -25,6 +25,8 @@ from .keltner import KeltnerChannelStrategy
 from .heikin_ashi import HeikinAshiStrategy
 from .donchian import DonchianChannelStrategy
 from .rsi_ma_filter import RSIMAFilterStrategy
+from .aroon import AroonStrategy
+from .dema_cross import DEMACrossStrategy
 
 STRATEGIES: dict[str, type[Strategy]] = {
     "rsi": RSIStrategy,
@@ -52,6 +54,8 @@ STRATEGIES: dict[str, type[Strategy]] = {
     "heikin_ashi": HeikinAshiStrategy,
     "donchian_channel": DonchianChannelStrategy,
     "rsi_ma_filter": RSIMAFilterStrategy,
+    "aroon": AroonStrategy,
+    "dema_cross": DEMACrossStrategy,
 }
 
 __all__ = ["Strategy", "StrategyContext", "STRATEGIES"]
