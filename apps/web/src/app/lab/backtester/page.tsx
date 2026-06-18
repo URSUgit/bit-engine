@@ -60,6 +60,7 @@ import { ResultSnapshot } from "./components/result-snapshot";
 import { ParamTuner } from "./components/param-tuner";
 import { useAutoSaveResults } from "@/lib/use-auto-save-results";
 import { RecentHistory } from "./components/recent-history";
+import { RegimeBadge } from "./components/regime-badge";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
 type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf";
@@ -758,6 +759,12 @@ export default function BacktesterPage() {
                 />
               )}
 
+              {mode === "single" && (
+                <RegimeBadge
+                  symbol={singleSymbol}
+                  onSelectStrategy={setStrategyName}
+                />
+              )}
               <PeriodPicker periodDays={periodDays} onChange={setPeriodDays} />
               <IntervalPicker
                 interval={interval}
