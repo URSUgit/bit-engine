@@ -52,9 +52,10 @@ import { PerformanceAttribution } from "./components/performance-attribution";
 import { SymbolScanner } from "./components/symbol-scanner";
 import { DrawdownAnalysis } from "./components/drawdown-analysis";
 import { ConfigPresets, type BacktestConfig } from "./components/config-presets";
+import { TradeJournal } from "./components/trade-journal";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio"];
 
@@ -1187,6 +1188,7 @@ function ResultTabs({
     { value: "risk", label: "Risk" },
     { value: "attribution", label: "Attribution" },
     { value: "drawdown", label: "Drawdowns" },
+    ...(hasMonthly ? [{ value: "journal" as ResultTab, label: "Journal" }] : []),
   ];
   return (
     <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
@@ -1487,6 +1489,9 @@ function SingleResultsView({
           )}
           {resultTab === "drawdown" && (
             <DrawdownAnalysis result={result} />
+          )}
+          {resultTab === "journal" && (
+            <TradeJournal result={result} />
           )}
         </div>
       )}

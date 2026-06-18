@@ -86,18 +86,85 @@ function computeMACD(bars: Bar[], fast = 12, slow = 26, sig = 9): MACDPt[] {
   return result;
 }
 
+function computeEMA(bars: Bar[], period: number): Pt[] {
+  if (bars.length < period) return [];
+  const k = 2 / (period + 1);
+  let e = bars.slice(0, period).reduce((s, b) => s + b.c, 0) / period;
+  const result: Pt[] = [{ time: bars[period - 1].t as Time, value: e }];
+  for (let i = period; i < bars.length; i++) {
+    e = bars[i].c * k + e * (1 - k);
+    result.push({ time: bars[i].t as Time, value: e });
+  }
+  return result;
+}
+
+function computeVWAP(bars: Bar[]): Pt[] {
+  const result: Pt[] = [];
+  let cumPV = 0, cumV = 0;
+  for (const b of bars) {
+    const typical = (b.h + b.l + b.c) / 3;
+    cumPV += typical * b.v;
+    cumV += b.v;
+    if (cumV > 0) result.push({ time: b.t as Time, value: cumPV / cumV });
+  }
+  return result;
+}
+
+type AtrPt = { time: Time; value: number };
+function computeATR(bars: Bar[], period = 14): AtrPt[] {
+  if (bars.length < period + 1) return [];
+  const trueRanges: number[] = [];
+  for (let i = 1; i < bars.length; i++) {
+    const hl = bars[i].h - bars[i].l;
+    const hpc = Math.abs(bars[i].h - bars[i - 1].c);
+    const lpc = Math.abs(bars[i].l - bars[i - 1].c);
+    trueRanges.push(Math.max(hl, hpc, lpc));
+  }
+  let atr = trueRanges.slice(0, period).reduce((s, v) => s + v, 0) / period;
+  const result: AtrPt[] = [{ time: bars[period].t as Time, value: atr }];
+  for (let i = period; i < trueRanges.length; i++) {
+    atr = (atr * (period - 1) + trueRanges[i]) / period;
+    result.push({ time: bars[i + 1].t as Time, value: atr });
+  }
+  return result;
+}
+
+type StochPt = { time: Time; k: number; d: number };
+function computeStochastic(bars: Bar[], kPeriod = 14, dPeriod = 3): StochPt[] {
+  if (bars.length < kPeriod + dPeriod) return [];
+  const kLine: { time: Time; value: number }[] = [];
+  for (let i = kPeriod - 1; i < bars.length; i++) {
+    const window = bars.slice(i - kPeriod + 1, i + 1);
+    const hh = Math.max(...window.map((b) => b.h));
+    const ll = Math.min(...window.map((b) => b.l));
+    const k = hh === ll ? 50 : ((bars[i].c - ll) / (hh - ll)) * 100;
+    kLine.push({ time: bars[i].t as Time, value: k });
+  }
+  const result: StochPt[] = [];
+  for (let i = dPeriod - 1; i < kLine.length; i++) {
+    const d = kLine.slice(i - dPeriod + 1, i + 1).reduce((s, p) => s + p.value, 0) / dPeriod;
+    result.push({ time: kLine[i].time, k: kLine[i].value, d });
+  }
+  return result;
+}
+
 // ── Indicator toggle metadata ─────────────────────────────────────────────────
 
-type IndicatorKey = "sma20" | "sma50" | "sma200" | "bb" | "volume" | "rsi" | "macd";
+type IndicatorKey = "sma20" | "sma50" | "sma200" | "bb" | "volume" | "rsi" | "macd" | "ema9" | "ema21" | "vwap" | "atr" | "stoch";
 
-const INDICATORS: { key: IndicatorKey; label: string; color: string }[] = [
-  { key: "sma20",  label: "SMA 20",  color: "#eab308" },
-  { key: "sma50",  label: "SMA 50",  color: "#f97316" },
-  { key: "sma200", label: "SMA 200", color: "#a855f7" },
-  { key: "bb",     label: "BB(20)",  color: "#22d3ee" },
-  { key: "volume", label: "Volume",  color: "#60a5fa" },
-  { key: "rsi",    label: "RSI 14",  color: "#f472b6" },
-  { key: "macd",   label: "MACD",    color: "#34d399" },
+const INDICATORS: { key: IndicatorKey; label: string; color: string; group: "overlay" | "panel" }[] = [
+  { key: "ema9",   label: "EMA 9",   color: "#06b6d4", group: "overlay" },
+  { key: "ema21",  label: "EMA 21",  color: "#8b5cf6", group: "overlay" },
+  { key: "vwap",   label: "VWAP",    color: "#fbbf24", group: "overlay" },
+  { key: "sma20",  label: "SMA 20",  color: "#eab308", group: "overlay" },
+  { key: "sma50",  label: "SMA 50",  color: "#f97316", group: "overlay" },
+  { key: "sma200", label: "SMA 200", color: "#a855f7", group: "overlay" },
+  { key: "bb",     label: "BB(20)",  color: "#22d3ee", group: "overlay" },
+  { key: "volume", label: "Volume",  color: "#60a5fa", group: "panel" },
+  { key: "atr",    label: "ATR 14",  color: "#fb923c", group: "panel" },
+  { key: "stoch",  label: "Stoch",   color: "#a3e635", group: "panel" },
+  { key: "rsi",    label: "RSI 14",  color: "#f472b6", group: "panel" },
+  { key: "macd",   label: "MACD",    color: "#34d399", group: "panel" },
 ];
 
 function PerformanceRating({ m }: { m: BacktestResult["metrics"] }) {
@@ -265,18 +332,22 @@ function MetricCard({ label, value, positive, muted, tooltip }: {
 export function PriceChart({ result }: { result: BacktestResult }) {
   const priceRef   = useRef<HTMLDivElement | null>(null);
   const volumeRef  = useRef<HTMLDivElement | null>(null);
+  const atrRef     = useRef<HTMLDivElement | null>(null);
+  const stochRef   = useRef<HTMLDivElement | null>(null);
   const rsiRef     = useRef<HTMLDivElement | null>(null);
   const macdRef    = useRef<HTMLDivElement | null>(null);
 
   // Callback refs so conditional-render mounts/unmounts update the ref before the effect fires
   const volumeCb = useCallback((el: HTMLDivElement | null) => { volumeRef.current  = el; }, []);
+  const atrCb    = useCallback((el: HTMLDivElement | null) => { atrRef.current     = el; }, []);
+  const stochCb  = useCallback((el: HTMLDivElement | null) => { stochRef.current   = el; }, []);
   const rsiCb    = useCallback((el: HTMLDivElement | null) => { rsiRef.current     = el; }, []);
   const macdCb   = useCallback((el: HTMLDivElement | null) => { macdRef.current    = el; }, []);
 
   const [bars, setBars]       = useState<Bar[] | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [active, setActive]   = useState<Set<IndicatorKey>>(
-    new Set(["sma20", "sma50", "volume", "rsi"] as IndicatorKey[]),
+    new Set(["ema9", "ema21", "volume", "rsi"] as IndicatorKey[]),
   );
 
   const toggle = useCallback((key: IndicatorKey) => {
@@ -323,9 +394,11 @@ export function PriceChart({ result }: { result: BacktestResult }) {
       });
 
     const hasVolume = active.has("volume") && volumeRef.current !== null;
+    const hasAtr    = active.has("atr")    && atrRef.current    !== null;
+    const hasStoch  = active.has("stoch")  && stochRef.current  !== null;
     const hasRsi    = active.has("rsi")    && rsiRef.current    !== null;
     const hasMacd   = active.has("macd")   && macdRef.current   !== null;
-    const hasSubpanels = hasVolume || hasRsi || hasMacd;
+    const hasSubpanels = hasVolume || hasAtr || hasStoch || hasRsi || hasMacd;
 
     // ── Price chart ───────────────────────────────────────────────────────────
     const pc = mkChart(priceRef.current, 400, !hasSubpanels);
@@ -362,6 +435,24 @@ export function PriceChart({ result }: { result: BacktestResult }) {
       pc.addLineSeries({ ...opts, color: "rgba(34,211,238,0.65)" }).setData(bbData.map((p) => ({ time: p.time, value: p.lower })));
     }
 
+    // EMA 9
+    if (active.has("ema9")) {
+      const s = pc.addLineSeries({ color: "#06b6d4", lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
+      s.setData(computeEMA(bars, 9));
+    }
+
+    // EMA 21
+    if (active.has("ema21")) {
+      const s = pc.addLineSeries({ color: "#8b5cf6", lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
+      s.setData(computeEMA(bars, 21));
+    }
+
+    // VWAP
+    if (active.has("vwap")) {
+      const s = pc.addLineSeries({ color: "#fbbf24", lineWidth: 2, lastValueVisible: true, priceLineVisible: false, lineStyle: 2 as const });
+      s.setData(computeVWAP(bars));
+    }
+
     // Entry / Exit trade markers
     const markers: SeriesMarker<Time>[] = [];
     for (const t of result.trades) {
@@ -385,7 +476,7 @@ export function PriceChart({ result }: { result: BacktestResult }) {
 
     // ── Volume chart ──────────────────────────────────────────────────────────
     if (hasVolume) {
-      const isLast = !hasRsi && !hasMacd;
+      const isLast = !hasAtr && !hasStoch && !hasRsi && !hasMacd;
       const vc = mkChart(volumeRef.current!, 100, isLast);
       charts.push(vc);
       containerMap.set(vc, volumeRef.current!);
@@ -401,6 +492,37 @@ export function PriceChart({ result }: { result: BacktestResult }) {
           color: b.c >= b.o ? "rgba(16,185,129,0.5)" : "rgba(239,68,68,0.45)",
         })),
       );
+    }
+
+    // ── ATR chart ─────────────────────────────────────────────────────────────
+    if (hasAtr) {
+      const isLast = !hasStoch && !hasRsi && !hasMacd;
+      const ac = mkChart(atrRef.current!, 100, isLast);
+      charts.push(ac);
+      containerMap.set(ac, atrRef.current!);
+      ac.priceScale("right").applyOptions({ scaleMargins: { top: 0.1, bottom: 0.05 } });
+      const atrData = computeATR(bars);
+      if (atrData.length > 0) {
+        ac.addLineSeries({ color: "#fb923c", lineWidth: 2, lastValueVisible: true, priceLineVisible: false }).setData(atrData);
+      }
+    }
+
+    // ── Stochastic chart ──────────────────────────────────────────────────────
+    if (hasStoch) {
+      const isLast = !hasRsi && !hasMacd;
+      const sc = mkChart(stochRef.current!, 120, isLast);
+      charts.push(sc);
+      containerMap.set(sc, stochRef.current!);
+      sc.priceScale("right").applyOptions({ scaleMargins: { top: 0.1, bottom: 0.1 } });
+      const stochData = computeStochastic(bars);
+      if (stochData.length >= 2) {
+        const t0 = stochData[0].time, tN = stochData[stochData.length - 1].time;
+        const refOpts = { lastValueVisible: false, priceLineVisible: false, lineWidth: 1 as const, lineStyle: 2 as const };
+        sc.addLineSeries({ ...refOpts, color: "rgba(239,68,68,0.4)"  }).setData([{ time: t0, value: 80 }, { time: tN, value: 80 }]);
+        sc.addLineSeries({ ...refOpts, color: "rgba(16,185,129,0.4)" }).setData([{ time: t0, value: 20 }, { time: tN, value: 20 }]);
+        sc.addLineSeries({ color: "#a3e635", lineWidth: 2, lastValueVisible: true, priceLineVisible: false }).setData(stochData.map((p) => ({ time: p.time, value: p.k })));
+        sc.addLineSeries({ color: "#f97316", lineWidth: 1, lastValueVisible: false, priceLineVisible: false, lineStyle: 2 as const }).setData(stochData.map((p) => ({ time: p.time, value: p.d })));
+      }
     }
 
     // ── RSI chart ─────────────────────────────────────────────────────────────
@@ -484,21 +606,41 @@ export function PriceChart({ result }: { result: BacktestResult }) {
             </span>
           </div>
         </div>
-        <div className="flex gap-1 flex-wrap">
-          {INDICATORS.map(({ key, label, color }) => (
-            <button
-              key={key}
-              onClick={() => toggle(key)}
-              style={active.has(key) ? { color, borderColor: color } : undefined}
-              className={`px-2 py-0.5 rounded text-[11px] font-semibold border transition-all ${
-                active.has(key)
-                  ? "bg-current/10"
-                  : "border-zinc-700 text-zinc-600 hover:border-zinc-500 hover:text-zinc-400"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="flex flex-col gap-1">
+          <div className="flex gap-1 flex-wrap items-center">
+            <span className="text-[9px] uppercase tracking-wide text-zinc-600 mr-1">Overlay</span>
+            {INDICATORS.filter((i) => i.group === "overlay").map(({ key, label, color }) => (
+              <button
+                key={key}
+                onClick={() => toggle(key)}
+                style={active.has(key) ? { color, borderColor: color } : undefined}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold border transition-all ${
+                  active.has(key)
+                    ? "bg-current/10"
+                    : "border-zinc-700 text-zinc-600 hover:border-zinc-500 hover:text-zinc-400"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-1 flex-wrap items-center">
+            <span className="text-[9px] uppercase tracking-wide text-zinc-600 mr-1">Panel</span>
+            {INDICATORS.filter((i) => i.group === "panel").map(({ key, label, color }) => (
+              <button
+                key={key}
+                onClick={() => toggle(key)}
+                style={active.has(key) ? { color, borderColor: color } : undefined}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold border transition-all ${
+                  active.has(key)
+                    ? "bg-current/10"
+                    : "border-zinc-700 text-zinc-600 hover:border-zinc-500 hover:text-zinc-400"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -509,6 +651,12 @@ export function PriceChart({ result }: { result: BacktestResult }) {
       {active.has("volume") && (
         <div ref={volumeCb} className="w-full border-t border-zinc-800/70" />
       )}
+      {active.has("atr") && (
+        <div ref={atrCb} className="w-full border-t border-zinc-800/70" />
+      )}
+      {active.has("stoch") && (
+        <div ref={stochCb} className="w-full border-t border-zinc-800/70" />
+      )}
       {active.has("rsi") && (
         <div ref={rsiCb} className="w-full border-t border-zinc-800/70" />
       )}
@@ -518,10 +666,15 @@ export function PriceChart({ result }: { result: BacktestResult }) {
 
       {/* Inline legend for active overlays */}
       <div className="flex gap-3 mt-2 text-[11px] flex-wrap text-zinc-500">
+        {active.has("ema9")   && <span style={{ color: "#06b6d4" }}>EMA 9</span>}
+        {active.has("ema21")  && <span style={{ color: "#8b5cf6" }}>EMA 21</span>}
+        {active.has("vwap")   && <span style={{ color: "#fbbf24" }}>VWAP (cumulative)</span>}
         {active.has("sma20")  && <span style={{ color: "#eab308" }}>SMA 20</span>}
         {active.has("sma50")  && <span style={{ color: "#f97316" }}>SMA 50</span>}
         {active.has("sma200") && <span style={{ color: "#a855f7" }}>SMA 200</span>}
         {active.has("bb")     && <span style={{ color: "#22d3ee" }}>BB±2σ (20)</span>}
+        {active.has("atr")    && <span style={{ color: "#fb923c" }}>ATR 14</span>}
+        {active.has("stoch")  && <span><span style={{ color: "#a3e635" }}>%K</span> / <span style={{ color: "#f97316" }}>%D</span> (80/20)</span>}
         {active.has("rsi")    && <span style={{ color: "#f472b6" }}>RSI 14 — 70/30 levels</span>}
         {active.has("macd")   && <span><span style={{ color: "#34d399" }}>MACD</span> / <span style={{ color: "#f97316" }}>Signal</span> / histogram</span>}
       </div>
