@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 const INITIAL_BALANCE = 10_000;
 
 export async function GET() {
