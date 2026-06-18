@@ -23,6 +23,8 @@ from .triple_ema import TripleEMAStrategy
 from .williams_r import WilliamsRStrategy
 from .keltner import KeltnerChannelStrategy
 from .heikin_ashi import HeikinAshiStrategy
+from .donchian import DonchianChannelStrategy
+from .rsi_ma_filter import RSIMAFilterStrategy
 
 STRATEGIES: dict[str, type[Strategy]] = {
     "rsi": RSIStrategy,
@@ -48,6 +50,8 @@ STRATEGIES: dict[str, type[Strategy]] = {
     "williams_r": WilliamsRStrategy,
     "keltner_channel": KeltnerChannelStrategy,
     "heikin_ashi": HeikinAshiStrategy,
+    "donchian_channel": DonchianChannelStrategy,
+    "rsi_ma_filter": RSIMAFilterStrategy,
 }
 
 __all__ = ["Strategy", "StrategyContext", "STRATEGIES"]

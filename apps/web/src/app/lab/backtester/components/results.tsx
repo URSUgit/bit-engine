@@ -1054,6 +1054,49 @@ function exportTradesJSON(trades: BacktestResult["trades"], symbol: string): voi
   );
 }
 
+type TradeSortKey = "entry" | "exit" | "bars" | "pnl" | "pnl_pct" | "entry_price";
+
+function PnLHistogram({ trades }: { trades: BacktestResult["trades"] }) {
+  if (trades.length < 3) return null;
+  const pcts = trades.map((t) => t.pnl_pct);
+  const min = Math.min(...pcts);
+  const max = Math.max(...pcts);
+  const range = max - min || 1;
+  const BINS = 20;
+  const bins = Array(BINS).fill(0) as number[];
+  pcts.forEach((v) => {
+    const idx = Math.min(BINS - 1, Math.floor(((v - min) / range) * BINS));
+    bins[idx]++;
+  });
+  const maxBin = Math.max(...bins, 1);
+  const zeroBin = Math.floor(((0 - min) / range) * BINS);
+
+  return (
+    <div className="mt-3 pt-3 border-t border-zinc-800">
+      <div className="text-[10px] uppercase tracking-wide text-zinc-600 mb-2">P&L % Distribution</div>
+      <div className="flex items-end gap-0.5 h-16">
+        {bins.map((count, i) => {
+          const h = (count / maxBin) * 100;
+          const isLoss = i < zeroBin;
+          return (
+            <div
+              key={i}
+              title={`${((i / BINS) * range + min).toFixed(1)}% — ${count} trades`}
+              className={`flex-1 rounded-sm transition-all ${count === 0 ? "bg-zinc-800/30" : isLoss ? "bg-red-500/60" : "bg-emerald-500/60"}`}
+              style={{ height: `${h}%`, minHeight: count > 0 ? "3px" : "0" }}
+            />
+          );
+        })}
+      </div>
+      <div className="flex justify-between text-[9px] text-zinc-600 mt-1">
+        <span>{min.toFixed(1)}%</span>
+        <span>0%</span>
+        <span>{max.toFixed(1)}%</span>
+      </div>
+    </div>
+  );
+}
+
 export function TradesTable({
   trades,
   symbol = "export",
@@ -1061,6 +1104,10 @@ export function TradesTable({
   trades: BacktestResult["trades"];
   symbol?: string;
 }) {
+  const [sortKey, setSortKey] = useState<TradeSortKey>("entry");
+  const [sortDir, setSortDir] = useState<1 | -1>(1);
+  const [filterOutcome, setFilterOutcome] = useState<"all" | "wins" | "losses">("all");
+
   if (trades.length === 0) {
     return (
       <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4 text-zinc-500 text-sm">
@@ -1068,23 +1115,74 @@ export function TradesTable({
       </div>
     );
   }
-  const wins = trades.filter((t) => t.pnl >= 0);
+
+  function toggleSort(key: TradeSortKey) {
+    if (sortKey === key) setSortDir((d) => (d === 1 ? -1 : 1));
+    else { setSortKey(key); setSortDir(-1); }
+  }
+
+  const filtered = trades.filter((t) => {
+    if (filterOutcome === "wins") return t.pnl >= 0;
+    if (filterOutcome === "losses") return t.pnl < 0;
+    return true;
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    let cmp = 0;
+    switch (sortKey) {
+      case "entry":       cmp = a.entry_time.localeCompare(b.entry_time); break;
+      case "exit":        cmp = a.exit_time.localeCompare(b.exit_time); break;
+      case "bars":        cmp = a.duration_bars - b.duration_bars; break;
+      case "pnl":         cmp = a.pnl - b.pnl; break;
+      case "pnl_pct":     cmp = a.pnl_pct - b.pnl_pct; break;
+      case "entry_price": cmp = a.entry_price - b.entry_price; break;
+    }
+    return cmp * sortDir;
+  });
+
+  const wins   = trades.filter((t) => t.pnl >= 0);
   const losses = trades.filter((t) => t.pnl < 0);
   const maxAbsPnlPct = Math.max(...trades.map((t) => Math.abs(t.pnl_pct)), 1);
 
+  function SortTh({ col, label, right }: { col: TradeSortKey; label: string; right?: boolean }) {
+    const active = sortKey === col;
+    return (
+      <th
+        onClick={() => toggleSort(col)}
+        className={`py-2 pr-3 cursor-pointer select-none whitespace-nowrap ${right ? "text-right" : ""} ${active ? "text-cyan-400" : "hover:text-zinc-300"}`}
+      >
+        {label}{active ? (sortDir === 1 ? " ▲" : " ▼") : ""}
+      </th>
+    );
+  }
+
   return (
     <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div className="flex items-center gap-3">
           <h3 className="font-semibold">Trades ({trades.length})</h3>
           <div className="flex gap-2 text-xs">
             <span className="text-emerald-400">{wins.length}W</span>
             <span className="text-zinc-600">/</span>
             <span className="text-red-400">{losses.length}L</span>
-            {trades.length - wins.length - losses.length > 0 && (
-              <><span className="text-zinc-600">/</span><span className="text-zinc-400">{trades.length - wins.length - losses.length}B</span></>
-            )}
           </div>
+          {/* Outcome filter */}
+          <div className="flex gap-1 bg-zinc-900 border border-zinc-800 rounded p-0.5">
+            {(["all", "wins", "losses"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilterOutcome(f)}
+                className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${
+                  filterOutcome === f ? "bg-zinc-700 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                {f === "all" ? "All" : f === "wins" ? "Wins" : "Losses"}
+              </button>
+            ))}
+          </div>
+          {filtered.length !== trades.length && (
+            <span className="text-xs text-zinc-500">{filtered.length} shown</span>
+          )}
         </div>
         <div className="flex gap-2">
           <button
@@ -1106,17 +1204,17 @@ export function TradesTable({
           <thead className="sticky top-0 bg-zinc-900">
             <tr className="text-left text-xs text-zinc-500 uppercase tracking-wide border-b border-zinc-800">
               <th className="py-2 pr-3">#</th>
-              <th className="py-2 pr-3">Entry</th>
-              <th className="py-2 pr-3">Exit</th>
-              <th className="py-2 pr-3 text-right">Entry $</th>
+              <SortTh col="entry" label="Entry" />
+              <SortTh col="exit" label="Exit" />
+              <SortTh col="entry_price" label="Entry $" right />
               <th className="py-2 pr-3 text-right">Exit $</th>
-              <th className="py-2 pr-3 text-right">Bars</th>
-              <th className="py-2 pr-3 text-right">P&L $</th>
-              <th className="py-2 text-right">P&L %</th>
+              <SortTh col="bars" label="Bars" right />
+              <SortTh col="pnl" label="P&L $" right />
+              <SortTh col="pnl_pct" label="P&L %" right />
             </tr>
           </thead>
           <tbody>
-            {trades.map((t, i) => {
+            {sorted.map((t, i) => {
               const win = t.pnl >= 0;
               const barPct = Math.min(Math.abs(t.pnl_pct) / maxAbsPnlPct * 45, 45);
               return (
@@ -1147,6 +1245,7 @@ export function TradesTable({
           </tbody>
         </table>
       </div>
+      <PnLHistogram trades={trades} />
     </div>
   );
 }
