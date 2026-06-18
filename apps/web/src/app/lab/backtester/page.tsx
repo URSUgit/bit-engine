@@ -846,7 +846,14 @@ export default function BacktesterPage() {
                 <CompareResultsView results={compareResults} running={running} progress={compareProgress} />
               )}
               {mode === "optimize" && (
-                <OptimizeResultsView result={optimizeResult} running={running} />
+                <OptimizeResultsView
+                  result={optimizeResult}
+                  running={running}
+                  onUseBestParams={(params) => {
+                    setStrategyParams(params);
+                    setMode("single");
+                  }}
+                />
               )}
             </main>
           </div>
@@ -1369,7 +1376,13 @@ function CompareResultsView({
   );
 }
 
-function OptimizeResultsView({ result, running }: { result: OptimizeResult | null; running: boolean }) {
+function OptimizeResultsView({
+  result, running, onUseBestParams,
+}: {
+  result: OptimizeResult | null;
+  running: boolean;
+  onUseBestParams?: (params: Record<string, number>) => void;
+}) {
   if (running) {
     return (
       <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-12 text-center text-zinc-400">
@@ -1388,7 +1401,21 @@ function OptimizeResultsView({ result, running }: { result: OptimizeResult | nul
       </div>
     );
   }
-  return <OptimizeHeatmap result={result} />;
+  return (
+    <div className="space-y-3">
+      <OptimizeHeatmap result={result} />
+      {onUseBestParams && result.best_params && (
+        <div className="flex justify-end">
+          <button
+            onClick={() => onUseBestParams(result.best_params)}
+            className="px-4 py-2 rounded-md text-sm font-semibold bg-emerald-700 hover:bg-emerald-600 text-white transition flex items-center gap-2"
+          >
+            ✓ Use Best Params &amp; Switch to Single
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 const SIGNAL_COLORS: Record<string, string> = {

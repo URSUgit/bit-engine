@@ -2147,9 +2147,14 @@ async def strategy_leaderboard(req: LeaderboardRequest):
             elif len(eq) == 0:
                 eq = [req.initial_capital]
 
-            strategy_info = STRATEGIES.get(name)
-            display_name = getattr(strategy_info, "name", name) if strategy_info else name
-            description = getattr(strategy_info, "description", "") if strategy_info else ""
+            strategy_cls = STRATEGIES.get(name)
+            try:
+                _inst = strategy_cls() if strategy_cls else None
+                display_name = getattr(_inst, "name", name) if _inst else name
+                description = getattr(_inst, "description", "") if _inst else ""
+            except Exception:
+                display_name = name
+                description = ""
 
             return {
                 "strategy_name": name,
