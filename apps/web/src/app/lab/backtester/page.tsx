@@ -56,6 +56,7 @@ import { TradeJournal } from "./components/trade-journal";
 import { MultiTimeframePanel } from "./components/multi-timeframe";
 import { Watchlist } from "./components/watchlist";
 import { StrategyRadar } from "./components/strategy-radar";
+import { ResultSnapshot } from "./components/result-snapshot";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
 type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf";
@@ -945,6 +946,9 @@ export default function BacktesterPage() {
                     setUseFundingRates(cfg.useFundingRates);
                   }}
                 />
+              )}
+              {singleResult && (
+                <ResultSnapshot current={singleResult} />
               )}
               <Watchlist onSelectSymbol={(sym) => setSingleSymbol(sym)} />
             </aside>

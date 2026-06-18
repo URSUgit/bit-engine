@@ -21,6 +21,8 @@ from .elder_impulse import ElderImpulseStrategy
 from .supertrend import SuperTrendStrategy
 from .triple_ema import TripleEMAStrategy
 from .williams_r import WilliamsRStrategy
+from .keltner import KeltnerChannelStrategy
+from .heikin_ashi import HeikinAshiStrategy
 
 STRATEGIES: dict[str, type[Strategy]] = {
     "rsi": RSIStrategy,
@@ -44,6 +46,8 @@ STRATEGIES: dict[str, type[Strategy]] = {
     "supertrend": SuperTrendStrategy,
     "triple_ema": TripleEMAStrategy,
     "williams_r": WilliamsRStrategy,
+    "keltner_channel": KeltnerChannelStrategy,
+    "heikin_ashi": HeikinAshiStrategy,
 }
 
 __all__ = ["Strategy", "StrategyContext", "STRATEGIES"]
