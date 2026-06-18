@@ -57,6 +57,7 @@ import { MultiTimeframePanel } from "./components/multi-timeframe";
 import { Watchlist } from "./components/watchlist";
 import { StrategyRadar } from "./components/strategy-radar";
 import { ResultSnapshot } from "./components/result-snapshot";
+import { ParamTuner } from "./components/param-tuner";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
 type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf";
@@ -908,6 +909,17 @@ export default function BacktesterPage() {
                 <div className="text-sm text-red-400 bg-red-950/30 border border-red-900 p-2 rounded">
                   {error}
                 </div>
+              )}
+
+              {/* Quick Tune — only show in single mode */}
+              {mode === "single" && (
+                <ParamTuner
+                  strategy={currentStrategy}
+                  params={strategyParams}
+                  onParamsChange={setStrategyParams}
+                  onRunNow={runSingle}
+                  running={running}
+                />
               )}
 
               {/* Presets — only show in single mode */}
