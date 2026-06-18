@@ -38,6 +38,7 @@ import { ForwardTest } from "./components/forward-test";
 import { KeyboardShortcutsLayer } from "./components/keyboard-shortcuts";
 import { WalkForwardPanel } from "./components/walk-forward";
 import { CustomStrategyEditor } from "./components/custom-strategy-editor";
+import { ConditionBuilder } from "./components/condition-builder";
 import { PortfolioView } from "./components/portfolio-view";
 import { RollingAnalysisPanel } from "./components/rolling-analysis";
 import { HeatCalendar } from "./components/heat-calendar";
@@ -45,7 +46,6 @@ import { KellyPanel } from "./components/kelly-panel";
 import { SensitivityChart } from "./components/sensitivity-chart";
 import { RegimeAnalysis } from "./components/regime-analysis";
 import { StrategyLeaderboard } from "./components/strategy-leaderboard";
-
 import { RiskAnalyticsPanel } from "./components/risk-analytics";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
@@ -104,6 +104,9 @@ export default function BacktesterPage() {
 
   // Result tab
   const [resultTab, setResultTab] = useState<ResultTab>("charts");
+
+  // Custom mode sub-tab
+  const [customTab, setCustomTab] = useState<"code" | "builder">("builder");
 
   // Live signals
   const [liveSignals, setLiveSignals] = useState<LiveSignal[] | null>(null);
@@ -559,21 +562,59 @@ export default function BacktesterPage() {
             />
           </div>
         ) : mode === "custom" ? (
-          <div className="max-w-5xl mx-auto">
-            <CustomStrategyEditor
-              symbol={singleSymbol}
-              strategy={strategyName}
-              interval={interval}
-              periodDays={periodDays}
-              initialCapital={initialCapital}
-              commissionPct={commissionPct}
-              slippagePct={slippagePct}
-              positionPct={positionPct}
-              onSuccess={(result) => {
-                setSingleResult(result);
-                setMode("single");
-              }}
-            />
+          <div className="max-w-5xl mx-auto space-y-4">
+            {/* Sub-tab switcher */}
+            <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
+              <button
+                onClick={() => setCustomTab("builder")}
+                className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition ${
+                  customTab === "builder"
+                    ? "bg-cyan-500 text-zinc-950"
+                    : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+                }`}
+              >
+                Condition Builder
+                <span className="block text-[10px] opacity-70 font-normal">No-code strategy builder</span>
+              </button>
+              <button
+                onClick={() => setCustomTab("code")}
+                className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition ${
+                  customTab === "code"
+                    ? "bg-cyan-500 text-zinc-950"
+                    : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+                }`}
+              >
+                Code Editor
+                <span className="block text-[10px] opacity-70 font-normal">Write Python directly</span>
+              </button>
+            </div>
+
+            {customTab === "builder" ? (
+              <ConditionBuilder
+                symbol={singleSymbol}
+                interval={interval}
+                periodDays={periodDays}
+                initialCapital={initialCapital}
+                commissionPct={commissionPct}
+                slippagePct={slippagePct}
+                positionPct={positionPct}
+              />
+            ) : (
+              <CustomStrategyEditor
+                symbol={singleSymbol}
+                strategy={strategyName}
+                interval={interval}
+                periodDays={periodDays}
+                initialCapital={initialCapital}
+                commissionPct={commissionPct}
+                slippagePct={slippagePct}
+                positionPct={positionPct}
+                onSuccess={(result) => {
+                  setSingleResult(result);
+                  setMode("single");
+                }}
+              />
+            )}
           </div>
         ) : mode === "portfolio" ? (
           <div className="max-w-5xl mx-auto">
