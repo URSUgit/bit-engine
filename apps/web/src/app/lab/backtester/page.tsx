@@ -51,6 +51,7 @@ import { EfficientFrontier } from "./components/efficient-frontier";
 import { PerformanceAttribution } from "./components/performance-attribution";
 import { SymbolScanner } from "./components/symbol-scanner";
 import { DrawdownAnalysis } from "./components/drawdown-analysis";
+import { ConfigPresets, type BacktestConfig } from "./components/config-presets";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
 type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown";
@@ -902,6 +903,44 @@ export default function BacktesterPage() {
                 <div className="text-sm text-red-400 bg-red-950/30 border border-red-900 p-2 rounded">
                   {error}
                 </div>
+              )}
+
+              {/* Presets — only show in single mode */}
+              {mode === "single" && (
+                <ConfigPresets
+                  current={{
+                    symbol: singleSymbol,
+                    strategy: strategyName,
+                    interval,
+                    periodDays,
+                    initialCapital,
+                    commissionPct,
+                    slippagePct,
+                    positionPct,
+                    strategyParams,
+                    spreadBps,
+                    leverage,
+                    latencyMs,
+                    enableMarketImpact,
+                    useFundingRates,
+                  }}
+                  onLoad={(cfg: BacktestConfig) => {
+                    setSingleSymbol(cfg.symbol);
+                    setStrategyName(cfg.strategy);
+                    setIntervalValue(cfg.interval);
+                    setPeriodDays(cfg.periodDays);
+                    setInitialCapital(cfg.initialCapital);
+                    setCommissionPct(cfg.commissionPct);
+                    setSlippagePct(cfg.slippagePct);
+                    setPositionPct(cfg.positionPct);
+                    setStrategyParams(cfg.strategyParams);
+                    setSpreadBps(cfg.spreadBps);
+                    setLeverage(cfg.leverage);
+                    setLatencyMs(cfg.latencyMs);
+                    setEnableMarketImpact(cfg.enableMarketImpact);
+                    setUseFundingRates(cfg.useFundingRates);
+                  }}
+                />
               )}
             </aside>
 
