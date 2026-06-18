@@ -54,6 +54,7 @@ import { DrawdownAnalysis } from "./components/drawdown-analysis";
 import { ConfigPresets, type BacktestConfig } from "./components/config-presets";
 import { TradeJournal } from "./components/trade-journal";
 import { MultiTimeframePanel } from "./components/multi-timeframe";
+import { Watchlist } from "./components/watchlist";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
 type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf";
@@ -944,6 +945,7 @@ export default function BacktesterPage() {
                   }}
                 />
               )}
+              <Watchlist onSelectSymbol={(sym) => setSingleSymbol(sym)} />
             </aside>
 
             {/* ─── Results pane ─── */}
