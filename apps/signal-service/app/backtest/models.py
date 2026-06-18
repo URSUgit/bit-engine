@@ -130,6 +130,16 @@ class PerformanceMetrics(BaseModel):
     avg_win_loss_ratio: float = 0.0      # avg_win / abs(avg_loss)
     max_consecutive_wins: int = 0
     max_consecutive_losses: int = 0
+    # Risk analytics
+    var_95: float = 0.0            # Value at Risk: 5th percentile of daily returns (negative = loss)
+    var_99: float = 0.0            # Value at Risk: 1st percentile
+    cvar_95: float = 0.0           # Conditional VaR: mean of returns below var_95
+    omega_ratio: float = 0.0       # sum(positive excess returns) / sum(|negative excess returns|)
+    ulcer_index: float = 0.0       # sqrt(mean of squared drawdowns)
+    pain_index: float = 0.0        # mean of drawdown series
+    avg_bars_between_trades: float = 0.0
+    time_in_market_pct: float = 0.0
+    daily_returns: list[float] = Field(default_factory=list)  # downsampled to 100 points
 
 
 class FeatureStats(BaseModel):

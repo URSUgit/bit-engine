@@ -48,6 +48,10 @@ import { StrategyLeaderboard } from "./components/strategy-leaderboard";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
 type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime";
+import { RiskAnalyticsPanel } from "./components/risk-analytics";
+
+type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio"];
 
@@ -854,6 +858,7 @@ export default function BacktesterPage() {
                     setMode("single");
                   }}
                 />
+                <OptimizeResultsView result={optimizeResult} running={running} />
               )}
             </main>
           </div>
@@ -1030,6 +1035,7 @@ function ResultTabs({
     ...(hasMonthly ? [{ value: "calendar" as ResultTab, label: "Calendar" }] : []),
     ...(hasMonthly ? [{ value: "sensitivity" as ResultTab, label: "Sensitivity" }] : []),
     { value: "regime", label: "Regime" },
+    { value: "risk", label: "Risk" },
   ];
   return (
     <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
@@ -1322,6 +1328,9 @@ function SingleResultsView({
               positionPct={positionPct}
             />
           )}
+          {resultTab === "risk" && (
+            <RiskAnalyticsPanel result={result} />
+          )}
         </div>
       )}
     </>
@@ -1383,6 +1392,7 @@ function OptimizeResultsView({
   running: boolean;
   onUseBestParams?: (params: Record<string, number>) => void;
 }) {
+function OptimizeResultsView({ result, running }: { result: OptimizeResult | null; running: boolean }) {
   if (running) {
     return (
       <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-12 text-center text-zinc-400">
@@ -1416,6 +1426,7 @@ function OptimizeResultsView({
       )}
     </div>
   );
+  return <OptimizeHeatmap result={result} />;
 }
 
 const SIGNAL_COLORS: Record<string, string> = {

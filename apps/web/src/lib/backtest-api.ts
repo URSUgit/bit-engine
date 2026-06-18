@@ -104,6 +104,16 @@ export type Metrics = {
   avg_win_loss_ratio?: number;
   max_consecutive_wins?: number;
   max_consecutive_losses?: number;
+  // Risk analytics (optional for backward compat)
+  var_95?: number;
+  var_99?: number;
+  cvar_95?: number;
+  omega_ratio?: number;
+  ulcer_index?: number;
+  pain_index?: number;
+  time_in_market_pct?: number;
+  avg_bars_between_trades?: number;
+  daily_returns?: number[];
 };
 
 export type FeatureStats = {

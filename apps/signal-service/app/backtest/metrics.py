@@ -85,6 +85,38 @@ def build_equity_curve(equity: list[tuple[datetime, float]]) -> list[EquityPoint
     return out
 
 
+def _percentile(sorted_vals: list[float], pct: float) -> float:
+    """Simple linear-interpolation percentile on a pre-sorted list."""
+    n = len(sorted_vals)
+    if n == 0:
+        return 0.0
+    idx = pct / 100 * (n - 1)
+    lo = int(idx)
+    hi = min(lo + 1, n - 1)
+    return sorted_vals[lo] + (idx - lo) * (sorted_vals[hi] - sorted_vals[lo])
+
+
+def _downsample(vals: list[float], target: int = 100) -> list[float]:
+    """Evenly-spaced downsample to at most `target` points."""
+    n = len(vals)
+    if n <= target:
+        return [round(v, 6) for v in vals]
+    step = n / target
+    return [round(vals[int(i * step)], 6) for i in range(target)]
+
+
+def _compute_drawdown_series(equity_values: list[float]) -> list[float]:
+    """Return non-negative drawdown at each point (fraction, not %)."""
+    peak = equity_values[0] if equity_values else 1.0
+    dd_series = []
+    for v in equity_values:
+        if v > peak:
+            peak = v
+        dd = abs((v - peak) / peak) if peak > 0 else 0.0
+        dd_series.append(dd)
+    return dd_series
+
+
 def compute_metrics(
     initial_capital: float,
     equity: list[tuple[datetime, float]],
@@ -116,6 +148,32 @@ def compute_metrics(
     sharpe = sharpe_ratio(returns, ppy)
     sortino = sortino_ratio(returns, ppy)
     calmar = (cagr_pct / max_dd_pct) if max_dd_pct > 0 else 0.0
+
+    # ── Risk analytics from equity curve ─────────────────────────────────────
+    # Filter out non-finite returns
+    clean_returns = [r for r in returns if math.isfinite(r)]
+    if len(clean_returns) >= 2:
+        sorted_returns = sorted(clean_returns)
+        var_95 = _percentile(sorted_returns, 5)    # 5th percentile (negative = loss)
+        var_99 = _percentile(sorted_returns, 1)    # 1st percentile
+        below_var95 = [r for r in sorted_returns if r <= var_95]
+        cvar_95 = sum(below_var95) / len(below_var95) if below_var95 else var_95
+
+        pos_excess = sum(max(r, 0.0) for r in clean_returns)
+        neg_excess = sum(max(-r, 0.0) for r in clean_returns)
+        omega = (pos_excess / neg_excess) if neg_excess > 0 else (999.0 if pos_excess > 0 else 0.0)
+
+        dd_series = _compute_drawdown_series(equity_values)
+        mean_sq_dd = sum(d * d for d in dd_series) / len(dd_series)
+        ulcer = math.sqrt(mean_sq_dd) * 100   # express as %
+        pain = (sum(dd_series) / len(dd_series)) * 100  # express as %
+
+        daily_ret_downsampled = _downsample(clean_returns, 100)
+    else:
+        var_95 = var_99 = cvar_95 = 0.0
+        omega = 0.0
+        ulcer = pain = 0.0
+        daily_ret_downsampled = []
 
     # Trade-level
     if trades:
@@ -162,11 +220,22 @@ def compute_metrics(
             else:
                 cur_l += 1; cur_w = 0
                 max_consec_losses = max(max_consec_losses, cur_l)
+
+        # Time in market & avg bars between trades
+        total_bars = max(len(equity) - 1, 1)
+        time_in_market = in_trade_bars / total_bars * 100
+
+        # Avg bars between trades: gap from one exit to next entry
+        # Use duration_bars proxy: total_bars - in_trade_bars spread over (n-1) gaps
+        out_of_market_bars = max(total_bars - in_trade_bars, 0)
+        avg_bars_between = out_of_market_bars / max(len(trades) - 1, 1) if len(trades) > 1 else 0.0
     else:
         win_rate = profit_factor = avg_pct = best = worst = avg_duration = exposure = 0.0
         wins, losses = [], []
         avg_win_pct = avg_loss_pct = avg_win_loss = sqn = recovery_factor = 0.0
         max_consec_wins = max_consec_losses = 0
+        time_in_market = 0.0
+        avg_bars_between = 0.0
 
     return PerformanceMetrics(
         total_return_pct=round(total_return_pct, 2),
@@ -194,6 +263,16 @@ def compute_metrics(
         avg_win_loss_ratio=round(avg_win_loss, 2),
         max_consecutive_wins=max_consec_wins,
         max_consecutive_losses=max_consec_losses,
+        # Risk analytics
+        var_95=round(var_95 * 100, 4),
+        var_99=round(var_99 * 100, 4),
+        cvar_95=round(cvar_95 * 100, 4),
+        omega_ratio=round(min(omega, 999.0), 4),
+        ulcer_index=round(ulcer, 4),
+        pain_index=round(pain, 4),
+        avg_bars_between_trades=round(avg_bars_between, 1),
+        time_in_market_pct=round(time_in_market, 2),
+        daily_returns=daily_ret_downsampled,
     )
 
 
