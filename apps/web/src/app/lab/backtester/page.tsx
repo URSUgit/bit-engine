@@ -48,9 +48,10 @@ import { RegimeAnalysis } from "./components/regime-analysis";
 import { StrategyLeaderboard } from "./components/strategy-leaderboard";
 import { RiskAnalyticsPanel } from "./components/risk-analytics";
 import { EfficientFrontier } from "./components/efficient-frontier";
+import { PerformanceAttribution } from "./components/performance-attribution";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio"];
 
@@ -1087,6 +1088,7 @@ function ResultTabs({
     ...(hasMonthly ? [{ value: "sensitivity" as ResultTab, label: "Sensitivity" }] : []),
     { value: "regime", label: "Regime" },
     { value: "risk", label: "Risk" },
+    { value: "attribution", label: "Attribution" },
   ];
   return (
     <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
@@ -1381,6 +1383,9 @@ function SingleResultsView({
           )}
           {resultTab === "risk" && (
             <RiskAnalyticsPanel result={result} />
+          )}
+          {resultTab === "attribution" && (
+            <PerformanceAttribution result={result} />
           )}
         </div>
       )}
