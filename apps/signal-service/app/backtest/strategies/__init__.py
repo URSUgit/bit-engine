@@ -18,6 +18,9 @@ from .stoch_rsi import StochRSIStrategy
 from .psar import ParabolicSARStrategy
 from .cci import CCIStrategy
 from .elder_impulse import ElderImpulseStrategy
+from .supertrend import SuperTrendStrategy
+from .triple_ema import TripleEMAStrategy
+from .williams_r import WilliamsRStrategy
 
 STRATEGIES: dict[str, type[Strategy]] = {
     "rsi": RSIStrategy,
@@ -38,6 +41,9 @@ STRATEGIES: dict[str, type[Strategy]] = {
     "psar": ParabolicSARStrategy,
     "cci": CCIStrategy,
     "elder_impulse": ElderImpulseStrategy,
+    "supertrend": SuperTrendStrategy,
+    "triple_ema": TripleEMAStrategy,
+    "williams_r": WilliamsRStrategy,
 }
 
 __all__ = ["Strategy", "StrategyContext", "STRATEGIES"]
