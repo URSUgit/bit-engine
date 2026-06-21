@@ -63,9 +63,11 @@ import { RecentHistory } from "./components/recent-history";
 import { RegimeBadge } from "./components/regime-badge";
 import { RobustnessTest } from "./components/robustness-test";
 import { PositionSizer } from "./components/position-sizer";
+import { FactorExposure } from "./components/factor-exposure";
+import { TradeTimingAnalysis } from "./components/trade-timing";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio"];
 
@@ -1243,6 +1245,8 @@ function ResultTabs({
     ...(hasMonthly ? [{ value: "journal" as ResultTab, label: "Journal" }] : []),
     { value: "multi_tf" as ResultTab, label: "Multi-TF" },
     { value: "robustness" as ResultTab, label: "Robustness" },
+    { value: "factor" as ResultTab, label: "Factor" },
+    { value: "timing" as ResultTab, label: "Timing" },
   ];
   return (
     <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
@@ -1585,6 +1589,12 @@ function SingleResultsView({
               positionPct={positionPct}
               baseResult={result}
             />
+          )}
+          {resultTab === "factor" && result && (
+            <FactorExposure result={result} />
+          )}
+          {resultTab === "timing" && result && (
+            <TradeTimingAnalysis result={result} />
           )}
         </div>
       )}
