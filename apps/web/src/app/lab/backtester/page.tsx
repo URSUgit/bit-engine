@@ -66,6 +66,7 @@ import { PositionSizer } from "./components/position-sizer";
 import { FactorExposure } from "./components/factor-exposure";
 import { TradeTimingAnalysis } from "./components/trade-timing";
 import { StrategyMatrix } from "./components/strategy-matrix";
+import { DiversificationPanel } from "./components/diversification";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
 type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing";
@@ -733,6 +734,17 @@ export default function BacktesterPage() {
                 slippagePct={slippagePct}
                 positionPct={positionPct}
                 strategies={strategies}
+              />
+            </div>
+            <div className="border-t border-zinc-800 pt-6 mt-6">
+              <DiversificationPanel
+                strategies={strategies}
+                symbol={singleSymbol}
+                interval={interval}
+                periodDays={periodDays}
+                initialCapital={initialCapital}
+                commissionPct={commissionPct}
+                slippagePct={slippagePct}
               />
             </div>
           </div>

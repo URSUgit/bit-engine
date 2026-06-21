@@ -2339,3 +2339,106 @@ async def efficient_frontier(req: FrontierRequest):
         raise HTTPException(status_code=500, detail=f"Frontier computation failed: {e}")
 
     return _dataclasses.asdict(result)
+
+
+# ── Strategy Equity Correlation ────────────────────────────────────────────────
+
+class EquityCorrelationRequest(BaseModel):
+    strategies: list[str]        # 2-15 strategy names
+    symbol: str = "BTCUSDT"
+    interval: str = "1d"
+    period_days: int = 365
+    initial_capital: float = 10_000.0
+    commission_pct: float = 0.001
+    slippage_pct: float = 0.0005
+    position_size_pct: float = 0.25
+
+
+@router.post("/equity_correlation")
+async def equity_correlation(req: EquityCorrelationRequest):
+    """Compute pairwise Pearson correlation between strategy equity curves."""
+    import math
+
+    if len(req.strategies) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 strategies.")
+    if len(req.strategies) > 15:
+        raise HTTPException(status_code=400, detail="At most 15 strategies are supported.")
+
+    unknown = [s for s in req.strategies if s not in STRATEGIES]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown strategies: {unknown}")
+
+    from datetime import datetime, timezone, timedelta
+    end_dt = datetime.now(timezone.utc)
+    start_dt = end_dt - timedelta(days=req.period_days)
+    start_date = start_dt.strftime("%Y-%m-%d")
+    end_date = end_dt.strftime("%Y-%m-%d")
+
+    async def _run(name: str) -> tuple[str, list[float]]:
+        try:
+            p = BacktestParams(
+                symbol=req.symbol, strategy=name,
+                start_date=start_date, end_date=end_date,
+                interval=req.interval, initial_capital=req.initial_capital,
+                commission_pct=req.commission_pct, slippage_pct=req.slippage_pct,
+                position_size_pct=req.position_size_pct, strategy_params={},
+            )
+            res = await run_backtest(p)
+            returns = []
+            for i in range(1, len(res.equity_curve)):
+                prev = res.equity_curve[i - 1].equity
+                cur = res.equity_curve[i].equity
+                if prev > 0:
+                    returns.append((cur - prev) / prev)
+            return name, returns
+        except Exception:
+            return name, []
+
+    pairs = await asyncio.gather(*[_run(s) for s in req.strategies])
+
+    def mean(xs: list[float]) -> float:
+        return sum(xs) / len(xs) if xs else 0.0
+
+    def pearson(xs: list[float], ys: list[float]) -> float | None:
+        n = min(len(xs), len(ys))
+        if n < 5:
+            return None
+        xs, ys = xs[:n], ys[:n]
+        mx, my = mean(xs), mean(ys)
+        num = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+        dxs = math.sqrt(sum((x - mx) ** 2 for x in xs))
+        dys = math.sqrt(sum((y - my) ** 2 for y in ys))
+        if dxs == 0 or dys == 0:
+            return None
+        return round(num / (dxs * dys), 4)
+
+    names = [p[0] for p in pairs]
+    returns_map = {p[0]: p[1] for p in pairs}
+
+    matrix: dict[str, dict[str, float | None]] = {}
+    for a in names:
+        matrix[a] = {}
+        for b in names:
+            if a == b:
+                matrix[a][b] = 1.0
+            elif b in matrix and a in matrix[b]:
+                matrix[a][b] = matrix[b][a]
+            else:
+                matrix[a][b] = pearson(returns_map[a], returns_map[b])
+
+    # Identify most diversifying pair
+    min_corr = 2.0
+    best_pair = None
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            c = matrix[a].get(b)
+            if c is not None and c < min_corr:
+                min_corr = c
+                best_pair = (a, b)
+
+    return {
+        "strategies": names,
+        "matrix": matrix,
+        "most_diversifying_pair": list(best_pair) if best_pair else None,
+        "min_correlation": min_corr if best_pair else None,
+    }
