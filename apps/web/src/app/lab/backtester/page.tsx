@@ -80,9 +80,10 @@ import { BenchmarkTracker } from "./components/benchmark-tracker";
 import { ScenarioComparator } from "./components/scenario-comparator";
 import { TradeAutocorrelation } from "./components/trade-autocorrelation";
 import { MaeMfeAnalysis } from "./components/mae-mfe-analysis";
+import { PineScriptExport } from "./components/pinescript-export";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
@@ -1314,6 +1315,7 @@ function ResultTabs({
     { value: "scenarios" as ResultTab, label: "Scenarios" },
     { value: "autocorr" as ResultTab, label: "Autocorr" },
     { value: "mae_mfe" as ResultTab, label: "MAE/MFE" },
+    { value: "pine" as ResultTab, label: "Pine Script" },
     { value: "report" as ResultTab, label: "Export" },
   ];
   return (
@@ -1735,6 +1737,12 @@ function SingleResultsView({
           )}
           {resultTab === "mae_mfe" && result && (
             <MaeMfeAnalysis result={result} />
+          )}
+          {resultTab === "pine" && result && currentStrategy && (
+            <PineScriptExport result={result} strategy={currentStrategy} params={strategyParams} />
+          )}
+          {resultTab === "pine" && result && !currentStrategy && (
+            <div className="text-center text-zinc-500 py-10">Select a strategy to generate Pine Script.</div>
           )}
           {resultTab === "report" && result && (
             <ReportExport result={result} strategy={currentStrategy} />
