@@ -189,12 +189,15 @@ export function ProfitDistribution({ result }: { result: BacktestResult }) {
                 border: "1px solid #3f3f46",
                 borderRadius: 6,
               }}
-              formatter={(value: number, name: string) => [
-                name === "count"
-                  ? `${value} trade${value !== 1 ? "s" : ""}`
-                  : value.toFixed(2),
-                name === "count" ? "Trades" : "Normal expected",
-              ]}
+              formatter={(value, name: string) => {
+                const v = typeof value === "number" ? value : Number(value);
+                return [
+                  name === "count"
+                    ? `${v} trade${v !== 1 ? "s" : ""}`
+                    : isNaN(v) ? "—" : v.toFixed(2),
+                  name === "count" ? "Trades" : "Normal expected",
+                ];
+              }}
             />
             <ReferenceLine
               x={stats.mean.toFixed(1) + "%"}

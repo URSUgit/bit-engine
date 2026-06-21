@@ -73,9 +73,11 @@ import { MarketCorrelation } from "./components/market-correlation";
 import { TradeStreakAnalyzer } from "./components/trade-streak";
 import { ProfitDistribution } from "./components/profit-distribution";
 import { StrategyBenchmark } from "./components/strategy-benchmark";
+import { EnsemblePanel } from "./components/ensemble-panel";
+import { IntradayHeatmap } from "./components/intraday-heatmap";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
@@ -753,6 +755,18 @@ export default function BacktesterPage() {
                 slippagePct={slippagePct}
               />
             </div>
+            <div className="border-t border-zinc-800 pt-6 mt-6">
+              <EnsemblePanel
+                strategies={strategies}
+                symbol={singleSymbol}
+                interval={interval}
+                periodDays={periodDays}
+                initialCapital={initialCapital}
+                commissionPct={commissionPct}
+                slippagePct={slippagePct}
+                positionPct={positionPct}
+              />
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
@@ -1289,6 +1303,7 @@ function ResultTabs({
     { value: "streaks" as ResultTab, label: "Streaks" },
     { value: "dist" as ResultTab, label: "Distribution" },
     { value: "benchmark" as ResultTab, label: "Benchmark" },
+    { value: "heatmap" as ResultTab, label: "Heatmap" },
     { value: "report" as ResultTab, label: "Export" },
   ];
   return (
@@ -1682,6 +1697,9 @@ function SingleResultsView({
               positionPct={positionPct}
               strategies={strategies}
             />
+          )}
+          {resultTab === "heatmap" && result && (
+            <IntradayHeatmap result={result} />
           )}
           {resultTab === "report" && result && (
             <ReportExport result={result} strategy={currentStrategy} />
