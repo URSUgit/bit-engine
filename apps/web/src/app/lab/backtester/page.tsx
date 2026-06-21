@@ -1277,59 +1277,134 @@ function ModeTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void 
 
 // ─── Result view components ───────────────────────────────────────────────────
 
+type TabGroup = {
+  label: string;
+  tabs: { value: ResultTab; label: string }[];
+};
+
 function ResultTabs({
   active, onChange, hasFriction, hasAnomalies, hasAnalysis, hasMonthly, hasMonteCarlo, hasRolling,
 }: {
   active: ResultTab; onChange: (t: ResultTab) => void;
   hasFriction: boolean; hasAnomalies: boolean; hasAnalysis: boolean; hasMonthly: boolean; hasMonteCarlo?: boolean; hasRolling?: boolean;
 }) {
-  const tabs: { value: ResultTab; label: string }[] = [
-    { value: "charts", label: "Charts" },
-    ...(hasMonthly ? [{ value: "editor" as ResultTab, label: "Trade Editor" }] : []),
-    { value: "trades", label: "Trades" },
-    ...(hasMonthly ? [{ value: "monthly" as ResultTab, label: "Monthly" }] : []),
-    ...(hasAnalysis ? [{ value: "analysis" as ResultTab, label: "Analysis" }] : []),
-    ...(hasFriction ? [{ value: "friction" as ResultTab, label: "Friction" }] : []),
-    ...(hasAnomalies ? [{ value: "anomalies" as ResultTab, label: "Anomalies" }] : []),
-    ...(hasMonteCarlo ? [{ value: "montecarlo" as ResultTab, label: "Monte Carlo" }] : []),
-    { value: "walk_forward", label: "Walk-Forward" },
-    ...(hasRolling ? [{ value: "rolling" as ResultTab, label: "Deep Analysis" }] : []),
-    ...(hasMonthly ? [{ value: "calendar" as ResultTab, label: "Calendar" }] : []),
-    ...(hasMonthly ? [{ value: "sensitivity" as ResultTab, label: "Sensitivity" }] : []),
-    { value: "regime", label: "Regime" },
-    { value: "risk", label: "Risk" },
-    { value: "attribution", label: "Attribution" },
-    { value: "drawdown", label: "Drawdowns" },
-    ...(hasMonthly ? [{ value: "journal" as ResultTab, label: "Journal" }] : []),
-    { value: "multi_tf" as ResultTab, label: "Multi-TF" },
-    { value: "robustness" as ResultTab, label: "Robustness" },
-    { value: "factor" as ResultTab, label: "Factor" },
-    { value: "timing" as ResultTab, label: "Timing" },
-    { value: "mkt_corr" as ResultTab, label: "Mkt Conditions" },
-    { value: "pnl_sim" as ResultTab, label: "P&L Sim" },
-    { value: "streaks" as ResultTab, label: "Streaks" },
-    { value: "dist" as ResultTab, label: "Distribution" },
-    { value: "benchmark" as ResultTab, label: "Benchmark" },
-    { value: "heatmap" as ResultTab, label: "Heatmap" },
-    { value: "quality" as ResultTab, label: "Quality Score" },
-    { value: "perf_track" as ResultTab, label: "Perf Tracker" },
-    { value: "scenarios" as ResultTab, label: "Scenarios" },
-    { value: "autocorr" as ResultTab, label: "Autocorr" },
-    { value: "mae_mfe" as ResultTab, label: "MAE/MFE" },
-    { value: "pine" as ResultTab, label: "Pine Script" },
-    { value: "breakeven" as ResultTab, label: "Breakeven" },
-    { value: "report" as ResultTab, label: "Export" },
+  const groups: TabGroup[] = [
+    {
+      label: "Overview",
+      tabs: [
+        { value: "charts", label: "Equity Curve" },
+        ...(hasMonthly ? [{ value: "monthly" as ResultTab, label: "Monthly" }] : []),
+        ...(hasMonthly ? [{ value: "calendar" as ResultTab, label: "Calendar" }] : []),
+        { value: "heatmap" as ResultTab, label: "Intraday" },
+        { value: "benchmark" as ResultTab, label: "vs. Buy-Hold" },
+      ],
+    },
+    {
+      label: "Trades",
+      tabs: [
+        { value: "trades", label: "Trade List" },
+        ...(hasMonthly ? [{ value: "editor" as ResultTab, label: "Trade Editor" }] : []),
+        { value: "streaks" as ResultTab, label: "Streaks" },
+        { value: "dist" as ResultTab, label: "Distribution" },
+        { value: "mae_mfe" as ResultTab, label: "MAE / MFE" },
+        { value: "autocorr" as ResultTab, label: "Autocorrelation" },
+        ...(hasMonthly ? [{ value: "journal" as ResultTab, label: "Journal" }] : []),
+      ],
+    },
+    {
+      label: "Risk",
+      tabs: [
+        { value: "risk", label: "Risk Metrics" },
+        { value: "drawdown", label: "Drawdowns" },
+        { value: "factor" as ResultTab, label: "Factor Exposure" },
+        { value: "timing" as ResultTab, label: "Trade Timing" },
+        { value: "breakeven" as ResultTab, label: "Breakeven" },
+      ],
+    },
+    {
+      label: "Performance",
+      tabs: [
+        ...(hasAnalysis ? [{ value: "analysis" as ResultTab, label: "Entry Analysis" }] : []),
+        { value: "attribution" as ResultTab, label: "Attribution" },
+        ...(hasRolling ? [{ value: "rolling" as ResultTab, label: "Rolling Metrics" }] : []),
+        { value: "quality" as ResultTab, label: "Quality Score" },
+        { value: "perf_track" as ResultTab, label: "Perf Tracker" },
+      ],
+    },
+    {
+      label: "Strategy",
+      tabs: [
+        ...(hasFriction ? [{ value: "friction" as ResultTab, label: "Friction" }] : []),
+        ...(hasAnomalies ? [{ value: "anomalies" as ResultTab, label: "Anomalies" }] : []),
+        { value: "regime" as ResultTab, label: "Regime" },
+        { value: "robustness" as ResultTab, label: "Robustness" },
+        { value: "scenarios" as ResultTab, label: "Scenarios" },
+      ],
+    },
+    {
+      label: "Optimize",
+      tabs: [
+        ...(hasMonteCarlo ? [{ value: "montecarlo" as ResultTab, label: "Monte Carlo" }] : []),
+        { value: "walk_forward" as ResultTab, label: "Walk-Forward" },
+        ...(hasMonthly ? [{ value: "sensitivity" as ResultTab, label: "Sensitivity" }] : []),
+        { value: "multi_tf" as ResultTab, label: "Multi-Timeframe" },
+        { value: "mkt_corr" as ResultTab, label: "Mkt Conditions" },
+        { value: "pnl_sim" as ResultTab, label: "P&L Simulator" },
+      ],
+    },
+    {
+      label: "Export",
+      tabs: [
+        { value: "pine" as ResultTab, label: "Pine Script" },
+        { value: "report" as ResultTab, label: "HTML Report" },
+      ],
+    },
   ];
+
+  // Determine active group
+  const activeGroup = groups.find((g) => g.tabs.some((t) => t.value === active))?.label ?? groups[0]?.label;
+  const activeTabs = groups.find((g) => g.label === activeGroup)?.tabs ?? [];
+
   return (
-    <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
-      {tabs.map((t) => (
-        <button key={t.value} onClick={() => onChange(t.value)}
-          className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
-            active === t.value ? "bg-cyan-500 text-zinc-950" : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
-          }`}>
-          {t.label}
-        </button>
-      ))}
+    <div className="space-y-1">
+      {/* Group bar */}
+      <div className="flex gap-0.5 flex-wrap">
+        {groups.map((g) => {
+          const isActive = g.label === activeGroup;
+          return (
+            <button
+              key={g.label}
+              onClick={() => {
+                const first = g.tabs[0];
+                if (first) onChange(first.value);
+              }}
+              className={`px-3 py-1 rounded-t-md text-xs font-semibold uppercase tracking-wider transition ${
+                isActive
+                  ? "bg-zinc-800 text-cyan-400 border-t border-x border-zinc-700"
+                  : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+              }`}
+            >
+              {g.label}
+            </button>
+          );
+        })}
+      </div>
+      {/* Sub-tab bar */}
+      <div className="flex gap-0.5 bg-zinc-800/60 border border-zinc-700 rounded-b-lg rounded-tr-lg p-1 flex-wrap">
+        {activeTabs.map((t) => (
+          <button
+            key={t.value}
+            onClick={() => onChange(t.value)}
+            className={`px-2.5 py-1 rounded-md text-xs font-medium transition whitespace-nowrap ${
+              active === t.value
+                ? "bg-cyan-500 text-zinc-950"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
