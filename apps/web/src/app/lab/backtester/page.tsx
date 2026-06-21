@@ -75,9 +75,10 @@ import { ProfitDistribution } from "./components/profit-distribution";
 import { StrategyBenchmark } from "./components/strategy-benchmark";
 import { EnsemblePanel } from "./components/ensemble-panel";
 import { IntradayHeatmap } from "./components/intraday-heatmap";
+import { TradeQuality } from "./components/trade-quality";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
@@ -1304,6 +1305,7 @@ function ResultTabs({
     { value: "dist" as ResultTab, label: "Distribution" },
     { value: "benchmark" as ResultTab, label: "Benchmark" },
     { value: "heatmap" as ResultTab, label: "Heatmap" },
+    { value: "quality" as ResultTab, label: "Quality Score" },
     { value: "report" as ResultTab, label: "Export" },
   ];
   return (
@@ -1700,6 +1702,9 @@ function SingleResultsView({
           )}
           {resultTab === "heatmap" && result && (
             <IntradayHeatmap result={result} />
+          )}
+          {resultTab === "quality" && result && (
+            <TradeQuality result={result} />
           )}
           {resultTab === "report" && result && (
             <ReportExport result={result} strategy={currentStrategy} />
