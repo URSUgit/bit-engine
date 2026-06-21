@@ -2683,6 +2683,9 @@ class EnsembleRequest(BaseModel):
 async def ensemble_backtest(req: EnsembleRequest):
     """Run a majority-vote ensemble of multiple strategies on the same data."""
     from app.backtest.strategies.ensemble import EnsembleStrategy
+    from app.backtest.engine import Backtest
+    from app.backtest.metrics import compute_metrics
+    import uuid, time as _time
 
     if len(req.strategies) < 2:
         raise HTTPException(status_code=400, detail="At least 2 strategies required.")
@@ -2702,7 +2705,7 @@ async def ensemble_backtest(req: EnsembleRequest):
 
     end_date = req.end_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    # Build sub-strategy instances
+    # Build sub-strategy instances with per-strategy params
     sub_instances = [
         STRATEGIES[name](**(req.strategy_params.get(name) or {}))
         for name in req.strategies
@@ -2714,55 +2717,49 @@ async def ensemble_backtest(req: EnsembleRequest):
         allow_short=req.allow_short,
     )
 
-    # Monkey-patch the strategy into a throwaway STRATEGIES entry so run_backtest
-    # can look it up — we use a unique key to avoid races
-    _tmp_key = f"_ensemble_{id(ensemble)}"
-    STRATEGIES[_tmp_key] = type(ensemble)  # type: ignore[assignment]
-
-    # We'll call the engine directly using BacktestParams, but we need to override
-    # the strategy lookup. Inject the instance directly:
-    from app.backtest.engine import Backtest
-    from app.backtest.data import HistoricalDataLoader
-    from app.backtest.metrics import build_equity_curve, compute_metrics
-    import uuid, time as _time
-
-    loader = HistoricalDataLoader(req.symbol, req.interval)
-    bars = await asyncio.get_event_loop().run_in_executor(
-        None, lambda: loader.load(start_date, end_date)
+    # Load bars using the standard loader
+    loader = HistoricalDataLoader()
+    bars = await loader.load(
+        symbol=req.symbol,
+        start_date=start_date,
+        end_date=end_date,
+        interval=req.interval,
     )
+    if len(bars) < 20:
+        raise HTTPException(status_code=400, detail=f"Insufficient data: only {len(bars)} bars.")
+
+    bt_start = _time.time()
 
     def _run_sync():
         engine = Backtest(
-            bars=bars,
-            strategy=ensemble,
-            initial_balance=req.initial_capital,
-            commission_taker=req.commission_pct,
-            commission_maker=req.commission_pct * 0.5,
-            spread_bps=0,
-            slippage_factor=req.slippage_pct * 200,
-            execution_latency_ms=0,
-            use_funding_rates=False,
-            enable_market_impact=False,
+            initial_capital=req.initial_capital,
+            commission_pct=req.commission_pct,
+            slippage_pct=req.slippage_pct,
             position_size_pct=req.position_size_pct,
+            spread_bps=0.0,
+            execution_latency_ms=0,
+            enable_market_impact=False,
+            use_funding_rates=False,
         )
-        return engine.run()
+        trades, equity = engine.run(
+            bars, ensemble,
+            symbol=req.symbol,
+            interval=req.interval,
+        )
+        return trades, equity
 
-    bt_start = _time.time()
-    raw = await asyncio.get_event_loop().run_in_executor(_stream_executor, _run_sync)
+    trades, equity = await asyncio.get_event_loop().run_in_executor(_stream_executor, _run_sync)
 
-    # Build a BacktestResult-compatible dict
-    from app.backtest.models import TradeRecord
-    equity_curve = build_equity_curve(raw["equity_history"], req.initial_capital)
+    asset_cls = "crypto" if req.symbol.endswith("USDT") else "stock"
     metrics = compute_metrics(
-        trades=raw["trades"],
-        equity_curve=equity_curve,
         initial_capital=req.initial_capital,
-        start_date=start_date,
-        end_date=end_date,
+        equity=equity,
+        trades=trades,
+        interval=req.interval,
+        asset_class=asset_cls,
     )
 
-    # Cleanup temp key
-    STRATEGIES.pop(_tmp_key, None)
+    runtime_ms = int((_time.time() - bt_start) * 1000)
 
     return {
         "id": str(uuid.uuid4()),
@@ -2773,9 +2770,12 @@ async def ensemble_backtest(req: EnsembleRequest):
         "start_date": start_date,
         "end_date": end_date,
         "bars_processed": len(bars),
-        "runtime_ms": int((_time.time() - bt_start) * 1000),
+        "runtime_ms": runtime_ms,
         "metrics": metrics,
-        "equity_curve": [{"t": p.t, "equity": p.equity, "drawdown_pct": p.drawdown_pct} for p in equity_curve],
+        "equity_curve": [
+            {"t": int(e[0].timestamp() * 1000), "equity": e[1], "drawdown_pct": 0.0}
+            for e in equity
+        ],
         "trades": [
             {
                 "side": t.side,
@@ -2788,6 +2788,6 @@ async def ensemble_backtest(req: EnsembleRequest):
                 "pnl_pct": t.pnl_pct,
                 "duration_bars": t.duration_bars,
             }
-            for t in raw["trades"]
+            for t in trades
         ],
     }

@@ -344,13 +344,22 @@ export function StrategyBenchmark({
                 tickFormatter={(v) => `${(v as number).toFixed(0)}%`}
               />
               <Tooltip
-                contentStyle={{
-                  background: "#18181b",
-                  border: "1px solid #3f3f46",
-                  borderRadius: 6,
+                content={({ payload, label }) => {
+                  if (!payload?.length) return null;
+                  return (
+                    <div style={{ background: "#18181b", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 10px", fontSize: 12 }}>
+                      <div style={{ color: "#a1a1aa", marginBottom: 4 }}>Bar #{label}</div>
+                      {payload.map((p, i) => {
+                        const v = typeof p.value === "number" ? p.value : Number(p.value ?? 0);
+                        return (
+                          <div key={i} style={{ color: p.color }}>
+                            {String(p.name)}: {v.toFixed(2)}%
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
                 }}
-                formatter={(v: number) => [`${v.toFixed(2)}%`]}
-                labelFormatter={(label) => `Bar #${label}`}
               />
               <Legend
                 formatter={(value) => {
