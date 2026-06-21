@@ -27,6 +27,7 @@ from .donchian import DonchianChannelStrategy
 from .rsi_ma_filter import RSIMAFilterStrategy
 from .aroon import AroonStrategy
 from .dema_cross import DEMACrossStrategy
+from .ensemble import EnsembleStrategy
 
 STRATEGIES: dict[str, type[Strategy]] = {
     "rsi": RSIStrategy,

@@ -2659,3 +2659,135 @@ async def market_correlation(req: MarketCorrelationRequest):
         "btc_return_correlation": btc_corr,
         "insights": insights,
     }
+
+
+# ── Ensemble strategy endpoint ─────────────────────────────────────────────────
+
+class EnsembleRequest(BaseModel):
+    strategies: list[str]        # 2–8 strategy names
+    symbol: str = "BTCUSDT"
+    interval: str = "1d"
+    start_date: str = ""
+    end_date: str = ""
+    period_days: int = 365
+    initial_capital: float = 10_000.0
+    commission_pct: float = 0.001
+    slippage_pct: float = 0.0005
+    position_size_pct: float = 0.25
+    strategy_params: dict[str, dict] = {}  # per-strategy params
+    vote_threshold: float = 0.0   # minimum normalised net vote to enter
+    allow_short: bool = False
+
+
+@router.post("/ensemble")
+async def ensemble_backtest(req: EnsembleRequest):
+    """Run a majority-vote ensemble of multiple strategies on the same data."""
+    from app.backtest.strategies.ensemble import EnsembleStrategy
+
+    if len(req.strategies) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 strategies required.")
+    if len(req.strategies) > 8:
+        raise HTTPException(status_code=400, detail="At most 8 strategies supported.")
+
+    unknown = [s for s in req.strategies if s not in STRATEGIES]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown strategies: {unknown}")
+
+    if req.start_date:
+        start_date = req.start_date
+    else:
+        end_dt = datetime.now(timezone.utc)
+        start_dt = end_dt - timedelta(days=req.period_days)
+        start_date = start_dt.strftime("%Y-%m-%d")
+
+    end_date = req.end_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # Build sub-strategy instances
+    sub_instances = [
+        STRATEGIES[name](**(req.strategy_params.get(name) or {}))
+        for name in req.strategies
+    ]
+
+    ensemble = EnsembleStrategy(
+        sub_strategies=sub_instances,
+        threshold=req.vote_threshold,
+        allow_short=req.allow_short,
+    )
+
+    # Monkey-patch the strategy into a throwaway STRATEGIES entry so run_backtest
+    # can look it up — we use a unique key to avoid races
+    _tmp_key = f"_ensemble_{id(ensemble)}"
+    STRATEGIES[_tmp_key] = type(ensemble)  # type: ignore[assignment]
+
+    # We'll call the engine directly using BacktestParams, but we need to override
+    # the strategy lookup. Inject the instance directly:
+    from app.backtest.engine import Backtest
+    from app.backtest.data import HistoricalDataLoader
+    from app.backtest.metrics import build_equity_curve, compute_metrics
+    import uuid, time as _time
+
+    loader = HistoricalDataLoader(req.symbol, req.interval)
+    bars = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: loader.load(start_date, end_date)
+    )
+
+    def _run_sync():
+        engine = Backtest(
+            bars=bars,
+            strategy=ensemble,
+            initial_balance=req.initial_capital,
+            commission_taker=req.commission_pct,
+            commission_maker=req.commission_pct * 0.5,
+            spread_bps=0,
+            slippage_factor=req.slippage_pct * 200,
+            execution_latency_ms=0,
+            use_funding_rates=False,
+            enable_market_impact=False,
+            position_size_pct=req.position_size_pct,
+        )
+        return engine.run()
+
+    bt_start = _time.time()
+    raw = await asyncio.get_event_loop().run_in_executor(_stream_executor, _run_sync)
+
+    # Build a BacktestResult-compatible dict
+    from app.backtest.models import TradeRecord
+    equity_curve = build_equity_curve(raw["equity_history"], req.initial_capital)
+    metrics = compute_metrics(
+        trades=raw["trades"],
+        equity_curve=equity_curve,
+        initial_capital=req.initial_capital,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    # Cleanup temp key
+    STRATEGIES.pop(_tmp_key, None)
+
+    return {
+        "id": str(uuid.uuid4()),
+        "symbol": req.symbol,
+        "strategy": f"ensemble({','.join(req.strategies)})",
+        "sub_strategies": req.strategies,
+        "interval": req.interval,
+        "start_date": start_date,
+        "end_date": end_date,
+        "bars_processed": len(bars),
+        "runtime_ms": int((_time.time() - bt_start) * 1000),
+        "metrics": metrics,
+        "equity_curve": [{"t": p.t, "equity": p.equity, "drawdown_pct": p.drawdown_pct} for p in equity_curve],
+        "trades": [
+            {
+                "side": t.side,
+                "entry_time": t.entry_time,
+                "exit_time": t.exit_time,
+                "entry_price": t.entry_price,
+                "exit_price": t.exit_price,
+                "size": t.size,
+                "pnl": t.pnl,
+                "pnl_pct": t.pnl_pct,
+                "duration_bars": t.duration_bars,
+            }
+            for t in raw["trades"]
+        ],
+    }

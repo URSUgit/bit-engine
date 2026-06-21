@@ -70,9 +70,12 @@ import { DiversificationPanel } from "./components/diversification";
 import { ReportExport } from "./components/report-export";
 import { LivePnlSimulator } from "./components/live-pnl-simulator";
 import { MarketCorrelation } from "./components/market-correlation";
+import { TradeStreakAnalyzer } from "./components/trade-streak";
+import { ProfitDistribution } from "./components/profit-distribution";
+import { StrategyBenchmark } from "./components/strategy-benchmark";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
@@ -1283,6 +1286,9 @@ function ResultTabs({
     { value: "timing" as ResultTab, label: "Timing" },
     { value: "mkt_corr" as ResultTab, label: "Mkt Conditions" },
     { value: "pnl_sim" as ResultTab, label: "P&L Sim" },
+    { value: "streaks" as ResultTab, label: "Streaks" },
+    { value: "dist" as ResultTab, label: "Distribution" },
+    { value: "benchmark" as ResultTab, label: "Benchmark" },
     { value: "report" as ResultTab, label: "Export" },
   ];
   return (
@@ -1656,6 +1662,25 @@ function SingleResultsView({
               commissionPct={commissionPct}
               slippagePct={slippagePct}
               positionPct={positionPct}
+            />
+          )}
+          {resultTab === "streaks" && result && (
+            <TradeStreakAnalyzer result={result} />
+          )}
+          {resultTab === "dist" && result && (
+            <ProfitDistribution result={result} />
+          )}
+          {resultTab === "benchmark" && result && (
+            <StrategyBenchmark
+              result={result}
+              symbol={symbol}
+              interval={interval}
+              periodDays={periodDays}
+              initialCapital={initialCapital}
+              commissionPct={commissionPct}
+              slippagePct={slippagePct}
+              positionPct={positionPct}
+              strategies={strategies}
             />
           )}
           {resultTab === "report" && result && (
