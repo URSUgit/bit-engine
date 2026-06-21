@@ -78,9 +78,11 @@ import { IntradayHeatmap } from "./components/intraday-heatmap";
 import { TradeQuality } from "./components/trade-quality";
 import { BenchmarkTracker } from "./components/benchmark-tracker";
 import { ScenarioComparator } from "./components/scenario-comparator";
+import { TradeAutocorrelation } from "./components/trade-autocorrelation";
+import { MaeMfeAnalysis } from "./components/mae-mfe-analysis";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
@@ -1310,6 +1312,8 @@ function ResultTabs({
     { value: "quality" as ResultTab, label: "Quality Score" },
     { value: "perf_track" as ResultTab, label: "Perf Tracker" },
     { value: "scenarios" as ResultTab, label: "Scenarios" },
+    { value: "autocorr" as ResultTab, label: "Autocorr" },
+    { value: "mae_mfe" as ResultTab, label: "MAE/MFE" },
     { value: "report" as ResultTab, label: "Export" },
   ];
   return (
@@ -1725,6 +1729,12 @@ function SingleResultsView({
               slippagePct={slippagePct}
               positionPct={positionPct}
             />
+          )}
+          {resultTab === "autocorr" && result && (
+            <TradeAutocorrelation result={result} />
+          )}
+          {resultTab === "mae_mfe" && result && (
+            <MaeMfeAnalysis result={result} />
           )}
           {resultTab === "report" && result && (
             <ReportExport result={result} strategy={currentStrategy} />
