@@ -76,9 +76,11 @@ import { StrategyBenchmark } from "./components/strategy-benchmark";
 import { EnsemblePanel } from "./components/ensemble-panel";
 import { IntradayHeatmap } from "./components/intraday-heatmap";
 import { TradeQuality } from "./components/trade-quality";
+import { BenchmarkTracker } from "./components/benchmark-tracker";
+import { ScenarioComparator } from "./components/scenario-comparator";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
@@ -1306,6 +1308,8 @@ function ResultTabs({
     { value: "benchmark" as ResultTab, label: "Benchmark" },
     { value: "heatmap" as ResultTab, label: "Heatmap" },
     { value: "quality" as ResultTab, label: "Quality Score" },
+    { value: "perf_track" as ResultTab, label: "Perf Tracker" },
+    { value: "scenarios" as ResultTab, label: "Scenarios" },
     { value: "report" as ResultTab, label: "Export" },
   ];
   return (
@@ -1705,6 +1709,22 @@ function SingleResultsView({
           )}
           {resultTab === "quality" && result && (
             <TradeQuality result={result} />
+          )}
+          {resultTab === "perf_track" && result && (
+            <BenchmarkTracker result={result} />
+          )}
+          {resultTab === "scenarios" && (
+            <ScenarioComparator
+              symbol={symbol}
+              strategy={strategy}
+              strategyParams={strategyParams}
+              interval={interval}
+              periodDays={periodDays}
+              initialCapital={initialCapital}
+              commissionPct={commissionPct}
+              slippagePct={slippagePct}
+              positionPct={positionPct}
+            />
           )}
           {resultTab === "report" && result && (
             <ReportExport result={result} strategy={currentStrategy} />

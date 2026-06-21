@@ -184,19 +184,23 @@ export function ProfitDistribution({ result }: { result: BacktestResult }) {
             />
             <YAxis tick={{ fill: "#71717a", fontSize: 10 }} />
             <Tooltip
-              contentStyle={{
-                background: "#18181b",
-                border: "1px solid #3f3f46",
-                borderRadius: 6,
-              }}
-              formatter={(value, name: string) => {
-                const v = typeof value === "number" ? value : Number(value);
-                return [
-                  name === "count"
-                    ? `${v} trade${v !== 1 ? "s" : ""}`
-                    : isNaN(v) ? "—" : v.toFixed(2),
-                  name === "count" ? "Trades" : "Normal expected",
-                ];
+              content={({ payload, label }) => {
+                if (!payload?.length) return null;
+                return (
+                  <div style={{ background: "#18181b", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 10px", fontSize: 12 }}>
+                    <div style={{ color: "#a1a1aa", marginBottom: 4 }}>{label}</div>
+                    {payload.map((p, i) => {
+                      const v = typeof p.value === "number" ? p.value : Number(p.value ?? 0);
+                      const isCount = p.dataKey === "count";
+                      return (
+                        <div key={i} style={{ color: p.color }}>
+                          {isCount ? `${v} trade${v !== 1 ? "s" : ""}` : isNaN(v) ? "—" : v.toFixed(4)}
+                          {" "}<span style={{ color: "#71717a" }}>{isCount ? "Trades" : "PDF"}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
               }}
             />
             <ReferenceLine
