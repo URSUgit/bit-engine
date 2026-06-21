@@ -65,11 +65,12 @@ import { RobustnessTest } from "./components/robustness-test";
 import { PositionSizer } from "./components/position-sizer";
 import { FactorExposure } from "./components/factor-exposure";
 import { TradeTimingAnalysis } from "./components/trade-timing";
+import { StrategyMatrix } from "./components/strategy-matrix";
 
-type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio";
+type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
 type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing";
 
-const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio"];
+const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
 export default function BacktesterPage() {
   const [mode, setMode] = useState<Mode>("single");
@@ -694,6 +695,23 @@ export default function BacktesterPage() {
               />
             )}
           </div>
+        ) : mode === "matrix" ? (
+          <div className="max-w-6xl mx-auto">
+            <StrategyMatrix
+              strategies={strategies}
+              interval={interval}
+              periodDays={periodDays}
+              initialCapital={initialCapital}
+              commissionPct={commissionPct}
+              slippagePct={slippagePct}
+              positionPct={positionPct}
+              onSelectPair={(strat, sym) => {
+                setStrategyName(strat);
+                setSingleSymbol(sym);
+                setMode("single");
+              }}
+            />
+          </div>
         ) : mode === "portfolio" ? (
           <div className="max-w-5xl mx-auto">
             <PortfolioView
@@ -1196,6 +1214,7 @@ function ModeTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void 
     { value: "data", label: "Data", hint: "Cache · Custom symbols" },
     { value: "custom", label: "Editor", hint: "Write your own strategy" },
     { value: "portfolio", label: "Portfolio", hint: "Multi-strategy allocation" },
+    { value: "matrix", label: "Matrix", hint: "All strategies × symbols" },
   ];
   return (
     <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
