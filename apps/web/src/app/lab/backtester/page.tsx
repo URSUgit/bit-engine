@@ -67,9 +67,12 @@ import { FactorExposure } from "./components/factor-exposure";
 import { TradeTimingAnalysis } from "./components/trade-timing";
 import { StrategyMatrix } from "./components/strategy-matrix";
 import { DiversificationPanel } from "./components/diversification";
+import { ReportExport } from "./components/report-export";
+import { LivePnlSimulator } from "./components/live-pnl-simulator";
+import { MarketCorrelation } from "./components/market-correlation";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
@@ -1278,6 +1281,9 @@ function ResultTabs({
     { value: "robustness" as ResultTab, label: "Robustness" },
     { value: "factor" as ResultTab, label: "Factor" },
     { value: "timing" as ResultTab, label: "Timing" },
+    { value: "mkt_corr" as ResultTab, label: "Mkt Conditions" },
+    { value: "pnl_sim" as ResultTab, label: "P&L Sim" },
+    { value: "report" as ResultTab, label: "Export" },
   ];
   return (
     <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
@@ -1626,6 +1632,34 @@ function SingleResultsView({
           )}
           {resultTab === "timing" && result && (
             <TradeTimingAnalysis result={result} />
+          )}
+          {resultTab === "mkt_corr" && (
+            <MarketCorrelation
+              symbol={symbol}
+              strategy={strategy}
+              strategyParams={strategyParams}
+              interval={interval}
+              periodDays={periodDays}
+              initialCapital={initialCapital}
+              commissionPct={commissionPct}
+              slippagePct={slippagePct}
+              positionPct={positionPct}
+            />
+          )}
+          {resultTab === "pnl_sim" && (
+            <LivePnlSimulator
+              symbol={symbol}
+              strategy={strategy}
+              strategyParams={strategyParams}
+              interval={interval}
+              initialCapital={initialCapital}
+              commissionPct={commissionPct}
+              slippagePct={slippagePct}
+              positionPct={positionPct}
+            />
+          )}
+          {resultTab === "report" && result && (
+            <ReportExport result={result} strategy={currentStrategy} />
           )}
         </div>
       )}

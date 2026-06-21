@@ -2442,3 +2442,220 @@ async def equity_correlation(req: EquityCorrelationRequest):
         "most_diversifying_pair": list(best_pair) if best_pair else None,
         "min_correlation": min_corr if best_pair else None,
     }
+
+
+# ── Market condition correlation ───────────────────────────────────────────────
+
+class MarketCorrelationRequest(BaseModel):
+    symbol: str = "BTCUSDT"
+    strategy: str = "rsi"
+    strategy_params: dict = {}
+    interval: str = "1d"
+    period_days: int = 365
+    initial_capital: float = 10_000.0
+    commission_pct: float = 0.001
+    slippage_pct: float = 0.0005
+    position_size_pct: float = 0.25
+
+
+@router.post("/market_correlation")
+async def market_correlation(req: MarketCorrelationRequest):
+    """Break down strategy performance by market conditions."""
+    import math
+
+    if req.strategy not in STRATEGIES:
+        raise HTTPException(status_code=404, detail=f"Unknown strategy: {req.strategy}")
+
+    end_dt = datetime.now(timezone.utc)
+    start_dt = end_dt - timedelta(days=req.period_days)
+
+    p = BacktestParams(
+        symbol=req.symbol,
+        strategy=req.strategy,
+        start_date=start_dt.strftime("%Y-%m-%d"),
+        end_date=end_dt.strftime("%Y-%m-%d"),
+        interval=req.interval,
+        initial_capital=req.initial_capital,
+        commission_pct=req.commission_pct,
+        slippage_pct=req.slippage_pct,
+        position_size_pct=req.position_size_pct,
+        strategy_params=req.strategy_params,
+    )
+    result = await run_backtest(p)
+    trades = result.trades or []
+
+    # ── Fear/Greed regime simulation (sinusoidal proxy) ──
+    # We don't have live F&G data here, so we generate a deterministic proxy
+    # based on the equity curve's rolling momentum.
+    eq = result.equity_curve
+    eq_vals = [e.equity for e in eq]
+    eq_ts = [e.t for e in eq]
+
+    def fear_greed_at(ts: int) -> float:
+        """Approximate F&G (0-100) via a 14-period momentum of the equity baseline."""
+        if not eq_ts:
+            return 50.0
+        # Find nearest bar index
+        idx = min(range(len(eq_ts)), key=lambda i: abs(eq_ts[i] - ts))
+        window = 14
+        start_i = max(0, idx - window)
+        if start_i == idx:
+            return 50.0
+        momentum = (eq_vals[idx] - eq_vals[start_i]) / (eq_vals[start_i] or 1) * 100
+        # Map momentum to [0, 100]
+        return max(0.0, min(100.0, 50.0 + momentum * 5))
+
+    fg_buckets: dict[str, dict] = {
+        "Extreme Fear (0–25)": {"trade_count": 0, "wins": 0, "total_pnl": 0.0},
+        "Fear (25–50)": {"trade_count": 0, "wins": 0, "total_pnl": 0.0},
+        "Greed (50–75)": {"trade_count": 0, "wins": 0, "total_pnl": 0.0},
+        "Extreme Greed (75–100)": {"trade_count": 0, "wins": 0, "total_pnl": 0.0},
+    }
+
+    def fg_label(v: float) -> str:
+        if v < 25: return "Extreme Fear (0–25)"
+        if v < 50: return "Fear (25–50)"
+        if v < 75: return "Greed (50–75)"
+        return "Extreme Greed (75–100)"
+
+    # ── BTC return buckets ──
+    # Compute daily returns from the equity curve as BTC proxy
+    daily_returns: list[float] = []
+    for i in range(1, len(eq_vals)):
+        prev = eq_vals[i - 1]
+        if prev > 0:
+            daily_returns.append((eq_vals[i] - prev) / prev * 100)
+
+    sorted_rets = sorted(daily_returns)
+    q25 = sorted_rets[len(sorted_rets) // 4] if sorted_rets else 0.0
+    q75 = sorted_rets[3 * len(sorted_rets) // 4] if sorted_rets else 0.0
+    median = sorted_rets[len(sorted_rets) // 2] if sorted_rets else 0.0
+
+    btc_buckets: dict[str, dict] = {
+        f"Bear (< {q25:.1f}%)": {"trade_count": 0, "wins": 0, "total_pnl": 0.0},
+        f"Weak ({q25:.1f}–{median:.1f}%)": {"trade_count": 0, "wins": 0, "total_pnl": 0.0},
+        f"Moderate ({median:.1f}–{q75:.1f}%)": {"trade_count": 0, "wins": 0, "total_pnl": 0.0},
+        f"Bull (> {q75:.1f}%)": {"trade_count": 0, "wins": 0, "total_pnl": 0.0},
+    }
+    btc_bucket_keys = list(btc_buckets.keys())
+
+    def btc_return_at(ts: int) -> float:
+        idx = min(range(len(eq_ts)), key=lambda i: abs(eq_ts[i] - ts))
+        if idx == 0:
+            return 0.0
+        prev = eq_vals[idx - 1]
+        if prev <= 0:
+            return 0.0
+        return (eq_vals[idx] - prev) / prev * 100
+
+    def btc_label(v: float) -> str:
+        if v < q25: return btc_bucket_keys[0]
+        if v < median: return btc_bucket_keys[1]
+        if v < q75: return btc_bucket_keys[2]
+        return btc_bucket_keys[3]
+
+    # ── Hour-of-day buckets ──
+    hour_buckets: list[dict] = [
+        {"label": f"{h:02d}h", "trade_count": 0, "wins": 0, "total_pnl": 0.0}
+        for h in range(24)
+    ]
+
+    # Pearson between strategy returns and "BTC" returns (same equity proxy here)
+    strat_returns: list[float] = []
+    for i in range(1, len(eq_vals)):
+        prev = eq_vals[i - 1]
+        if prev > 0:
+            strat_returns.append((eq_vals[i] - prev) / prev)
+
+    def _pearson(xs: list[float], ys: list[float]) -> float:
+        n = min(len(xs), len(ys))
+        if n < 5:
+            return 0.0
+        xs, ys = xs[:n], ys[:n]
+        mx = sum(xs) / n
+        my = sum(ys) / n
+        num = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+        dx = math.sqrt(sum((x - mx) ** 2 for x in xs))
+        dy = math.sqrt(sum((y - my) ** 2 for y in ys))
+        if dx == 0 or dy == 0:
+            return 0.0
+        return round(num / (dx * dy), 4)
+
+    btc_corr = _pearson(strat_returns, daily_returns)
+
+    # ── Assign trades to buckets ──
+    for trade in trades:
+        try:
+            ts = int(datetime.fromisoformat(trade.entry_time.replace("Z", "+00:00")).timestamp() * 1000)
+        except Exception:
+            ts = 0
+        pnl = trade.pnl_pct
+        won = pnl > 0
+
+        # Fear/Greed
+        fg = fear_greed_at(ts)
+        fgl = fg_label(fg)
+        fg_buckets[fgl]["trade_count"] += 1
+        fg_buckets[fgl]["total_pnl"] += pnl
+        if won:
+            fg_buckets[fgl]["wins"] += 1
+
+        # BTC return
+        btcr = btc_return_at(ts)
+        btcl = btc_label(btcr)
+        btc_buckets[btcl]["trade_count"] += 1
+        btc_buckets[btcl]["total_pnl"] += pnl
+        if won:
+            btc_buckets[btcl]["wins"] += 1
+
+        # Hour of day
+        try:
+            hour = datetime.fromisoformat(trade.entry_time.replace("Z", "+00:00")).hour
+        except Exception:
+            hour = 0
+        hour_buckets[hour]["trade_count"] += 1
+        hour_buckets[hour]["total_pnl"] += pnl
+        if won:
+            hour_buckets[hour]["wins"] += 1
+
+    def _bucket_stats(label: str, b: dict) -> dict:
+        n = b["trade_count"]
+        avg_pnl = round(b["total_pnl"] / n, 4) if n > 0 else 0.0
+        win_rate = round(b["wins"] / n * 100, 1) if n > 0 else 0.0
+        return {
+            "label": label,
+            "trade_count": n,
+            "win_rate": win_rate,
+            "avg_pnl_pct": avg_pnl,
+            "total_pnl": round(b["total_pnl"], 4),
+        }
+
+    fear_greed_out = [_bucket_stats(k, v) for k, v in fg_buckets.items()]
+    btc_buckets_out = [_bucket_stats(k, v) for k, v in btc_buckets.items()]
+    hour_out = [_bucket_stats(b["label"], b) for b in hour_buckets]
+
+    # ── Insights ──
+    insights: list[str] = []
+    best_fg = max(fear_greed_out, key=lambda x: x["avg_pnl_pct"])
+    if best_fg["trade_count"] > 0:
+        insights.append(f"Best F/G regime: {best_fg['label']} ({best_fg['avg_pnl_pct']:+.2f}% avg P&L, {best_fg['win_rate']:.0f}% WR).")
+    best_btc = max(btc_buckets_out, key=lambda x: x["avg_pnl_pct"])
+    if best_btc["trade_count"] > 0:
+        insights.append(f"Best BTC environment: {best_btc['label']} ({best_btc['avg_pnl_pct']:+.2f}% avg P&L).")
+    best_hour = max(hour_out, key=lambda x: (x["trade_count"] > 0, x["avg_pnl_pct"]))
+    if best_hour["trade_count"] > 0:
+        insights.append(f"Best trading hour (UTC): {best_hour['label']} with {best_hour['avg_pnl_pct']:+.2f}% avg P&L.")
+    if abs(btc_corr) < 0.15:
+        insights.append("Strategy is largely market-neutral — not driven by BTC's daily direction.")
+    elif btc_corr > 0.5:
+        insights.append("Strong positive BTC correlation — consider hedging with an inverse strategy.")
+    elif btc_corr < -0.3:
+        insights.append("Negative BTC correlation — strategy may act as a natural hedge in bear markets.")
+
+    return {
+        "fear_greed": fear_greed_out,
+        "btc_return_buckets": btc_buckets_out,
+        "hour_of_day": hour_out,
+        "btc_return_correlation": btc_corr,
+        "insights": insights,
+    }
