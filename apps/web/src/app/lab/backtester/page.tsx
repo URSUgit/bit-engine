@@ -82,9 +82,10 @@ import { TradeAutocorrelation } from "./components/trade-autocorrelation";
 import { MaeMfeAnalysis } from "./components/mae-mfe-analysis";
 import { PineScriptExport } from "./components/pinescript-export";
 import { BreakevenAnalysis } from "./components/breakeven-analysis";
+import { SignificancePanel } from "./components/significance-panel";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
@@ -1329,6 +1330,7 @@ function ResultTabs({
         ...(hasRolling ? [{ value: "rolling" as ResultTab, label: "Rolling Metrics" }] : []),
         { value: "quality" as ResultTab, label: "Quality Score" },
         { value: "perf_track" as ResultTab, label: "Perf Tracker" },
+        { value: "significance" as ResultTab, label: "Significance" },
       ],
     },
     {
@@ -1823,6 +1825,9 @@ function SingleResultsView({
           )}
           {resultTab === "breakeven" && result && (
             <BreakevenAnalysis result={result} />
+          )}
+          {resultTab === "significance" && result && (
+            <SignificancePanel result={result} />
           )}
           {resultTab === "report" && result && (
             <ReportExport result={result} strategy={currentStrategy} />
