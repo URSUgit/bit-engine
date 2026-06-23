@@ -84,9 +84,12 @@ import { PineScriptExport } from "./components/pinescript-export";
 import { BreakevenAnalysis } from "./components/breakeven-analysis";
 import { SignificancePanel } from "./components/significance-panel";
 import { StrategyAdvisor } from "./components/strategy-advisor";
+import { SeasonalityAnalysis } from "./components/seasonality-analysis";
+import { RiskOfRuin } from "./components/risk-of-ruin";
+import { EvExplorer } from "./components/ev-explorer";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor" | "seasonality" | "risk_of_ruin" | "ev_explorer";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
@@ -1310,6 +1313,7 @@ function ResultTabs({
         { value: "dist" as ResultTab, label: "Distribution" },
         { value: "mae_mfe" as ResultTab, label: "MAE / MFE" },
         { value: "autocorr" as ResultTab, label: "Autocorrelation" },
+        { value: "seasonality" as ResultTab, label: "Seasonality" },
         ...(hasMonthly ? [{ value: "journal" as ResultTab, label: "Journal" }] : []),
       ],
     },
@@ -1321,6 +1325,7 @@ function ResultTabs({
         { value: "factor" as ResultTab, label: "Factor Exposure" },
         { value: "timing" as ResultTab, label: "Trade Timing" },
         { value: "breakeven" as ResultTab, label: "Breakeven" },
+        { value: "risk_of_ruin" as ResultTab, label: "Risk of Ruin" },
       ],
     },
     {
@@ -1332,6 +1337,7 @@ function ResultTabs({
         { value: "quality" as ResultTab, label: "Quality Score" },
         { value: "perf_track" as ResultTab, label: "Perf Tracker" },
         { value: "significance" as ResultTab, label: "Significance" },
+        { value: "ev_explorer" as ResultTab, label: "EV Explorer" },
       ],
     },
     {
@@ -1833,6 +1839,15 @@ function SingleResultsView({
           )}
           {resultTab === "strategy_advisor" && result && (
             <StrategyAdvisor result={result} />
+          )}
+          {resultTab === "seasonality" && result && (
+            <SeasonalityAnalysis result={result} />
+          )}
+          {resultTab === "risk_of_ruin" && result && (
+            <RiskOfRuin result={result} />
+          )}
+          {resultTab === "ev_explorer" && result && (
+            <EvExplorer result={result} />
           )}
           {resultTab === "report" && result && (
             <ReportExport result={result} strategy={currentStrategy} />
