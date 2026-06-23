@@ -87,9 +87,11 @@ import { StrategyAdvisor } from "./components/strategy-advisor";
 import { SeasonalityAnalysis } from "./components/seasonality-analysis";
 import { RiskOfRuin } from "./components/risk-of-ruin";
 import { EvExplorer } from "./components/ev-explorer";
+import { TradeReplay } from "./components/trade-replay";
+import { LongShortAnalysis } from "./components/long-short-analysis";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor" | "seasonality" | "risk_of_ruin" | "ev_explorer";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor" | "seasonality" | "risk_of_ruin" | "ev_explorer" | "replay" | "long_short";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
@@ -1314,6 +1316,8 @@ function ResultTabs({
         { value: "mae_mfe" as ResultTab, label: "MAE / MFE" },
         { value: "autocorr" as ResultTab, label: "Autocorrelation" },
         { value: "seasonality" as ResultTab, label: "Seasonality" },
+        { value: "replay" as ResultTab, label: "Replay" },
+        { value: "long_short" as ResultTab, label: "Long vs Short" },
         ...(hasMonthly ? [{ value: "journal" as ResultTab, label: "Journal" }] : []),
       ],
     },
@@ -1848,6 +1852,12 @@ function SingleResultsView({
           )}
           {resultTab === "ev_explorer" && result && (
             <EvExplorer result={result} />
+          )}
+          {resultTab === "replay" && result && (
+            <TradeReplay result={result} />
+          )}
+          {resultTab === "long_short" && result && (
+            <LongShortAnalysis result={result} />
           )}
           {resultTab === "report" && result && (
             <ReportExport result={result} strategy={currentStrategy} />
