@@ -89,9 +89,11 @@ import { RiskOfRuin } from "./components/risk-of-ruin";
 import { EvExplorer } from "./components/ev-explorer";
 import { TradeReplay } from "./components/trade-replay";
 import { LongShortAnalysis } from "./components/long-short-analysis";
+import { PositionSizingWizard } from "./components/position-sizing-wizard";
+import { SharpeContribution } from "./components/sharpe-contribution";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor" | "seasonality" | "risk_of_ruin" | "ev_explorer" | "replay" | "long_short";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor" | "seasonality" | "risk_of_ruin" | "ev_explorer" | "replay" | "long_short" | "sizing_wizard" | "sharpe_contribution";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
@@ -1330,6 +1332,7 @@ function ResultTabs({
         { value: "timing" as ResultTab, label: "Trade Timing" },
         { value: "breakeven" as ResultTab, label: "Breakeven" },
         { value: "risk_of_ruin" as ResultTab, label: "Risk of Ruin" },
+        { value: "sizing_wizard" as ResultTab, label: "Sizing Wizard" },
       ],
     },
     {
@@ -1342,6 +1345,7 @@ function ResultTabs({
         { value: "perf_track" as ResultTab, label: "Perf Tracker" },
         { value: "significance" as ResultTab, label: "Significance" },
         { value: "ev_explorer" as ResultTab, label: "EV Explorer" },
+        { value: "sharpe_contribution" as ResultTab, label: "Sharpe Contrib" },
       ],
     },
     {
@@ -1858,6 +1862,12 @@ function SingleResultsView({
           )}
           {resultTab === "long_short" && result && (
             <LongShortAnalysis result={result} />
+          )}
+          {resultTab === "sizing_wizard" && result && (
+            <PositionSizingWizard result={result} />
+          )}
+          {resultTab === "sharpe_contribution" && result && (
+            <SharpeContribution result={result} />
           )}
           {resultTab === "report" && result && (
             <ReportExport result={result} strategy={currentStrategy} />
