@@ -93,7 +93,7 @@ export function RiskOfRuin({ result }: { result: BacktestResult }) {
   }, [pnlPcts]);
 
   const kellyF = useMemo(() => {
-    const wr = (metrics.win_rate ?? 0) / 100;
+    const wr = (metrics.win_rate_pct ?? 0) / 100;
     const avgWin = Math.abs(metrics.avg_win_pct ?? 1);
     const avgLoss = Math.abs(metrics.avg_loss_pct ?? 1);
     if (avgLoss === 0) return 0;

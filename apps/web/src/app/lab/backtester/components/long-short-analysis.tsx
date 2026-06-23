@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import type { BacktestResult } from "@/lib/backtest-api";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  ResponsiveContainer, Cell, Tooltip, Legend,
+  ResponsiveContainer, Cell, Tooltip, Legend, ReferenceLine,
   RadarChart, Radar, PolarGrid, PolarAngleAxis,
 } from "recharts";
 

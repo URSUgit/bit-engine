@@ -23,7 +23,7 @@ function evCellStyle(ev: number): { background: string; color: string } {
 export function EvExplorer({ result }: { result: BacktestResult }) {
   const { metrics, trades } = result;
 
-  const winRate = (metrics.win_rate ?? 50) / 100;
+  const winRate = (metrics.win_rate_pct ?? 50) / 100;
   const avgWin = Math.abs(metrics.avg_win_pct ?? 2);
   const avgLoss = Math.abs(metrics.avg_loss_pct ?? 1);
   const rrRatio = avgLoss > 0 ? avgWin / avgLoss : 1;

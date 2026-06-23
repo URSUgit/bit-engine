@@ -7,6 +7,8 @@ import {
   ResponsiveContainer, ReferenceLine, Tooltip,
 } from "recharts";
 
+type EquitySegmentPoint = { t: number; equity: number; drawdown_pct: number; label: number; isEntry: boolean; isExit: boolean };
+
 function fmtTime(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
@@ -35,16 +37,15 @@ export function TradeReplay({ result }: { result: BacktestResult }) {
   const safeIdx = Math.min(idx, Math.max(0, filteredTrades.length - 1));
   const trade = filteredTrades[safeIdx];
 
-  const equitySegment = useMemo(() => {
+  const equitySegment = useMemo((): EquitySegmentPoint[] => {
     if (!trade) return [];
     const entryMs = new Date(trade.entry_time).getTime();
     const exitMs = new Date(trade.exit_time).getTime();
-    // Include 2 bars before/after for context
     const sorted = [...equity_curve].sort((a, b) => a.t - b.t);
     const tradePoints = sorted.filter((p) => p.t >= entryMs && p.t <= exitMs);
     if (tradePoints.length === 0) {
       const closest = sorted.reduce((best, p) => Math.abs(p.t - entryMs) < Math.abs(best.t - entryMs) ? p : best, sorted[0] ?? { t: 0, equity: 0, drawdown_pct: 0 });
-      return [closest];
+      return [{ ...closest, label: 0, isEntry: true, isExit: true }];
     }
     const entryIdx = sorted.findIndex((p) => p.t === tradePoints[0]?.t);
     const exitIdx = sorted.findIndex((p) => p.t === tradePoints[tradePoints.length - 1]?.t);
