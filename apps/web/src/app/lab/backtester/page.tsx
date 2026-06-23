@@ -93,9 +93,10 @@ import { PositionSizingWizard } from "./components/position-sizing-wizard";
 import { SharpeContribution } from "./components/sharpe-contribution";
 import { ExitAnalysis } from "./components/exit-analysis";
 import { StreakDistribution } from "./components/streak-distribution";
+import { CostSensitivity } from "./components/cost-sensitivity";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor" | "seasonality" | "risk_of_ruin" | "ev_explorer" | "replay" | "long_short" | "sizing_wizard" | "sharpe_contribution" | "exit_analysis" | "streak_dist";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor" | "seasonality" | "risk_of_ruin" | "ev_explorer" | "replay" | "long_short" | "sizing_wizard" | "sharpe_contribution" | "exit_analysis" | "streak_dist" | "cost_sensitivity";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
@@ -1335,6 +1336,7 @@ function ResultTabs({
         { value: "factor" as ResultTab, label: "Factor Exposure" },
         { value: "timing" as ResultTab, label: "Trade Timing" },
         { value: "breakeven" as ResultTab, label: "Breakeven" },
+        { value: "cost_sensitivity" as ResultTab, label: "Cost Sensitivity" },
         { value: "risk_of_ruin" as ResultTab, label: "Risk of Ruin" },
         { value: "sizing_wizard" as ResultTab, label: "Sizing Wizard" },
       ],
@@ -1878,6 +1880,9 @@ function SingleResultsView({
           )}
           {resultTab === "streak_dist" && result && (
             <StreakDistribution result={result} />
+          )}
+          {resultTab === "cost_sensitivity" && result && (
+            <CostSensitivity result={result} />
           )}
           {resultTab === "report" && result && (
             <ReportExport result={result} strategy={currentStrategy} />
