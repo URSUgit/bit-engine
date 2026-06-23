@@ -95,9 +95,10 @@ import { ExitAnalysis } from "./components/exit-analysis";
 import { StreakDistribution } from "./components/streak-distribution";
 import { CostSensitivity } from "./components/cost-sensitivity";
 import { PerformanceDecay } from "./components/performance-decay";
+import { DynamicSizing } from "./components/dynamic-sizing";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor" | "seasonality" | "risk_of_ruin" | "ev_explorer" | "replay" | "long_short" | "sizing_wizard" | "sharpe_contribution" | "exit_analysis" | "streak_dist" | "cost_sensitivity" | "perf_decay";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor" | "seasonality" | "risk_of_ruin" | "ev_explorer" | "replay" | "long_short" | "sizing_wizard" | "sharpe_contribution" | "exit_analysis" | "streak_dist" | "cost_sensitivity" | "perf_decay" | "dynamic_sizing";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
@@ -1340,6 +1341,7 @@ function ResultTabs({
         { value: "cost_sensitivity" as ResultTab, label: "Cost Sensitivity" },
         { value: "risk_of_ruin" as ResultTab, label: "Risk of Ruin" },
         { value: "sizing_wizard" as ResultTab, label: "Sizing Wizard" },
+        { value: "dynamic_sizing" as ResultTab, label: "Dynamic Sizing" },
       ],
     },
     {
@@ -1888,6 +1890,9 @@ function SingleResultsView({
           )}
           {resultTab === "perf_decay" && result && (
             <PerformanceDecay result={result} />
+          )}
+          {resultTab === "dynamic_sizing" && result && (
+            <DynamicSizing result={result} />
           )}
           {resultTab === "report" && result && (
             <ReportExport result={result} strategy={currentStrategy} />
