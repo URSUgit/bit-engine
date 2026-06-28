@@ -98,9 +98,10 @@ import { PerformanceDecay } from "./components/performance-decay";
 import { DynamicSizing } from "./components/dynamic-sizing";
 import { ClusterAnalysis } from "./components/cluster-analysis";
 import { CapitalEfficiency } from "./components/capital-efficiency";
+import { StopTargetOptimizer } from "./components/stop-target-optimizer";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor" | "seasonality" | "risk_of_ruin" | "ev_explorer" | "replay" | "long_short" | "sizing_wizard" | "sharpe_contribution" | "exit_analysis" | "streak_dist" | "cost_sensitivity" | "perf_decay" | "dynamic_sizing" | "cluster" | "cap_efficiency";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor" | "seasonality" | "risk_of_ruin" | "ev_explorer" | "replay" | "long_short" | "sizing_wizard" | "sharpe_contribution" | "exit_analysis" | "streak_dist" | "cost_sensitivity" | "perf_decay" | "dynamic_sizing" | "cluster" | "cap_efficiency" | "stop_target";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
@@ -1382,6 +1383,7 @@ function ResultTabs({
         { value: "multi_tf" as ResultTab, label: "Multi-Timeframe" },
         { value: "mkt_corr" as ResultTab, label: "Mkt Conditions" },
         { value: "pnl_sim" as ResultTab, label: "P&L Simulator" },
+        { value: "stop_target" as ResultTab, label: "Stop / Target" },
       ],
     },
     {
@@ -1903,6 +1905,9 @@ function SingleResultsView({
           )}
           {resultTab === "cap_efficiency" && result && (
             <CapitalEfficiency result={result} />
+          )}
+          {resultTab === "stop_target" && result && (
+            <StopTargetOptimizer result={result} />
           )}
           {resultTab === "report" && result && (
             <ReportExport result={result} strategy={currentStrategy} />
