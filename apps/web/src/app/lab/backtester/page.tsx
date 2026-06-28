@@ -96,9 +96,11 @@ import { StreakDistribution } from "./components/streak-distribution";
 import { CostSensitivity } from "./components/cost-sensitivity";
 import { PerformanceDecay } from "./components/performance-decay";
 import { DynamicSizing } from "./components/dynamic-sizing";
+import { ClusterAnalysis } from "./components/cluster-analysis";
+import { CapitalEfficiency } from "./components/capital-efficiency";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor" | "seasonality" | "risk_of_ruin" | "ev_explorer" | "replay" | "long_short" | "sizing_wizard" | "sharpe_contribution" | "exit_analysis" | "streak_dist" | "cost_sensitivity" | "perf_decay" | "dynamic_sizing";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor" | "seasonality" | "risk_of_ruin" | "ev_explorer" | "replay" | "long_short" | "sizing_wizard" | "sharpe_contribution" | "exit_analysis" | "streak_dist" | "cost_sensitivity" | "perf_decay" | "dynamic_sizing" | "cluster" | "cap_efficiency";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
@@ -1327,6 +1329,7 @@ function ResultTabs({
         { value: "long_short" as ResultTab, label: "Long vs Short" },
         { value: "exit_analysis" as ResultTab, label: "Exit Quality" },
         { value: "streak_dist" as ResultTab, label: "Streak Model" },
+        { value: "cluster" as ResultTab, label: "Cluster Analysis" },
         ...(hasMonthly ? [{ value: "journal" as ResultTab, label: "Journal" }] : []),
       ],
     },
@@ -1342,6 +1345,7 @@ function ResultTabs({
         { value: "risk_of_ruin" as ResultTab, label: "Risk of Ruin" },
         { value: "sizing_wizard" as ResultTab, label: "Sizing Wizard" },
         { value: "dynamic_sizing" as ResultTab, label: "Dynamic Sizing" },
+        { value: "cap_efficiency" as ResultTab, label: "Capital Efficiency" },
       ],
     },
     {
@@ -1893,6 +1897,12 @@ function SingleResultsView({
           )}
           {resultTab === "dynamic_sizing" && result && (
             <DynamicSizing result={result} />
+          )}
+          {resultTab === "cluster" && result && (
+            <ClusterAnalysis result={result} />
+          )}
+          {resultTab === "cap_efficiency" && result && (
+            <CapitalEfficiency result={result} />
           )}
           {resultTab === "report" && result && (
             <ReportExport result={result} strategy={currentStrategy} />
