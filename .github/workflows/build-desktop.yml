@@ -35,6 +35,7 @@ jobs:
           NEXT_TELEMETRY_DISABLED: 1
 
       - name: Install desktop dependencies
+        shell: bash
         run: |
           for i in 1 2 3; do
             npm install && exit 0
@@ -111,6 +112,7 @@ jobs:
           NEXT_TELEMETRY_DISABLED: 1
 
       - name: Install desktop dependencies
+        shell: bash
         run: |
           for i in 1 2 3; do
             npm install && exit 0
