@@ -355,10 +355,14 @@ async def get_historical(
     try:
         loader = HistoricalDataLoader()
         bars = await loader.load(symbol, start_date, end_date, interval, force_refresh=force_refresh)
+        meta = await asyncio.to_thread(bar_storage.get_meta, symbol.upper(), interval)
+        source = meta.get("source") if meta else None
         return {
             "symbol": symbol,
             "interval": interval,
             "count": len(bars),
+            "source": source,
+            "is_synthetic": source == "synthetic_gbm",
             "bars": [
                 {
                     "t": int(b.timestamp.timestamp()),
@@ -562,7 +566,7 @@ async def seed_demo(req: SeedDemoRequest):
                 _generate_gbm_bars, symbol, interval, req.days
             )
             count = await asyncio.to_thread(
-                bar_storage.upsert_bars, symbol, interval, bars
+                bar_storage.upsert_bars, symbol, interval, bars, "synthetic_gbm"
             )
             seeded.append({"symbol": symbol, "interval": interval, "bar_count": count})
             total_bars += count
@@ -572,8 +576,11 @@ async def seed_demo(req: SeedDemoRequest):
 # ── Real-data import (GitHub-hosted datasets) ──────────────────────────────────
 
 class ImportRealRequest(BaseModel):
-    # Default to the symbols Coin Metrics community data covers well.
-    symbols: list[str] = ["BTCUSDT", "ETHUSDT"]
+    # Default to the symbols Coin Metrics community data covers with deep history.
+    symbols: list[str] = [
+        "BTCUSDT", "ETHUSDT", "LTCUSDT", "BCHUSDT", "DOGEUSDT",
+        "ADAUSDT", "XRPUSDT", "LINKUSDT", "DOTUSDT", "UNIUSDT", "AAVEUSDT",
+    ]
     clear_existing: bool = True
 
 

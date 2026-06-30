@@ -85,10 +85,16 @@ class BarStorage:
                     last_fetched_at BIGINT NOT NULL,
                     earliest_ts BIGINT,
                     latest_ts   BIGINT,
+                    source   VARCHAR,
                     PRIMARY KEY (symbol, interval)
                 )
                 """
             )
+            # Migration: add `source` to pre-existing meta tables that lack it.
+            try:
+                self._con.execute("ALTER TABLE meta ADD COLUMN source VARCHAR")
+            except Exception:
+                pass  # column already exists
 
     def _maybe_migrate_sqlite(self) -> None:
         """One-time import of an existing SQLite cache into DuckDB.
@@ -163,7 +169,7 @@ class BarStorage:
     def get_meta(self, symbol: str, interval: str) -> dict | None:
         with self._lock:
             row = self._con.execute(
-                "SELECT last_fetched_at, earliest_ts, latest_ts FROM meta WHERE symbol=? AND interval=?",
+                "SELECT last_fetched_at, earliest_ts, latest_ts, source FROM meta WHERE symbol=? AND interval=?",
                 (symbol, interval),
             ).fetchone()
         if not row:
@@ -172,6 +178,7 @@ class BarStorage:
             "last_fetched_at": row[0],
             "earliest_ts": row[1],
             "latest_ts": row[2],
+            "source": row[3],
         }
 
     def list_symbols(self) -> list[dict]:
@@ -181,7 +188,7 @@ class BarStorage:
                 SELECT m.symbol, m.interval, m.earliest_ts, m.latest_ts,
                        (SELECT COUNT(*) FROM bars b
                         WHERE b.symbol=m.symbol AND b.interval=m.interval) AS bar_count,
-                       m.last_fetched_at
+                       m.last_fetched_at, m.source
                 FROM meta m
                 ORDER BY m.symbol, m.interval
                 """
@@ -194,6 +201,7 @@ class BarStorage:
                 "latest": datetime.fromtimestamp(r[3]).date().isoformat() if r[3] else None,
                 "bar_count": r[4],
                 "last_fetched_at": int(r[5]) if r[5] is not None else None,
+                "source": r[6],
             }
             for r in rows
         ]
@@ -216,7 +224,7 @@ class BarStorage:
 
     # ── writes ───────────────────────────────────────────────────────────────
 
-    def upsert_bars(self, symbol: str, interval: str, bars: list[Bar]) -> int:
+    def upsert_bars(self, symbol: str, interval: str, bars: list[Bar], source: str | None = None) -> int:
         if not bars:
             return 0
         tss = np.array([b.ts for b in bars], dtype=np.int64)
@@ -242,23 +250,26 @@ class BarStorage:
             )
             self._con.execute("INSERT INTO bars SELECT * FROM _tmp_bars")
             self._con.unregister("_tmp_bars")
-            # Update meta range.
+            # Update meta range (and provenance). Preserve an existing source
+            # when this call doesn't specify one (e.g. an incremental top-up).
             existing = self._con.execute(
-                "SELECT earliest_ts, latest_ts FROM meta WHERE symbol=? AND interval=?",
+                "SELECT earliest_ts, latest_ts, source FROM meta WHERE symbol=? AND interval=?",
                 (symbol, interval),
             ).fetchone()
             if existing and existing[0] is not None:
                 earliest = min(existing[0], new_min)
                 latest = max(existing[1], new_max)
+                resolved_source = source if source is not None else existing[2]
             else:
                 earliest, latest = new_min, new_max
+                resolved_source = source
             self._con.execute(
                 """
                 INSERT OR REPLACE INTO meta
-                    (symbol, interval, last_fetched_at, earliest_ts, latest_ts)
-                VALUES (?, ?, ?, ?, ?)
+                    (symbol, interval, last_fetched_at, earliest_ts, latest_ts, source)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (symbol, interval, now, earliest, latest),
+                (symbol, interval, now, earliest, latest, resolved_source),
             )
         return len(bars)
 

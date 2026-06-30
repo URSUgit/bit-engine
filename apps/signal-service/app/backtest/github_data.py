@@ -52,11 +52,21 @@ COINMETRICS_BASE = "https://raw.githubusercontent.com/coinmetrics/data/master/cs
 COINMETRICS_ASSETS: dict[str, str] = {
     "BTCUSDT": "btc", "BTC-USD": "btc", "BTCUSD": "btc",
     "ETHUSDT": "eth", "ETH-USD": "eth", "ETHUSD": "eth",
-    "SOLUSDT": "sol", "SOL-USD": "sol",
     "LTCUSDT": "ltc", "BCHUSDT": "bch",
     "DOGEUSDT": "doge", "ADAUSDT": "ada",
     "XRPUSDT": "xrp", "LINKUSDT": "link",
+    "DOTUSDT": "dot", "UNIUSDT": "uni", "AAVEUSDT": "aave",
+    # Mapped but thin in the community tier (only recent rows) — guarded below.
+    "SOLUSDT": "sol", "AVAXUSDT": "avax",
 }
+
+# Provenance label written to the bar cache for data from this module.
+SOURCE_LABEL = "coinmetrics"
+
+# Reject imports with too little real history so a near-empty community file
+# (e.g. SOL/AVAX, which only carry a handful of recent rows) doesn't masquerade
+# as a usable dataset.
+_MIN_PRICED_ROWS = 60
 
 # Preferred price columns, in priority order. ReferenceRateUSD is Coin Metrics'
 # flagship cleaned reference price; PriceUSD is the legacy equivalent.
@@ -141,10 +151,14 @@ def load_real_daily(symbol: str, *, interval: str = "1d") -> dict:
             f"Supported: {', '.join(supported_symbols())}"
         )
     points = fetch_coinmetrics_asset(asset)
-    if not points:
-        raise ValueError(f"Dataset for {symbol} ({asset}) contained no usable price rows.")
+    if len(points) < _MIN_PRICED_ROWS:
+        raise ValueError(
+            f"{symbol} ({asset}) has only {len(points)} priced rows in the Coin Metrics "
+            f"community dataset (need ≥{_MIN_PRICED_ROWS}). Its history isn't available on "
+            f"this free tier — use a symbol with deeper coverage."
+        )
     bars = _build_daily_bars(points)
-    written = bar_storage.upsert_bars(symbol.upper(), interval, bars)
+    written = bar_storage.upsert_bars(symbol.upper(), interval, bars, source=SOURCE_LABEL)
     return {
         "symbol": symbol.upper(),
         "asset": asset,

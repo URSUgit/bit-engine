@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { backtestApi, type BacktestResult, type Bar } from "@/lib/backtest-api";
+import { SourceBadge, describeSource } from "./data-source";
 import {
   XAxis, YAxis, CartesianGrid,
   ResponsiveContainer, Tooltip, Legend, Line, ComposedChart, Bar as RBar, Cell,
@@ -19,11 +20,12 @@ const TRADE_FIELDS = [
 ] as const;
 
 const OHLCV_FIELDS = [
+  { key: "volume", label: "Volume" },
+  { key: "abs_return", label: "|Daily Return|" },
+  { key: "close", label: "Close" },
   { key: "open", label: "Open" },
   { key: "high", label: "High" },
   { key: "low", label: "Low" },
-  { key: "close", label: "Close" },
-  { key: "volume", label: "Volume" },
 ] as const;
 
 type FieldKey =
@@ -77,6 +79,16 @@ function tradeValues(trades: BacktestResult["trades"], field: FieldKey): number[
 }
 
 function barValues(bars: Bar[], field: FieldKey): number[] {
+  if (field === "abs_return") {
+    // |relative change| between consecutive closes — the cleanest Benford
+    // candidate for a price feed (price *levels* dwell in regimes and deviate).
+    const out: number[] = [];
+    for (let i = 1; i < bars.length; i++) {
+      const prev = bars[i - 1].c;
+      if (prev) out.push(Math.abs((bars[i].c - prev) / prev));
+    }
+    return out;
+  }
   return bars.map((b) => {
     switch (field) {
       case "open": return b.o;
@@ -141,10 +153,11 @@ export function BenfordAnalysis({ result }: { result: BacktestResult }) {
   const [mode, setMode] = useState<DigitMode>("first");
   const [source, setSource] = useState<Source>("trades");
   const [tradeField, setTradeField] = useState<FieldKey>("pnl_abs");
-  const [ohlcvField, setOhlcvField] = useState<FieldKey>("close");
+  const [ohlcvField, setOhlcvField] = useState<FieldKey>("volume");
 
   // OHLCV bars (fetched on demand)
   const [bars, setBars] = useState<Bar[] | null>(null);
+  const [barsSource, setBarsSource] = useState<string | null>(null);
   const [loadingBars, setLoadingBars] = useState(false);
   const [barsError, setBarsError] = useState<string | null>(null);
 
@@ -158,6 +171,7 @@ export function BenfordAnalysis({ result }: { result: BacktestResult }) {
       .then((data) => {
         if (cancelled) return;
         setBars(data.bars ?? []);
+        setBarsSource(data.source ?? null);
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -256,9 +270,17 @@ export function BenfordAnalysis({ result }: { result: BacktestResult }) {
       {analysis && verdict && !(source === "ohlcv" && loadingBars) && (
         <>
           {source === "ohlcv" && bars && (
-            <div className="text-[11px] text-zinc-500">
-              Testing <span className="text-zinc-300 font-mono">{bars.length}</span> {result.symbol} {result.interval} bars
-              ({result.start_date} → {result.end_date}).
+            <div className="flex items-center gap-2 flex-wrap text-[11px] text-zinc-500">
+              <span>
+                Testing <span className="text-zinc-300 font-mono">{bars.length}</span> {result.symbol} {result.interval} bars
+                ({result.start_date} → {result.end_date}).
+              </span>
+              <SourceBadge source={barsSource} />
+              {describeSource(barsSource).isSynthetic && (
+                <span className="text-amber-500/80">
+                  — this is GBM demo data; Benford conformance here reflects the generator, not a real feed.
+                </span>
+              )}
             </div>
           )}
 
@@ -365,10 +387,12 @@ export function BenfordAnalysis({ result }: { result: BacktestResult }) {
       )}
 
       <div className="text-[10px] text-zinc-600 leading-relaxed">
-        Note: Benford conformance is most reliable on data spanning several orders of magnitude (prices, volume, dollar PnL).
-        Bounded or narrow-range fields (percent returns near zero, a price pinned in a tight band) naturally deviate and
-        should not be read as manipulation. Synthetic GBM price data typically shows acceptable first-digit conformance —
-        a strong OHLCV deviation here would instead point to a data-pipeline issue (capping, rounding, or a bad feed).
+        Note on price feeds: a single asset&apos;s <em>price level</em> (Open/High/Low/Close) usually <strong>fails</strong> Benford
+        even on perfectly real data — price is autocorrelated and dwells in regimes (e.g. BTC spending long stretches near
+        $6k / $16k / $60k inflates the leading digit there), so it isn&apos;t a Benford-style sample. The meaningful integrity
+        tests for a feed are <strong>Volume</strong> and <strong>|Daily Return|</strong>, which span magnitudes cleanly — real
+        BTC passes both (volume ≈ acceptable, returns ≈ close conformance). A strong deviation on <em>those</em> would point to a
+        data-pipeline issue (capping, rounding, a bad feed) or synthetic generation.
       </div>
     </div>
   );

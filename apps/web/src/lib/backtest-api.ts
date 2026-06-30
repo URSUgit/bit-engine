@@ -41,6 +41,8 @@ export type HistoricalData = {
   interval: string;
   count: number;
   bars: Bar[];
+  source?: string | null;       // provenance: "coinmetrics", "binance", "synthetic_gbm", ...
+  is_synthetic?: boolean;       // true when the series is GBM demo data, not real market data
 };
 
 export type BacktestParams = {
@@ -407,6 +409,7 @@ export type CachedSeries = {
   latest: string | null;
   bar_count: number;
   last_fetched_at: number | null;  // unix seconds
+  source: string | null;  // e.g. "coinmetrics", "binance", "synthetic_gbm"
 };
 
 export type CacheStatus = {

@@ -4,15 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { backtestApi, type CachedSeries, type CacheStatus } from "@/lib/backtest-api";
 import { isoDaysAgo } from "./shared";
 import { CorrelationHeatmap } from "./correlation-heatmap";
-
-const CRYPTO_SYMBOLS = new Set([
-  "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD", "ADA-USD",
-  "DOGE-USD", "AVAX-USD", "DOT-USD", "MATIC-USD", "LINK-USD", "LTC-USD",
-]);
-
-function inferSource(symbol: string): string {
-  return CRYPTO_SYMBOLS.has(symbol) ? "Yahoo + Binance fallback" : "Yahoo Finance";
-}
+import { SourceBadge } from "./data-source";
 
 function formatFreshness(lastFetchedAt: number | null): string {
   if (lastFetchedAt === null) return "never";
@@ -139,10 +131,8 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
     setRealResult(null);
     setError(null);
     try {
-      const r = await backtestApi.importRealData({
-        symbols: ["BTCUSDT", "ETHUSDT"],
-        clear_existing: true,
-      });
+      // No symbols → backend imports its full deep-history default set.
+      const r = await backtestApi.importRealData({ clear_existing: true });
       if (r.imported.length > 0) {
         const parts = r.imported.map((d) => `${d.symbol} (${d.bars_written.toLocaleString()} bars, ${d.earliest}→${d.latest})`);
         const errSuffix = r.errors.length > 0 ? ` · skipped: ${r.errors.map((e) => e.symbol).join(", ")}` : "";
@@ -334,8 +324,8 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
                       <td className="py-2 px-3 text-zinc-400 text-xs">
                         {formatFreshness(s.last_fetched_at)}
                       </td>
-                      <td className="py-2 px-3 text-zinc-500 text-xs">
-                        {inferSource(s.symbol)}
+                      <td className="py-2 px-3 text-xs">
+                        <SourceBadge source={s.source} />
                       </td>
                       <td className="py-2 px-3 text-right space-x-2 whitespace-nowrap">
                         <button

@@ -394,23 +394,28 @@ class HistoricalDataLoader:
                     log.info("Cache hit: %s %s — %d bars", symbol, interval, len(cached))
                     return cached
 
-        # Cache miss — fetch from network (layered fallbacks)
+        # Cache miss — fetch from network (layered fallbacks). Track which
+        # provider produced the bars so provenance is recorded in the cache.
         log.info("Fetching %s %s from %s to %s", symbol, interval, start_date.date(), end_date.date())
+        source = "yahoo"
         bars = await fetch_yahoo_bars(symbol, start_date, end_date, interval)
 
         # Fallback 2: Stooq (stocks/ETFs/indices — globally accessible, key-free)
         if not bars and _stooq_sym(symbol):
             log.info("Yahoo empty for %s, trying Stooq", symbol)
+            source = "stooq"
             bars = await fetch_stooq_bars(symbol, start_date, end_date, interval)
 
         # Fallback 3: Binance (crypto — key-free, may be geo-blocked)
         if not bars and symbol in BINANCE_SYMBOL_MAP:
             log.info("Yahoo/Stooq empty for %s, trying Binance", symbol)
+            source = "binance"
             bars = await fetch_binance_bars(symbol, start_date, end_date, interval)
 
         # Fallback 4: Kraken (crypto — key-free, globally accessible)
         if not bars and symbol in KRAKEN_CRYPTO_MAP:
             log.info("Trying Kraken for %s", symbol)
+            source = "kraken"
             bars = await fetch_kraken_bars(symbol, start_date, end_date, interval)
 
         # Fallback 5: GitHub-hosted real datasets (Coin Metrics). Daily only, but
@@ -428,8 +433,8 @@ class HistoricalDataLoader:
                     log.warning("GitHub real-data fallback failed for %s: %s", symbol, e)
 
         if bars:
-            self.storage.upsert_bars(symbol, interval, bars)
-            log.info("Cached %d bars for %s %s", len(bars), symbol, interval)
+            self.storage.upsert_bars(symbol, interval, bars, source=source)
+            log.info("Cached %d bars for %s %s (source=%s)", len(bars), symbol, interval, source)
 
         # Return filtered to requested range from cache
         return self.storage.get_bars(symbol, interval, start_ts, end_ts)
