@@ -35,7 +35,14 @@ jobs:
           NEXT_TELEMETRY_DISABLED: 1
 
       - name: Install desktop dependencies
-        run: npm install
+        run: |
+          for i in 1 2 3; do
+            npm install && exit 0
+            echo "npm install failed (attempt $i) — likely a transient Electron binary download; retrying in 15s..."
+            sleep 15
+          done
+          echo "npm install failed after 3 attempts" >&2
+          exit 1
         working-directory: apps/desktop
 
       - name: Build Windows portable .exe
@@ -104,7 +111,14 @@ jobs:
           NEXT_TELEMETRY_DISABLED: 1
 
       - name: Install desktop dependencies
-        run: npm install
+        run: |
+          for i in 1 2 3; do
+            npm install && exit 0
+            echo "npm install failed (attempt $i) — likely a transient Electron binary download; retrying in 15s..."
+            sleep 15
+          done
+          echo "npm install failed after 3 attempts" >&2
+          exit 1
         working-directory: apps/desktop
 
       - name: Build macOS app
