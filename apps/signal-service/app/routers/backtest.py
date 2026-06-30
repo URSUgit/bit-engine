@@ -569,6 +569,60 @@ async def seed_demo(req: SeedDemoRequest):
     return {"seeded": seeded, "total_bars": total_bars}
 
 
+# ── Real-data import (GitHub-hosted datasets) ──────────────────────────────────
+
+class ImportRealRequest(BaseModel):
+    # Default to the symbols Coin Metrics community data covers well.
+    symbols: list[str] = ["BTCUSDT", "ETHUSDT"]
+    clear_existing: bool = True
+
+
+@router.get("/data/real/sources")
+async def real_data_sources():
+    """List symbols importable from real GitHub-hosted datasets."""
+    from app.backtest.github_data import supported_symbols
+    return {
+        "source": "coinmetrics/data (GitHub)",
+        "granularity": "1d",
+        "note": "Real daily reference-rate prices. Reachable when exchange hosts "
+                "are blocked by egress policy. Per-second/tick requires the Binance "
+                "path in a non-restricted environment.",
+        "symbols": supported_symbols(),
+    }
+
+
+@router.post("/data/real/import")
+async def import_real_data(req: ImportRealRequest):
+    """Download real daily history from public GitHub datasets into the cache.
+
+    Uses the Coin Metrics community dataset (reputable reference-rate prices),
+    which is reachable via raw.githubusercontent.com even where exchange and
+    market-data hosts are blocked. Daily granularity only — see endpoint note.
+    """
+    from app.backtest.github_data import load_real_daily
+
+    imported = []
+    errors = []
+    total_bars = 0
+    for symbol in req.symbols:
+        try:
+            if req.clear_existing:
+                await asyncio.to_thread(bar_storage.delete_bars, symbol, "1d")
+            result = await asyncio.to_thread(load_real_daily, symbol)
+            imported.append(result)
+            total_bars += result["bars_written"]
+        except Exception as e:  # surface per-symbol failures (e.g. 403, unmapped)
+            errors.append({"symbol": symbol, "error": f"{type(e).__name__}: {e}"})
+
+    return {
+        "source": "coinmetrics/data (GitHub)",
+        "imported": imported,
+        "errors": errors,
+        "total_bars": total_bars,
+        "real": True,
+    }
+
+
 # ── Parquet export ─────────────────────────────────────────────────────────────
 
 @router.post("/export-parquet")

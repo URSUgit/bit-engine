@@ -733,6 +733,27 @@ export const backtestApi = {
       { method: "POST", body: JSON.stringify(req ?? {}) },
     ),
 
+  // ── Real data from GitHub-hosted datasets (Coin Metrics) ──────────────────
+  realDataSources: () =>
+    call<{ source: string; granularity: string; note: string; symbols: string[] }>(
+      "/api/v1/backtest/data/real/sources",
+    ),
+  importRealData: (req?: { symbols?: string[]; clear_existing?: boolean }) =>
+    call<{
+      source: string;
+      imported: {
+        symbol: string; asset: string; interval: string; source: string;
+        bars_written: number; earliest: string; latest: string; real: boolean;
+        granularity_note: string;
+      }[];
+      errors: { symbol: string; error: string }[];
+      total_bars: number;
+      real: boolean;
+    }>("/api/v1/backtest/data/real/import", {
+      method: "POST",
+      body: JSON.stringify(req ?? {}),
+    }),
+
   // ── yfinance real data ────────────────────────────────────────────────────
   fetchRealData: (req: { symbol: string; interval?: string; days?: number }) =>
     call<{

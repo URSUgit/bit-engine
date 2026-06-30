@@ -47,6 +47,8 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [seeding, setSeeding] = useState(false);
   const [seedResult, setSeedResult] = useState<string | null>(null);
+  const [importingReal, setImportingReal] = useState(false);
+  const [realResult, setRealResult] = useState<string | null>(null);
 
   // Custom symbol input state
   const [customTicker, setCustomTicker] = useState("");
@@ -129,6 +131,31 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSeeding(false);
+    }
+  }
+
+  async function handleImportReal() {
+    setImportingReal(true);
+    setRealResult(null);
+    setError(null);
+    try {
+      const r = await backtestApi.importRealData({
+        symbols: ["BTCUSDT", "ETHUSDT"],
+        clear_existing: true,
+      });
+      if (r.imported.length > 0) {
+        const parts = r.imported.map((d) => `${d.symbol} (${d.bars_written.toLocaleString()} bars, ${d.earliest}→${d.latest})`);
+        const errSuffix = r.errors.length > 0 ? ` · skipped: ${r.errors.map((e) => e.symbol).join(", ")}` : "";
+        setRealResult(`Imported real daily data from ${r.source}: ${parts.join(", ")}${errSuffix}`);
+        if (r.imported[0]) onSymbolAdded(r.imported[0].symbol);
+      } else {
+        setError(`Real-data import failed: ${r.errors.map((e) => `${e.symbol}: ${e.error}`).join("; ") || "no data returned"}`);
+      }
+      await fetchCache();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImportingReal(false);
     }
   }
 
@@ -220,11 +247,20 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
         </span>
         <div className="ml-auto flex items-center gap-3">
           <button
+            onClick={handleImportReal}
+            disabled={importingReal}
+            className="px-3 py-1 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 rounded transition disabled:opacity-50 font-medium"
+            title="Download real daily BTC/ETH history (Coin Metrics, via GitHub)"
+          >
+            {importingReal ? "Importing…" : "Import Real Data"}
+          </button>
+          <button
             onClick={handleSeedDemo}
             disabled={seeding}
             className="px-3 py-1 text-xs bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 rounded transition disabled:opacity-50"
+            title="Generate synthetic GBM bars for demo/testing"
           >
-            {seeding ? "Seeding…" : "Seed Demo Data"}
+            {seeding ? "Seeding…" : "Seed Demo (synthetic)"}
           </button>
           <button
             onClick={fetchCache}
@@ -234,9 +270,14 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
           </button>
         </div>
       </div>
-      {seedResult && (
+      {realResult && (
         <div className="text-xs text-emerald-400 bg-emerald-950/30 border border-emerald-900 p-2 rounded">
-          ✓ {seedResult}
+          ✓ {realResult}
+        </div>
+      )}
+      {seedResult && (
+        <div className="text-xs text-cyan-400 bg-cyan-950/30 border border-cyan-900 p-2 rounded">
+          ✓ {seedResult} <span className="text-cyan-600">(synthetic GBM — not real market data)</span>
         </div>
       )}
 

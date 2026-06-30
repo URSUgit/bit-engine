@@ -413,6 +413,20 @@ class HistoricalDataLoader:
             log.info("Trying Kraken for %s", symbol)
             bars = await fetch_kraken_bars(symbol, start_date, end_date, interval)
 
+        # Fallback 5: GitHub-hosted real datasets (Coin Metrics). Daily only, but
+        # reachable via raw.githubusercontent.com when exchange/market hosts are
+        # blocked by an egress policy (the only real-data path in such sandboxes).
+        if not bars and interval == "1d":
+            from .github_data import COINMETRICS_ASSETS, load_real_daily
+            if symbol.upper() in COINMETRICS_ASSETS:
+                try:
+                    log.info("Trying GitHub real-data (Coin Metrics) for %s", symbol)
+                    await asyncio.to_thread(load_real_daily, symbol, interval=interval)
+                    # load_real_daily upserts directly; serve from cache below.
+                    return self.storage.get_bars(symbol, interval, start_ts, end_ts)
+                except Exception as e:
+                    log.warning("GitHub real-data fallback failed for %s: %s", symbol, e)
+
         if bars:
             self.storage.upsert_bars(symbol, interval, bars)
             log.info("Cached %d bars for %s %s", len(bars), symbol, interval)
