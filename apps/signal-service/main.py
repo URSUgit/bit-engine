@@ -99,18 +99,27 @@ async def lifespan(app: FastAPI):
             rows = bar_storage.list_symbols()
             demo_symbols = {"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"}
             cached_syms = {r["symbol"] for r in rows}
-            if not demo_symbols.issubset(cached_syms):
-                log.info("startup: no demo data found — auto-seeding 730 days of GBM bars")
+            # Never clobber real data: a symbol that already has bars from any
+            # genuine source is protected, and a symbol already present at all is
+            # left alone. We only seed GBM for symbols entirely absent from cache.
+            real_sources = {"coinmetrics", "binance", "yahoo", "stooq", "kraken"}
+            protected = {r["symbol"] for r in rows if r.get("source") in real_sources}
+            to_seed = [s for s in demo_symbols if s not in cached_syms and s not in protected]
+            if to_seed:
+                log.info("startup: auto-seeding GBM bars for absent symbols: %s", ", ".join(sorted(to_seed)))
                 from app.routers.backtest import _generate_gbm_bars
                 import asyncio as _aio
                 seeded_bars = 0
-                for sym in demo_symbols:
+                for sym in to_seed:
                     for itvl in ("1d", "4h", "1h"):
                         bars = await _aio.to_thread(_generate_gbm_bars, sym, itvl, 730)
-                        bar_storage.delete_bars(sym)
-                        count = await _aio.to_thread(bar_storage.upsert_bars, sym, itvl, bars)
+                        count = await _aio.to_thread(
+                            bar_storage.upsert_bars, sym, itvl, bars, "synthetic_gbm"
+                        )
                         seeded_bars += count
                 log.info("startup: auto-seeded %d GBM bars", seeded_bars)
+            else:
+                log.info("startup: cache already populated — no GBM auto-seed needed")
         except Exception as exc:
             log.warning("startup auto-seed failed (non-fatal): %s", exc)
 

@@ -41,6 +41,11 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
   const [seedResult, setSeedResult] = useState<string | null>(null);
   const [importingReal, setImportingReal] = useState(false);
   const [realResult, setRealResult] = useState<string | null>(null);
+  // Configurable real-data import: which symbols to pull from the GitHub source.
+  const [realSymbols, setRealSymbols] = useState<string[]>([]);
+  const [selectedReal, setSelectedReal] = useState<Set<string>>(new Set());
+  const [realPickerOpen, setRealPickerOpen] = useState(false);
+  const [realSourceNote, setRealSourceNote] = useState<string | null>(null);
 
   // Custom symbol input state
   const [customTicker, setCustomTicker] = useState("");
@@ -74,6 +79,30 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
   useEffect(() => {
     fetchCache();
   }, [fetchCache]);
+
+  // Load the list of symbols importable from the real GitHub dataset.
+  useEffect(() => {
+    let cancelled = false;
+    backtestApi.realDataSources()
+      .then((r) => {
+        if (cancelled) return;
+        // Keep canonical *USDT pairs only (drop -USD/USD aliases) for a clean picker.
+        const syms = r.symbols.filter((s) => s.endsWith("USDT")).sort();
+        setRealSymbols(syms);
+        setSelectedReal(new Set(syms));  // default: all selected
+        setRealSourceNote(r.note);
+      })
+      .catch(() => { /* endpoint optional; button still works with backend default */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  function toggleRealSymbol(sym: string) {
+    setSelectedReal((prev) => {
+      const next = new Set(prev);
+      if (next.has(sym)) next.delete(sym); else next.add(sym);
+      return next;
+    });
+  }
 
   async function handleRefresh(series: CachedSeries) {
     const key = `${series.symbol}-${series.interval}-refresh`;
@@ -131,8 +160,12 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
     setRealResult(null);
     setError(null);
     try {
-      // No symbols → backend imports its full deep-history default set.
-      const r = await backtestApi.importRealData({ clear_existing: true });
+      // Send the user's selection; empty → backend imports its full default set.
+      const chosen = Array.from(selectedReal);
+      const r = await backtestApi.importRealData({
+        symbols: chosen.length > 0 ? chosen : undefined,
+        clear_existing: true,
+      });
       if (r.imported.length > 0) {
         const parts = r.imported.map((d) => `${d.symbol} (${d.bars_written.toLocaleString()} bars, ${d.earliest}→${d.latest})`);
         const errSuffix = r.errors.length > 0 ? ` · skipped: ${r.errors.map((e) => e.symbol).join(", ")}` : "";
@@ -236,14 +269,27 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
           Refreshed: {formatLastRefresh(series)}
         </span>
         <div className="ml-auto flex items-center gap-3">
-          <button
-            onClick={handleImportReal}
-            disabled={importingReal}
-            className="px-3 py-1 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 rounded transition disabled:opacity-50 font-medium"
-            title="Download real daily BTC/ETH history (Coin Metrics, via GitHub)"
-          >
-            {importingReal ? "Importing…" : "Import Real Data"}
-          </button>
+          <div className="flex items-center rounded border border-emerald-500/40 overflow-hidden">
+            <button
+              onClick={handleImportReal}
+              disabled={importingReal || selectedReal.size === 0}
+              className="px-3 py-1 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 transition disabled:opacity-50 font-medium"
+              title="Download real daily history (Coin Metrics, via GitHub) for the selected coins"
+            >
+              {importingReal
+                ? "Importing…"
+                : `Import Real Data${realSymbols.length > 0 ? ` (${selectedReal.size})` : ""}`}
+            </button>
+            {realSymbols.length > 0 && (
+              <button
+                onClick={() => setRealPickerOpen((v) => !v)}
+                className="px-2 py-1 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-l border-emerald-500/40 transition"
+                title="Choose which coins to import"
+              >
+                {realPickerOpen ? "▴" : "▾"}
+              </button>
+            )}
+          </div>
           <button
             onClick={handleSeedDemo}
             disabled={seeding}
@@ -260,6 +306,39 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
           </button>
         </div>
       </div>
+
+      {/* Real-data coin picker */}
+      {realPickerOpen && realSymbols.length > 0 && (
+        <div className="bg-zinc-900/50 border border-emerald-900/40 rounded-lg p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-emerald-300 font-medium">Coins to import (real daily data)</span>
+            <div className="flex gap-2 text-[11px]">
+              <button onClick={() => setSelectedReal(new Set(realSymbols))} className="text-emerald-400 hover:text-emerald-300">All</button>
+              <span className="text-zinc-600">·</span>
+              <button onClick={() => setSelectedReal(new Set())} className="text-zinc-500 hover:text-zinc-300">None</button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {realSymbols.map((sym) => {
+              const on = selectedReal.has(sym);
+              return (
+                <button
+                  key={sym}
+                  onClick={() => toggleRealSymbol(sym)}
+                  className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                    on
+                      ? "bg-emerald-500/15 border-emerald-500/50 text-emerald-300"
+                      : "bg-zinc-900 border-zinc-700 text-zinc-500 hover:border-zinc-500"
+                  }`}
+                >
+                  {on ? "✓ " : ""}{sym.replace("USDT", "")}
+                </button>
+              );
+            })}
+          </div>
+          {realSourceNote && <p className="text-[10px] text-zinc-600 leading-relaxed">{realSourceNote}</p>}
+        </div>
+      )}
       {realResult && (
         <div className="text-xs text-emerald-400 bg-emerald-950/30 border border-emerald-900 p-2 rounded">
           ✓ {realResult}
