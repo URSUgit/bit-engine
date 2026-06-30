@@ -99,9 +99,10 @@ import { DynamicSizing } from "./components/dynamic-sizing";
 import { ClusterAnalysis } from "./components/cluster-analysis";
 import { CapitalEfficiency } from "./components/capital-efficiency";
 import { StopTargetOptimizer } from "./components/stop-target-optimizer";
+import { BenfordAnalysis } from "./components/benford-analysis";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
-type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor" | "seasonality" | "risk_of_ruin" | "ev_explorer" | "replay" | "long_short" | "sizing_wizard" | "sharpe_contribution" | "exit_analysis" | "streak_dist" | "cost_sensitivity" | "perf_decay" | "dynamic_sizing" | "cluster" | "cap_efficiency" | "stop_target";
+type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor" | "seasonality" | "risk_of_ruin" | "ev_explorer" | "replay" | "long_short" | "sizing_wizard" | "sharpe_contribution" | "exit_analysis" | "streak_dist" | "cost_sensitivity" | "perf_decay" | "dynamic_sizing" | "cluster" | "cap_efficiency" | "stop_target" | "benford";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
@@ -1331,6 +1332,7 @@ function ResultTabs({
         { value: "exit_analysis" as ResultTab, label: "Exit Quality" },
         { value: "streak_dist" as ResultTab, label: "Streak Model" },
         { value: "cluster" as ResultTab, label: "Cluster Analysis" },
+        { value: "benford" as ResultTab, label: "Benford's Law" },
         ...(hasMonthly ? [{ value: "journal" as ResultTab, label: "Journal" }] : []),
       ],
     },
@@ -1908,6 +1910,9 @@ function SingleResultsView({
           )}
           {resultTab === "stop_target" && result && (
             <StopTargetOptimizer result={result} />
+          )}
+          {resultTab === "benford" && result && (
+            <BenfordAnalysis result={result} />
           )}
           {resultTab === "report" && result && (
             <ReportExport result={result} strategy={currentStrategy} />
