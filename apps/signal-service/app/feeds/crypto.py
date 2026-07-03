@@ -100,7 +100,8 @@ async def fetch_coingecko_hourly_closes(coin_id: str, hours: int = 20) -> list[f
 async def fetch_binance_tickers(symbols: list[str]) -> list[dict]:
     """Fallback: fetch tickers from Binance (no key needed)."""
     import json
-    params = {"symbols": json.dumps(symbols)}
+    # Binance rejects whitespace inside the symbols array — compact separators.
+    params = {"symbols": json.dumps(symbols, separators=(",", ":"))}
     async with httpx.AsyncClient(timeout=10) as client:
         try:
             r = await client.get(

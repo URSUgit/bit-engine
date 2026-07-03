@@ -1079,27 +1079,36 @@ async def data_quality(
 
 @router.get("/data/quality/overview")
 async def data_quality_overview():
-    """Quality score for every cached (symbol, interval) in the warehouse."""
+    """Quality score for every cached (symbol, interval) in the warehouse.
+
+    Assessment scans full bar history per dataset (10s+ for a warm cache), so
+    the whole sweep runs in a worker thread to keep the event loop responsive.
+    """
     from app.backtest.quality import assess
-    rows = []
-    for entry in bar_storage.list_symbols():
-        try:
-            rep = assess(entry["symbol"], entry["interval"])
-            rows.append({
-                "symbol": rep.symbol,
-                "interval": rep.interval,
-                "bar_count": rep.bar_count,
-                "completeness_pct": rep.completeness_pct,
-                "quality_score": rep.quality_score,
-                "gap_count": rep.gap_count,
-                "spike_count": rep.spike_count,
-                "ohlc_violation_count": rep.ohlc_violation_count,
-                "earliest_iso": rep.earliest_iso,
-                "latest_iso": rep.latest_iso,
-            })
-        except Exception as e:
-            log.warning("quality overview failed for %s/%s: %s", entry["symbol"], entry["interval"], e)
-    rows.sort(key=lambda r: r["quality_score"])
+
+    def _sweep() -> list[dict]:
+        rows = []
+        for entry in bar_storage.list_symbols():
+            try:
+                rep = assess(entry["symbol"], entry["interval"])
+                rows.append({
+                    "symbol": rep.symbol,
+                    "interval": rep.interval,
+                    "bar_count": rep.bar_count,
+                    "completeness_pct": rep.completeness_pct,
+                    "quality_score": rep.quality_score,
+                    "gap_count": rep.gap_count,
+                    "spike_count": rep.spike_count,
+                    "ohlc_violation_count": rep.ohlc_violation_count,
+                    "earliest_iso": rep.earliest_iso,
+                    "latest_iso": rep.latest_iso,
+                })
+            except Exception as e:
+                log.warning("quality overview failed for %s/%s: %s", entry["symbol"], entry["interval"], e)
+        rows.sort(key=lambda r: r["quality_score"])
+        return rows
+
+    rows = await asyncio.to_thread(_sweep)
     return {"count": len(rows), "datasets": rows}
 
 
@@ -1811,8 +1820,7 @@ async def walk_forward(request: Request, req: WalkForwardRequest):
             n_splits=req.n_splits,
             train_pct=req.train_pct,
             anchored=req.anchored,
-            symbol=req.symbol,
-            interval=req.interval,
+            run_kwargs={"symbol": req.symbol, "interval": req.interval},
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

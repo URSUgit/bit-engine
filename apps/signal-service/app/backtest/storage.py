@@ -248,7 +248,9 @@ class BarStorage:
                 "DELETE FROM bars WHERE symbol=? AND interval=? AND ts IN (SELECT ts FROM _tmp_bars)",
                 (symbol, interval),
             )
-            self._con.execute("INSERT INTO bars SELECT * FROM _tmp_bars")
+            # OR REPLACE tolerates duplicate ts within the batch and rows
+            # written by a concurrent process between our DELETE and INSERT.
+            self._con.execute("INSERT OR REPLACE INTO bars SELECT * FROM _tmp_bars")
             self._con.unregister("_tmp_bars")
             # Update meta range (and provenance). Preserve an existing source
             # when this call doesn't specify one (e.g. an incremental top-up).

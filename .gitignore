@@ -44,6 +44,7 @@ apps/signal-service/*.egg-info/
 .env.test.local
 .env.production.local
 .env.*.local
+.env*.env
 
 # ─── IDE / OS ────────────────────────────────────────────────────────────────
 .vscode/
