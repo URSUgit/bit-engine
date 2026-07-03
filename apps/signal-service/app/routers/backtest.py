@@ -551,17 +551,33 @@ def _generate_gbm_bars(symbol: str, interval: str, days: int) -> list:
 async def seed_demo(req: SeedDemoRequest):
     """Seed the DuckDB bar cache with synthetic GBM data for demo/testing.
 
-    By default clears *all* existing bars for the requested symbols first so
-    stale data from previous sessions never pollutes the new seed.
+    Real-source series are never touched: seeding skips any (symbol, interval)
+    whose cached provenance is a real provider, and `clear_existing` only
+    clears synthetic/unknown series. Demo data must never replace real data.
     """
+    def _real_series() -> set[tuple[str, str]]:
+        return {
+            (r["symbol"], r["interval"])
+            for r in bar_storage.list_symbols()
+            if r.get("source") and r["source"] != "synthetic_gbm"
+        }
+
+    real = await asyncio.to_thread(_real_series)
+
     if req.clear_existing:
         for symbol in req.symbols:
-            await asyncio.to_thread(bar_storage.delete_bars, symbol)
+            for interval in req.intervals:
+                if (symbol, interval) not in real:
+                    await asyncio.to_thread(bar_storage.delete_bars, symbol, interval)
 
     seeded = []
+    skipped = []
     total_bars = 0
     for symbol in req.symbols:
         for interval in req.intervals:
+            if (symbol, interval) in real:
+                skipped.append({"symbol": symbol, "interval": interval, "reason": "real data present"})
+                continue
             bars = await asyncio.to_thread(
                 _generate_gbm_bars, symbol, interval, req.days
             )
@@ -570,7 +586,7 @@ async def seed_demo(req: SeedDemoRequest):
             )
             seeded.append({"symbol": symbol, "interval": interval, "bar_count": count})
             total_bars += count
-    return {"seeded": seeded, "total_bars": total_bars}
+    return {"seeded": seeded, "skipped": skipped, "total_bars": total_bars}
 
 
 # ── Real-data import (GitHub-hosted datasets) ──────────────────────────────────

@@ -100,6 +100,7 @@ import { ClusterAnalysis } from "./components/cluster-analysis";
 import { CapitalEfficiency } from "./components/capital-efficiency";
 import { StopTargetOptimizer } from "./components/stop-target-optimizer";
 import { BenfordAnalysis } from "./components/benford-analysis";
+import { TabPalette } from "./components/tab-palette";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
 type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor" | "seasonality" | "risk_of_ruin" | "ev_explorer" | "replay" | "long_short" | "sizing_wizard" | "sharpe_contribution" | "exit_analysis" | "streak_dist" | "cost_sensitivity" | "perf_decay" | "dynamic_sizing" | "cluster" | "cap_efficiency" | "stop_target" | "benford";
@@ -1404,7 +1405,7 @@ function ResultTabs({
   return (
     <div className="space-y-1">
       {/* Group bar */}
-      <div className="flex gap-0.5 flex-wrap">
+      <div className="flex gap-0.5 flex-wrap items-center">
         {groups.map((g) => {
           const isActive = g.label === activeGroup;
           return (
@@ -1424,6 +1425,9 @@ function ResultTabs({
             </button>
           );
         })}
+        <div className="ml-auto">
+          <TabPalette groups={groups} onSelect={onChange} />
+        </div>
       </div>
       {/* Sub-tab bar */}
       <div className="flex gap-0.5 bg-zinc-800/60 border border-zinc-700 rounded-b-lg rounded-tr-lg p-1 flex-wrap">

@@ -162,26 +162,28 @@ export function BenfordAnalysis({ result }: { result: BacktestResult }) {
   const [barsError, setBarsError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (source !== "ohlcv" || bars !== null || loadingBars) return;
-    let cancelled = false;
+    if (source !== "ohlcv") return;
+    // `stale` only guards against out-of-order responses from superseded
+    // effect runs — every state write happens in the latest run, so a
+    // StrictMode double-invoke can never wedge the loading flag.
+    let stale = false;
     setLoadingBars(true);
     setBarsError(null);
     backtestApi
       .data(result.symbol, result.start_date, result.end_date, result.interval)
       .then((data) => {
-        if (cancelled) return;
+        if (stale) return;
         setBars(data.bars ?? []);
         setBarsSource(data.source ?? null);
       })
       .catch((e: unknown) => {
-        if (cancelled) return;
-        setBarsError(e instanceof Error ? e.message : "Failed to load price data");
+        if (!stale) setBarsError(e instanceof Error ? e.message : "Failed to load price data");
       })
       .finally(() => {
-        if (!cancelled) setLoadingBars(false);
+        if (!stale) setLoadingBars(false);
       });
-    return () => { cancelled = true; };
-  }, [source, bars, loadingBars, result.symbol, result.start_date, result.end_date, result.interval]);
+    return () => { stale = true; };
+  }, [source, result.symbol, result.start_date, result.end_date, result.interval]);
 
   const field = source === "trades" ? tradeField : ohlcvField;
   const fields = source === "trades" ? TRADE_FIELDS : OHLCV_FIELDS;

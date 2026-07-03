@@ -91,35 +91,68 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         log.warning("live ingester failed to start: %s", exc)
 
-    # Auto-seed demo GBM data if the bar cache is empty. This ensures the
-    # backtester works immediately on first launch without any manual steps.
+    # Auto-populate the bar cache so the backtester works on first launch.
+    # Real data first (Coin Metrics daily history via GitHub); synthetic GBM is
+    # only a *gap filler* for series real data can't cover (intraday intervals,
+    # unmapped symbols) and never overwrites an existing real series.
     async def _auto_seed():
         try:
+            import asyncio as _aio
             from app.backtest.storage import bar_storage
-            rows = bar_storage.list_symbols()
-            demo_symbols = {"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"}
-            cached_syms = {r["symbol"] for r in rows}
-            # Never clobber real data: a symbol that already has bars from any
-            # genuine source is protected, and a symbol already present at all is
-            # left alone. We only seed GBM for symbols entirely absent from cache.
-            real_sources = {"coinmetrics", "binance", "yahoo", "stooq", "kraken"}
-            protected = {r["symbol"] for r in rows if r.get("source") in real_sources}
-            to_seed = [s for s in demo_symbols if s not in cached_syms and s not in protected]
-            if to_seed:
-                log.info("startup: auto-seeding GBM bars for absent symbols: %s", ", ".join(sorted(to_seed)))
-                from app.routers.backtest import _generate_gbm_bars
-                import asyncio as _aio
-                seeded_bars = 0
-                for sym in to_seed:
-                    for itvl in ("1d", "4h", "1h"):
-                        bars = await _aio.to_thread(_generate_gbm_bars, sym, itvl, 730)
-                        count = await _aio.to_thread(
-                            bar_storage.upsert_bars, sym, itvl, bars, "synthetic_gbm"
+            from app.backtest.github_data import COINMETRICS_ASSETS, load_real_daily
+
+            def _index():
+                return {(r["symbol"], r["interval"]): r for r in bar_storage.list_symbols()}
+
+            # Legacy cleanup: intraday series cached before provenance tracking
+            # can only have come from the GBM seeder (no real intraday source
+            # exists in restricted environments) — tag them so the UI is honest.
+            def _retag_legacy():
+                with bar_storage._conn() as con:
+                    con.execute(
+                        "UPDATE meta SET source='synthetic_gbm' "
+                        "WHERE source IS NULL AND interval != '1d'"
+                    )
+            await _aio.to_thread(_retag_legacy)
+
+            have = _index()
+
+            def _is_real(sym: str, itvl: str) -> bool:
+                row = have.get((sym, itvl))
+                src = row.get("source") if row else None
+                return bool(row) and src is not None and src != "synthetic_gbm"
+
+            demo_symbols = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT")
+
+            # 1) Real daily history for the primary demo assets. Heals missing
+            #    series and replaces any synthetic 1d series with real data.
+            for sym in ("BTCUSDT", "ETHUSDT"):
+                if sym in COINMETRICS_ASSETS and not _is_real(sym, "1d"):
+                    try:
+                        result = await _aio.to_thread(load_real_daily, sym)
+                        log.info(
+                            "startup: imported %d REAL daily bars for %s (%s)",
+                            result["bars_written"], sym, result["source"],
                         )
-                        seeded_bars += count
-                log.info("startup: auto-seeded %d GBM bars", seeded_bars)
-            else:
-                log.info("startup: cache already populated — no GBM auto-seed needed")
+                    except Exception as exc:
+                        log.warning("startup real-data import failed for %s: %s", sym, exc)
+            have = _index()
+
+            # 2) GBM gap filler — only for (symbol, interval) pairs that are
+            #    still missing, tagged as synthetic, never deleting anything.
+            from app.routers.backtest import _generate_gbm_bars
+            seeded_bars = 0
+            for sym in demo_symbols:
+                for itvl in ("1d", "4h", "1h"):
+                    if (sym, itvl) in have:
+                        continue
+                    bars = await _aio.to_thread(_generate_gbm_bars, sym, itvl, 730)
+                    count = await _aio.to_thread(
+                        bar_storage.upsert_bars, sym, itvl, bars, "synthetic_gbm"
+                    )
+                    seeded_bars += count
+            if seeded_bars:
+                log.info("startup: gap-filled %d synthetic GBM bars (tagged synthetic_gbm)", seeded_bars)
         except Exception as exc:
             log.warning("startup auto-seed failed (non-fatal): %s", exc)
 
