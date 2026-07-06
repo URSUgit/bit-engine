@@ -123,6 +123,20 @@ def test_annualization_factor_covers_intraday_intervals():
     assert crypto_factors == sorted(crypto_factors, reverse=True)
 
 
+def test_asset_class_recognizes_native_binance_symbols():
+    """Regression: _asset_class only checked the Yahoo-keyed catalog, so
+    BTCUSDT fell through to 'stock' — wrong annualization and, worse,
+    funding rates were never applied for native Binance pairs."""
+    from app.backtest.engine import _asset_class
+
+    assert _asset_class("BTC-USD") == "crypto"   # catalog path
+    assert _asset_class("BTCUSDT") == "crypto"   # native Binance path
+    assert _asset_class("SOLUSDC") == "crypto"
+    assert _asset_class("AAPL") == "stock"
+    assert _asset_class("EURUSD=X") == "forex"
+    assert _asset_class("GC=F") == "commodity"
+
+
 def test_binance_symbol_resolver():
     """Regression: native Binance symbols (BTCUSDT) never matched the
     Yahoo-keyed map, so the Binance data fallback silently skipped them and

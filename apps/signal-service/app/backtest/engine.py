@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from .data import HistoricalDataLoader, SYMBOL_CATALOG
+from .data import HistoricalDataLoader, SYMBOL_CATALOG, binance_symbol
 from .history import backtest_history
 from .metrics import build_equity_curve, compute_metrics
 from .models import (
@@ -64,6 +64,11 @@ def _asset_class(symbol: str) -> str:
                 return "forex"
             if cat == "commodities":
                 return "commodity"
+    # Native Binance pairs (BTCUSDT) aren't in the Yahoo-keyed catalog but
+    # are still crypto — otherwise they'd get stock annualization and,
+    # worse, never accrue funding rates.
+    if binance_symbol(symbol):
+        return "crypto"
     return "stock"
 
 
