@@ -55,6 +55,7 @@ def run_walk_forward(
     If anchored=False, rolling window of fixed size.
     """
     from .strategies import STRATEGIES
+    from .engine import _asset_class
     from .metrics import compute_metrics
 
     if run_kwargs is None:
@@ -85,6 +86,7 @@ def run_walk_forward(
 
     interval = run_kwargs.get("interval", "1d")
     symbol = run_kwargs.get("symbol", "")
+    asset_cls = _asset_class(symbol)
 
     folds: list[WalkForwardFold] = []
 
@@ -141,6 +143,7 @@ def run_walk_forward(
                 equity=in_equity,
                 trades=in_trades,
                 interval=interval,
+                asset_class=asset_cls,
             )
         except Exception:
             in_metrics = None
@@ -161,6 +164,7 @@ def run_walk_forward(
                 equity=out_equity,
                 trades=out_trades,
                 interval=interval,
+                asset_class=asset_cls,
             )
         except Exception:
             out_metrics = None

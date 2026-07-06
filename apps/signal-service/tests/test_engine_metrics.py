@@ -94,6 +94,35 @@ def test_compute_metrics_empty_inputs_safe():
     assert m.final_equity == 10_000
 
 
+def test_annualization_factor_covers_intraday_intervals():
+    """Regression: only 1d/1h/1wk were mapped, so every other supported
+    interval (1m–12h, 3d, 1mo) fell back to 252 — a 1m crypto backtest
+    annualized Sharpe with √252 instead of √525600 (~45x understated)."""
+    from app.backtest.metrics import _annualization_factor as ann
+
+    # Crypto trades 24/7: 365 days of bars per year.
+    assert ann("1m", "crypto") == pytest.approx(525_600)
+    assert ann("15m", "crypto") == pytest.approx(35_040)
+    assert ann("4h", "crypto") == pytest.approx(2_190)
+    assert ann("1d", "crypto") == pytest.approx(365)
+    assert ann("3d", "crypto") == pytest.approx(365 / 3)
+
+    # Stocks: 252 sessions of 6.5 hours.
+    assert ann("1d", "stock") == pytest.approx(252)
+    assert ann("1h", "stock") == pytest.approx(252 * 6.5)
+    assert ann("15m", "stock") == pytest.approx(252 * 26)
+    assert ann("1wk", "stock") == pytest.approx(52.2, rel=0.01)
+    assert ann("1mo", "stock") == pytest.approx(12.0, rel=0.01)
+
+    # Unknown intervals degrade to daily, never to a wild intraday scale.
+    assert ann("weird", "stock") == pytest.approx(252)
+    assert ann("weird", "crypto") == pytest.approx(365)
+
+    # Factor must shrink monotonically as bars get coarser.
+    crypto_factors = [ann(i, "crypto") for i in ("1m", "5m", "1h", "4h", "1d", "1wk")]
+    assert crypto_factors == sorted(crypto_factors, reverse=True)
+
+
 def test_binance_symbol_resolver():
     """Regression: native Binance symbols (BTCUSDT) never matched the
     Yahoo-keyed map, so the Binance data fallback silently skipped them and
