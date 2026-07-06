@@ -1,3 +1,8 @@
+# ─── SQLite dev database (local only; swap for Postgres in production) ────────
+apps/web/prisma/dev.db
+apps/web/prisma/dev.db-journal
+apps/web/prisma/*.db
+
 # ─── Node / pnpm ─────────────────────────────────────────────────────────────
 node_modules/
 .pnpm-store/
@@ -39,6 +44,7 @@ apps/signal-service/*.egg-info/
 .env.test.local
 .env.production.local
 .env.*.local
+.env*.env
 
 # ─── IDE / OS ────────────────────────────────────────────────────────────────
 .vscode/
@@ -68,3 +74,4 @@ infra/data/
 # ─── Misc ────────────────────────────────────────────────────────────────────
 *.tsbuildinfo
 .eslintcache
+.claude/

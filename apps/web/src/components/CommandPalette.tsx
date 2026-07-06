@@ -15,9 +15,25 @@ import {
   Settings,
   Trophy,
   ArrowRight,
+  Zap,
+  Layers,
+  BookOpen,
+  Sparkles,
+  Target,
+  Newspaper,
+  History,
   type LucideIcon,
 } from "lucide-react";
-import { mockTraders, mockAssets } from "@/lib/mock-data";
+const CRYPTO_MARKETS = [
+  { symbol: "BTC", name: "Bitcoin" }, { symbol: "ETH", name: "Ethereum" },
+  { symbol: "SOL", name: "Solana" }, { symbol: "BNB", name: "BNB" },
+  { symbol: "XRP", name: "XRP" }, { symbol: "ADA", name: "Cardano" },
+  { symbol: "DOGE", name: "Dogecoin" }, { symbol: "AVAX", name: "Avalanche" },
+  { symbol: "MATIC", name: "Polygon" }, { symbol: "DOT", name: "Polkadot" },
+  { symbol: "LINK", name: "Chainlink" }, { symbol: "LTC", name: "Litecoin" },
+  { symbol: "ATOM", name: "Cosmos" }, { symbol: "UNI", name: "Uniswap" },
+  { symbol: "ARB", name: "Arbitrum" }, { symbol: "OP", name: "Optimism" },
+];
 import { cn } from "@/lib/utils";
 
 interface NavCommand {
@@ -48,17 +64,28 @@ interface MarketCommand {
 type Command = NavCommand | TraderCommand | MarketCommand;
 
 const navCommands: NavCommand[] = [
-  { type: "nav", label: "Dashboard",        description: "Portfolio overview",        href: "/dashboard",                       icon: LayoutDashboard, shortcut: "G D" },
-  { type: "nav", label: "Positions",        description: "All open positions",        href: "/dashboard/positions",             icon: TrendingUp,      shortcut: "G P" },
-  { type: "nav", label: "Markets",          description: "Browse all markets",        href: "/dashboard/markets",               icon: Globe,           shortcut: "G M" },
-  { type: "nav", label: "Copy Trading",     description: "Manage copied traders",     href: "/dashboard/copy",                  icon: Users,           shortcut: "G C" },
-  { type: "nav", label: "Live Signals",     description: "AI + on-chain feed",        href: "/dashboard/signals",               icon: Activity,        shortcut: "G S" },
-  { type: "nav", label: "Leaderboard",      description: "Top traders this week",     href: "/dashboard/leaderboard",           icon: Trophy,          shortcut: "G L" },
-  { type: "nav", label: "Strategy Lab",     description: "Build & backtest",          href: "/lab",                             icon: FlaskConical,    shortcut: "G B" },
-  { type: "nav", label: "History",          description: "Closed trade log",          href: "/dashboard/history",               icon: TrendingUp },
-  { type: "nav", label: "Portfolios",       description: "Strategy books",            href: "/dashboard/portfolios",            icon: Wallet },
-  { type: "nav", label: "Watchlists",       description: "Saved asset lists",         href: "/dashboard/watchlists",            icon: Star },
-  { type: "nav", label: "Settings",         description: "Profile, API keys, billing", href: "/dashboard/settings/profile",     icon: Settings },
+  // ── Operate ──────────────────────────────────────────────────────────
+  { type: "nav", label: "Dashboard",        description: "Portfolio overview & equity curve",  href: "/dashboard",                    icon: LayoutDashboard, shortcut: "G D" },
+  { type: "nav", label: "Positions",        description: "Open & paper-trade positions",       href: "/dashboard/positions",          icon: TrendingUp,      shortcut: "G P" },
+  { type: "nav", label: "Markets",          description: "Browse all markets",                 href: "/dashboard/markets",            icon: Globe,           shortcut: "G M" },
+  { type: "nav", label: "Copy Trading",     description: "Manage copied traders",              href: "/dashboard/copy",               icon: Users,           shortcut: "G C" },
+  { type: "nav", label: "Live Signals",     description: "AI + on-chain signal feed",          href: "/dashboard/signals",            icon: Activity,        shortcut: "G S" },
+  { type: "nav", label: "News",             description: "Real-time crypto news + sentiment",  href: "/dashboard/news",               icon: Newspaper,       shortcut: "G N" },
+  { type: "nav", label: "Watchlists",       description: "Saved asset lists",                  href: "/dashboard/watchlists",         icon: Star,            shortcut: "G W" },
+  { type: "nav", label: "Portfolios",       description: "Strategy books",                     href: "/dashboard/portfolios",         icon: Wallet },
+  { type: "nav", label: "History",          description: "Closed paper-trade log",             href: "/dashboard/history",            icon: History },
+  { type: "nav", label: "Leaderboard",      description: "Top traders this week",              href: "/dashboard/leaderboard",        icon: Trophy,          shortcut: "G L" },
+  // ── Build / Lab ───────────────────────────────────────────────────────
+  { type: "nav", label: "Strategy Lab",     description: "Lab overview",                       href: "/lab",                          icon: FlaskConical,    shortcut: "G B" },
+  { type: "nav", label: "Backtester",       description: "Backtest strategies on history",     href: "/lab/backtester",               icon: Zap },
+  { type: "nav", label: "Signal Builder",   description: "Compose entry conditions",           href: "/lab/signals",                  icon: Layers },
+  { type: "nav", label: "AI Agent",         description: "Chat with the market AI assistant",  href: "/lab/agent",                    icon: Sparkles },
+  { type: "nav", label: "Polymarket Bot",   description: "Run prediction market bots",         href: "/lab/polymarket",               icon: Target },
+  { type: "nav", label: "Notebooks",        description: "Research notebooks",                 href: "/lab/notebooks",                icon: BookOpen },
+  // ── Settings ──────────────────────────────────────────────────────────
+  { type: "nav", label: "Settings",         description: "Profile, API keys, billing",         href: "/dashboard/settings/profile",   icon: Settings },
+  { type: "nav", label: "API Keys",         description: "Manage access keys",                 href: "/dashboard/settings/api-keys",  icon: Settings },
+  { type: "nav", label: "System Status",    description: "Live data-source health",            href: "/status",                       icon: Activity },
 ];
 
 interface CommandPaletteProps {
@@ -83,24 +110,31 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     }
   }, [open]);
 
-  const traderCommands: TraderCommand[] = useMemo(
-    () =>
-      mockTraders.slice(0, 25).map((t) => ({
-        type: "trader",
-        label: t.handle ?? "(unknown)",
-        description: `${(t.stats?.roi30d ?? 0) >= 0 ? "+" : ""}${(t.stats?.roi30d ?? 0).toFixed(1)}% · ${(t.stats?.winRatePct ?? 0).toFixed(0)}% wr`,
-        href: `/dashboard/leaderboard/${t.id}`,
-        avatarColor: t.avatarColor,
-      })),
-    []
-  );
+  const [traderCommands, setTraderCommands] = useState<TraderCommand[]>([]);
+  useEffect(() => {
+    if (!open) return;
+    fetch("/api/market/traders?limit=25")
+      .then((r) => r.json())
+      .then((res: { data?: Array<{ rank: number; handle: string; roi_30d: number; win_rate: number; address: string }> }) => {
+        setTraderCommands(
+          (res.data ?? []).map((t, i) => ({
+            type: "trader" as const,
+            label: t.handle,
+            description: `${t.roi_30d >= 0 ? "+" : ""}${t.roi_30d.toFixed(1)}% 30d · ${t.win_rate.toFixed(0)}% wr`,
+            href: `/dashboard/leaderboard/${t.rank}`,
+            avatarColor: ["from-cyan-500 to-blue-600","from-violet-500 to-purple-600","from-emerald-500 to-teal-600"][i % 3] as string,
+          }))
+        );
+      })
+      .catch(() => {});
+  }, [open]);
 
   const marketCommands: MarketCommand[] = useMemo(
     () =>
-      mockAssets.map((a) => ({
+      CRYPTO_MARKETS.map((a) => ({
         type: "market",
-        label: `${a.symbol}`,
-        description: `${a.name} · $${a.price >= 1 ? a.price.toLocaleString() : a.price.toFixed(4)}`,
+        label: a.symbol,
+        description: `${a.name} · Binance perpetual`,
         href: `/dashboard/markets/${a.symbol}`,
         symbol: a.symbol,
       })),
@@ -251,6 +285,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           <span className="flex items-center gap-1"><kbd className="bg-slate-800 rounded px-1 py-0.5 font-mono">↑↓</kbd> navigate</span>
           <span className="flex items-center gap-1"><kbd className="bg-slate-800 rounded px-1 py-0.5 font-mono">↵</kbd> open</span>
           <span className="flex items-center gap-1"><kbd className="bg-slate-800 rounded px-1 py-0.5 font-mono">esc</kbd> close</span>
+          <span className="flex items-center gap-1 ml-2 text-slate-600"><kbd className="bg-slate-800 rounded px-1 py-0.5 font-mono">g</kbd>+<kbd className="bg-slate-800 rounded px-1 py-0.5 font-mono">d/p/m/s…</kbd> jump</span>
           <span className="ml-auto">{filtered.length} results</span>
         </div>
       </div>
@@ -262,19 +297,56 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
  * Hook that wires up Cmd+K / Ctrl+K globally and exposes open state.
  * Use in any client component (e.g. the navbar) to mount the palette.
  */
+const GO_SHORTCUTS: Record<string, string> = {
+  d: "/dashboard",
+  p: "/dashboard/positions",
+  m: "/dashboard/markets",
+  c: "/dashboard/copy",
+  s: "/dashboard/signals",
+  n: "/dashboard/news",
+  w: "/dashboard/watchlists",
+  l: "/dashboard/leaderboard",
+  b: "/lab/backtester",
+};
+
 export function useCommandPalette() {
   const [open, setOpen] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
+    let gPressed = false;
+    let gTimer: ReturnType<typeof setTimeout> | null = null;
+
     const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      const isEditing = tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement).isContentEditable;
+
+      // Ctrl+K / Cmd+K — open palette
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setOpen((o) => !o);
+        return;
+      }
+
+      if (isEditing) return;
+
+      // g+key shortcuts (e.g. g then d = Dashboard)
+      if (gPressed) {
+        gPressed = false;
+        if (gTimer) clearTimeout(gTimer);
+        const dest = GO_SHORTCUTS[e.key.toLowerCase()];
+        if (dest) { e.preventDefault(); router.push(dest); }
+        return;
+      }
+      if (e.key === "g" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        gPressed = true;
+        gTimer = setTimeout(() => { gPressed = false; }, 800);
       }
     };
+
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [router]);
 
   return {
     open,

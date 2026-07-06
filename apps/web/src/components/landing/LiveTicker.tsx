@@ -2,28 +2,27 @@
 
 import { useEffect, useState } from "react";
 
-interface Tick {
-  symbol: string;
-  price: number;
-  change: number;
-}
+const SYMBOLS = ["BTC","ETH","SOL","ARB","OP","AVAX","LINK","MATIC","DOGE","BNB","ADA","DOT","LTC","ATOM","UNI","XRP"];
 
-const initialTicks: Tick[] = [
-  { symbol: "BTC", price: 67_842.50, change: 2.34 },
-  { symbol: "ETH", price: 3_412.18, change: 1.87 },
-  { symbol: "SOL", price: 178.42, change: -0.92 },
-  { symbol: "ARB", price: 1.24, change: 4.18 },
-  { symbol: "OP", price: 2.41, change: 3.02 },
-  { symbol: "AVAX", price: 38.21, change: -1.43 },
-  { symbol: "LINK", price: 14.82, change: 0.78 },
-  { symbol: "MATIC", price: 0.71, change: -2.14 },
-  { symbol: "DOGE", price: 0.182, change: 5.62 },
-  { symbol: "INJ", price: 27.40, change: 1.92 },
-  { symbol: "TIA", price: 8.94, change: -0.43 },
-  { symbol: "SEI", price: 0.84, change: 7.21 },
-  { symbol: "SUI", price: 1.31, change: 2.06 },
-  { symbol: "APT", price: 9.18, change: -0.84 },
-  { symbol: "RNDR", price: 9.42, change: 3.71 },
+interface Tick { symbol: string; price: number; change: number; }
+
+const FALLBACK: Tick[] = [
+  { symbol: "BTC",   price: 67_842.50, change:  2.34 },
+  { symbol: "ETH",   price:  3_412.18, change:  1.87 },
+  { symbol: "SOL",   price:    178.42, change: -0.92 },
+  { symbol: "ARB",   price:      1.24, change:  4.18 },
+  { symbol: "OP",    price:      2.41, change:  3.02 },
+  { symbol: "AVAX",  price:     38.21, change: -1.43 },
+  { symbol: "LINK",  price:     14.82, change:  0.78 },
+  { symbol: "MATIC", price:      0.71, change: -2.14 },
+  { symbol: "DOGE",  price:     0.182, change:  5.62 },
+  { symbol: "BNB",   price:    572.30, change:  1.12 },
+  { symbol: "ADA",   price:      0.46, change: -0.33 },
+  { symbol: "DOT",   price:      7.82, change:  0.55 },
+  { symbol: "LTC",   price:     84.50, change: -1.01 },
+  { symbol: "ATOM",  price:      9.10, change:  1.44 },
+  { symbol: "UNI",   price:      9.88, change:  2.71 },
+  { symbol: "XRP",   price:      0.62, change:  0.89 },
 ];
 
 function formatPrice(p: number): string {
@@ -33,19 +32,26 @@ function formatPrice(p: number): string {
 }
 
 export function LiveTicker() {
-  const [ticks, setTicks] = useState(initialTicks);
+  const [ticks, setTicks] = useState<Tick[]>(FALLBACK);
 
   useEffect(() => {
-    const id = setInterval(() => {
-      setTicks((prev) =>
-        prev.map((t) => {
-          const drift = (Math.random() - 0.5) * 0.004;
-          const newPrice = t.price * (1 + drift);
-          const newChange = t.change + (Math.random() - 0.5) * 0.1;
-          return { ...t, price: newPrice, change: newChange };
-        })
-      );
-    }, 2000);
+    async function load() {
+      try {
+        const res = await fetch(`/api/exchange/ticker?symbols=${SYMBOLS.join(",")}`);
+        const json = await res.json();
+        if (json.data && Array.isArray(json.data)) {
+          setTicks(
+            (json.data as { symbol: string; price: number; price_change_pct: number }[]).map((t) => ({
+              symbol: t.symbol,
+              price: t.price,
+              change: t.price_change_pct,
+            }))
+          );
+        }
+      } catch { /* keep fallback */ }
+    }
+    load();
+    const id = setInterval(load, 10_000);
     return () => clearInterval(id);
   }, []);
 
@@ -63,9 +69,7 @@ export function LiveTicker() {
             <div key={i} className="flex items-center gap-2.5 shrink-0">
               <span className="text-xs font-bold text-slate-300 tracking-wide">{t.symbol}</span>
               <span className="text-xs font-mono text-slate-100">${formatPrice(t.price)}</span>
-              <span
-                className={`text-xs font-mono font-medium ${positive ? "text-emerald-400" : "text-red-400"}`}
-              >
+              <span className={`text-xs font-mono font-medium ${positive ? "text-emerald-400" : "text-red-400"}`}>
                 {positive ? "▲" : "▼"} {Math.abs(t.change).toFixed(2)}%
               </span>
               <span className="w-1 h-1 rounded-full bg-slate-800" />

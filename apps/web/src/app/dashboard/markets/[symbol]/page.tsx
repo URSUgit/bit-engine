@@ -5,16 +5,21 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, BarChart2, TrendingDown, TrendingUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { TradingViewChart } from "@/components/charts/TradingViewChart";
+import { TradingViewChart, type CandleBar, type LineBar } from "@/components/charts/TradingViewChart";
 import { OrderPanel } from "@/components/trading/OrderPanel";
+import { AssetFundamentals } from "@/components/markets/AssetFundamentals";
+import { FundingPanel } from "./components/FundingPanel";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import { api } from "@/lib/api";
-import { mockAssets, generateOrderBook } from "@/lib/mock-data";
+import type { OrderBookLevel } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
 const TIMEFRAMES = ["1m", "5m", "1h", "4h", "1D"] as const;
 type ChartType = "area" | "candlestick";
+
+const KLINE_MAP: Record<string, string> = {
+  "1m": "1m", "5m": "5m", "1h": "1h", "4h": "4h", "1D": "1d",
+};
 
 function fmtPrice(p: number) {
   if (p >= 1000) return p.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -36,7 +41,6 @@ export default function MarketDetailPage() {
   const { data: asset } = useQuery({
     queryKey: ["market", symbol],
     queryFn: () => api.markets.get(symbol),
-    initialData: mockAssets.find((a) => a.symbol === symbol) ?? mockAssets[0],
   });
 
   const currentPrice = live?.price ?? asset?.price ?? 0;
@@ -54,11 +58,44 @@ export default function MarketDetailPage() {
     }
   }, [currentPrice]);
 
+  // Real klines from Binance
+  const { data: klines } = useQuery({
+    queryKey: ["klines", symbol, timeframe],
+    queryFn: async () => {
+      const interval = KLINE_MAP[timeframe] ?? "1h";
+      const res = await fetch(`/api/exchange/klines?symbol=${symbol}&interval=${interval}&limit=200`);
+      const json = await res.json();
+      if (!json.data) return null;
+      return json.data as Array<{ t: number; o: number; high: number; low: number; close: number }>;
+    },
+    refetchInterval: 30_000,
+  });
+
+  const candleData: CandleBar[] | undefined = klines?.map((k) => ({
+    time: Math.floor(k.t / 1000) as CandleBar["time"],
+    open: k.o, high: k.high, low: k.low, close: k.close,
+  }));
+
+  const areaData: LineBar[] | undefined = klines?.map((k) => ({
+    time: Math.floor(k.t / 1000) as LineBar["time"],
+    value: k.close,
+  }));
+
   const { data: orderBook } = useQuery({
     queryKey: ["orderbook", symbol],
-    queryFn: () => api.markets.orderBook(symbol),
-    initialData: generateOrderBook(asset?.price ?? 100),
-    refetchInterval: 5_000,
+    queryFn: async () => {
+      const res = await fetch(`/api/exchange/orderbook?symbol=${symbol}&limit=20`);
+      const json = await res.json();
+      if (!json.data) return null;
+      const ob = json.data as { bids: { price: number; qty: number }[]; asks: { price: number; qty: number }[] };
+      let bidTotal = 0;
+      let askTotal = 0;
+      return {
+        bids: ob.bids.map(({ price, qty }): OrderBookLevel => { bidTotal += qty; return { price, size: qty, total: +bidTotal.toFixed(4) }; }),
+        asks: ob.asks.map(({ price, qty }): OrderBookLevel => { askTotal += qty; return { price, size: qty, total: +askTotal.toFixed(4) }; }),
+      };
+    },
+    refetchInterval: 3_000,
   });
 
   if (!asset) return null;
@@ -67,7 +104,6 @@ export default function MarketDetailPage() {
   const maxAskTotal = Math.max(...(orderBook?.asks ?? []).map((a) => a.total), 1);
 
   return (
-    <DashboardLayout>
       <div className="flex flex-col gap-5 p-6 max-w-[1800px] mx-auto">
         {/* Header */}
         <div className="flex items-center gap-4 flex-wrap">
@@ -203,13 +239,13 @@ export default function MarketDetailPage() {
 
             <TradingViewChart
               type={chartType}
-              timeframe={timeframe}
-              basePrice={asset.price}
               height={420}
+              candleData={chartType === "candlestick" ? candleData : undefined}
+              data={chartType !== "candlestick" ? areaData : undefined}
             />
           </div>
 
-          {/* Right: Order panel + Order book */}
+          {/* Right: Order panel + Order book + Funding */}
           <div className="flex flex-col gap-4">
             <OrderPanel symbol={symbol} currentPrice={currentPrice} />
 
@@ -289,9 +325,12 @@ export default function MarketDetailPage() {
                 ))}
               </div>
             </div>
+
+            <FundingPanel symbol={symbol} />
           </div>
         </div>
+
+        <AssetFundamentals symbol={symbol} />
       </div>
-    </DashboardLayout>
   );
 }

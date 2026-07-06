@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   TrendingUp,
@@ -20,9 +21,45 @@ import {
   UserCircle,
   ChevronRight,
   Activity,
+  Sparkles,
+  Target,
+  Newspaper,
+  Database,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoMark } from "@/components/Logo";
+
+/** Live count of open paper positions — refreshes every 30s. */
+function PaperPositionsBadge({ active }: { active: boolean }) {
+  const [count, setCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    async function refresh() {
+      try {
+        const res = await fetch("/api/v1/paper/positions", { cache: "no-store" });
+        if (res.ok) {
+          const data: unknown[] = await res.json();
+          if (mounted) setCount(Array.isArray(data) ? data.length : null);
+        }
+      } catch { /* silent */ }
+    }
+    refresh();
+    const id = setInterval(refresh, 30_000);
+    return () => { mounted = false; clearInterval(id); };
+  }, []);
+
+  if (count === null || count === 0) return null;
+  return (
+    <span className={cn(
+      "ml-auto text-[10px] font-bold px-1.5 rounded h-4 flex items-center",
+      active ? "bg-cyan-500/20 text-cyan-300" : "bg-slate-800 text-slate-400"
+    )}>
+      {count}
+    </span>
+  );
+}
 
 interface NavItem {
   label: string;
@@ -41,10 +78,12 @@ const navGroups: NavGroup[] = [
     title: "Operate",
     items: [
       { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-      { label: "Positions", href: "/dashboard/positions", icon: TrendingUp, badge: "7" },
+      { label: "Positions", href: "/dashboard/positions", icon: TrendingUp },
+      { label: "Hyperliquid", href: "/dashboard/hyperliquid", icon: Wallet },
       { label: "Markets", href: "/dashboard/markets", icon: Globe },
       { label: "Copy Trading", href: "/dashboard/copy", icon: Users, badge: "3" },
       { label: "Signals", href: "/dashboard/signals", icon: Activity },
+      { label: "News", href: "/dashboard/news", icon: Newspaper },
     ],
   },
   {
@@ -52,8 +91,12 @@ const navGroups: NavGroup[] = [
     items: [
       { label: "Strategy Lab", href: "/lab", icon: FlaskConical },
       { label: "Backtester", href: "/lab/backtester", icon: Zap },
+      { label: "Data Quality", href: "/lab/data", icon: Database },
       { label: "Signal Builder", href: "/lab/signals", icon: Layers },
       { label: "Notebooks", href: "/lab/notebooks", icon: BookOpen },
+      { label: "AI Agent", href: "/lab/agent", icon: Sparkles, badge: "new" },
+      { label: "Polymarket Bot", href: "/lab/polymarket", icon: Target },
+      { label: "Monitor", href: "/lab/monitor", icon: ShieldCheck },
     ],
   },
   {
@@ -115,7 +158,9 @@ export function Sidebar() {
                       )}
                     />
                     <span className="truncate">{item.label}</span>
-                    {item.badge && (
+                    {item.href === "/dashboard/positions" ? (
+                      <PaperPositionsBadge active={active} />
+                    ) : item.badge ? (
                       <span
                         className={cn(
                           "ml-auto text-[10px] font-bold px-1.5 rounded h-4 flex items-center",
@@ -124,8 +169,9 @@ export function Sidebar() {
                       >
                         {item.badge}
                       </span>
-                    )}
-                    {active && !item.badge && <ChevronRight className="ml-auto w-3 h-3 text-cyan-500/60" />}
+                    ) : active ? (
+                      <ChevronRight className="ml-auto w-3 h-3 text-cyan-500/60" />
+                    ) : null}
                   </Link>
                 );
               })}

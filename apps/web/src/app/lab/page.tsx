@@ -1,11 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { TradingViewChart } from "@/components/charts/TradingViewChart";
+import { TradingViewChart, type LineBar } from "@/components/charts/TradingViewChart";
 import { cn } from "@/lib/utils";
-import { TrendingUp, Repeat, Scale, Brain, Activity, Globe2, Play, Save, Loader2 } from "lucide-react";
-import { mockBacktestResult } from "@/lib/mock-data";
+import { TrendingUp, Repeat, Scale, Brain, Activity, Globe2, Play, Loader2 } from "lucide-react";
+import { backtestApi, type BacktestResult } from "@/lib/backtest-api";
 
 const strategyTemplates = [
   { id: "momentum",      name: "Momentum Breakout",   icon: TrendingUp, description: "Buy on EMA cross + ADX > 25 + volume confirm",  difficulty: "Beginner" },
@@ -29,10 +28,55 @@ const indicatorBlocks = [
   { id: "sentiment", label: "FinBERT Score", category: "Sentiment" },
 ];
 
+// Template → real signal-service strategy name
+const TEMPLATE_STRATEGY: Record<string, string> = {
+  momentum: "momentum",
+  "mean-rev": "rsi",
+  arb: "bollinger",
+  sentiment: "rsi",
+  onchain: "ma_cross",
+  macro: "ma_cross",
+};
+
+type LabResult = {
+  strategyName: string;
+  totalReturnPct: number;
+  annualizedReturnPct: number;
+  sharpeRatio: number;
+  maxDrawdownPct: number;
+  winRatePct: number;
+  profitFactor: number;
+  totalTrades: number;
+  startDate: string;
+  endDate: string;
+  equity: LineBar[];
+};
+
+function toLabResult(r: BacktestResult): LabResult {
+  const equity: LineBar[] = (r.equity_curve ?? []).map((pt) => ({
+    time: pt.t as LineBar["time"],
+    value: pt.equity,
+  }));
+  return {
+    strategyName: `${r.strategy} · ${r.symbol}`,
+    totalReturnPct: r.metrics.total_return_pct,
+    annualizedReturnPct: r.metrics.cagr_pct,
+    sharpeRatio: r.metrics.sharpe_ratio,
+    maxDrawdownPct: r.metrics.max_drawdown_pct,
+    winRatePct: r.metrics.win_rate_pct,
+    profitFactor: r.metrics.profit_factor,
+    totalTrades: r.metrics.total_trades,
+    startDate: r.start_date,
+    endDate: r.end_date,
+    equity,
+  };
+}
+
 export default function LabPage() {
   const [selectedTemplate, setSelectedTemplate] = useState(strategyTemplates[0]!.id);
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<typeof mockBacktestResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<LabResult | null>(null);
   const [config, setConfig] = useState({
     asset: "ETH-USD",
     startDate: "2024-01-01",
@@ -44,13 +88,30 @@ export default function LabPage() {
   const runBacktest = async () => {
     setRunning(true);
     setResult(null);
-    await new Promise((r) => setTimeout(r, 1500));
-    setResult(mockBacktestResult);
-    setRunning(false);
+    setError(null);
+    try {
+      const strategy = TEMPLATE_STRATEGY[selectedTemplate] ?? "rsi";
+      const raw = await backtestApi.run({
+        symbol: config.asset,
+        strategy,
+        start_date: config.startDate,
+        end_date: config.endDate,
+        interval: "1d",
+        initial_capital: config.initialCapital,
+        commission_pct: 0.1,
+        slippage_pct: 0.05,
+        position_size_pct: 95,
+        strategy_params: {},
+      });
+      setResult(toLabResult(raw));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRunning(false);
+    }
   };
 
   return (
-    <DashboardLayout>
       <div className="flex flex-col gap-6 p-6 max-w-[1600px] mx-auto">
         <div>
           <h1 className="text-2xl font-bold text-slate-50 tracking-tight">Strategy Lab</h1>
@@ -89,7 +150,7 @@ export default function LabPage() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-slate-100">Signal Builder</h2>
               <button className="text-xs flex items-center gap-1 text-slate-400 hover:text-slate-200 transition-colors">
-                <Save className="w-3 h-3" /> Save Strategy
+                Save Strategy
               </button>
             </div>
 
@@ -174,26 +235,28 @@ export default function LabPage() {
         </div>
 
         {/* Results */}
-        {(running || result) && (
+        {(running || result || error) && (
           <div className="card-dark p-5 animate-fade-in">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-slate-100">
-                {running ? "Running backtest…" : `Results: ${result?.strategyName}`}
+                {running ? "Running backtest…" : error ? "Backtest failed" : `Results: ${result?.strategyName}`}
               </h2>
               {result && <span className="text-xs text-slate-500 number-font">{result.totalTrades} trades · {result.startDate} → {result.endDate}</span>}
             </div>
 
+            {error && <p className="text-sm text-red-400 bg-red-950/30 border border-red-900 p-3 rounded">{error}</p>}
+
             {result && (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5">
-                  <ResultStat label="Total Return"      value={`+${result.totalReturnPct.toFixed(1)}%`} positive />
-                  <ResultStat label="Annualized"        value={`${result.annualizedReturnPct.toFixed(0)}%`} positive />
-                  <ResultStat label="Sharpe"            value={result.sharpeRatio.toFixed(2)} />
-                  <ResultStat label="Max DD"            value={`-${result.maxDrawdownPct.toFixed(1)}%`} negative />
-                  <ResultStat label="Win Rate"          value={`${result.winRatePct.toFixed(1)}%`} />
-                  <ResultStat label="Profit Factor"     value={result.profitFactor.toFixed(2)} />
+                  <ResultStat label="Total Return"  value={`${result.totalReturnPct >= 0 ? "+" : ""}${result.totalReturnPct.toFixed(1)}%`} positive={result.totalReturnPct >= 0} />
+                  <ResultStat label="Annualized"    value={`${result.annualizedReturnPct >= 0 ? "+" : ""}${result.annualizedReturnPct.toFixed(1)}%`} positive={result.annualizedReturnPct >= 0} />
+                  <ResultStat label="Sharpe"        value={result.sharpeRatio.toFixed(2)} />
+                  <ResultStat label="Max DD"        value={`-${result.maxDrawdownPct.toFixed(1)}%`} negative />
+                  <ResultStat label="Win Rate"      value={`${result.winRatePct.toFixed(1)}%`} />
+                  <ResultStat label="Profit Factor" value={result.profitFactor.toFixed(2)} />
                 </div>
-                <TradingViewChart height={280} />
+                <TradingViewChart height={280} type="area" data={result.equity} />
               </>
             )}
             {running && (
@@ -204,7 +267,6 @@ export default function LabPage() {
           </div>
         )}
       </div>
-    </DashboardLayout>
   );
 }
 
@@ -232,9 +294,10 @@ function ResultStat({ label, value, positive, negative }: { label: string; value
     <div className="bg-slate-900 rounded-lg p-3 border border-slate-800">
       <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-1">{label}</p>
       <p className={cn("text-lg font-bold number-font",
-        positive ? "text-emerald-400" : negative ? "text-red-400" : "text-slate-100")}>
+        positive === true ? "text-emerald-400" : negative ? "text-red-400" : "text-slate-100")}>
         {value}
       </p>
     </div>
   );
 }
+

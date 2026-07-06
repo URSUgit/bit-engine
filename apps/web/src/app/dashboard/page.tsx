@@ -1,16 +1,16 @@
 import type { Metadata } from "next";
 import { Download, ChevronDown, Plus } from "lucide-react";
 import Link from "next/link";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { DashboardLive } from "@/components/dashboard/DashboardLive";
+import { DashboardSubtitle } from "@/components/dashboard/DashboardSubtitle";
 import { PositionsTable } from "@/components/dashboard/PositionsTable";
 import { CopyTradingPanel } from "@/components/dashboard/CopyTradingPanel";
+import { TopMovers } from "@/components/dashboard/TopMovers";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
 export default function DashboardPage() {
   return (
-    <DashboardLayout>
       <div className="flex flex-col gap-6 p-6 max-w-[1600px] mx-auto">
         {/* Header */}
         <div className="flex items-end justify-between flex-wrap gap-4">
@@ -23,9 +23,7 @@ export default function DashboardPage() {
               <span className="text-xs text-slate-500">Prices update every tick</span>
             </div>
             <h1 className="text-2xl font-bold text-slate-50 tracking-tight">Command Center</h1>
-            <p className="text-sm text-slate-400 mt-0.5">
-              7 open positions · 3 traders being copied
-            </p>
+            <DashboardSubtitle />
           </div>
 
           <div className="flex items-center gap-2">
@@ -49,7 +47,7 @@ export default function DashboardPage() {
         {/* Live stats + chart + signals (client component) */}
         <DashboardLive />
 
-        {/* Positions + Copy-trading */}
+        {/* Positions + Copy-trading + Top Movers */}
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
           <div className="xl:col-span-2 card-dark p-4">
             <div className="flex items-center justify-between mb-4">
@@ -63,9 +61,11 @@ export default function DashboardPage() {
             </div>
             <PositionsTable />
           </div>
-          <CopyTradingPanel />
+          <div className="flex flex-col gap-4">
+            <CopyTradingPanel />
+            <TopMovers />
+          </div>
         </div>
       </div>
-    </DashboardLayout>
   );
 }
