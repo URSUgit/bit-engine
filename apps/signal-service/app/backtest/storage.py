@@ -227,6 +227,11 @@ class BarStorage:
     def upsert_bars(self, symbol: str, interval: str, bars: list[Bar], source: str | None = None) -> int:
         if not bars:
             return 0
+        # Dedupe within the batch (last occurrence wins) — even INSERT OR
+        # REPLACE raises if the inserted rows themselves repeat a key.
+        by_ts = {b.ts: b for b in bars}
+        if len(by_ts) != len(bars):
+            bars = list(by_ts.values())
         tss = np.array([b.ts for b in bars], dtype=np.int64)
         new_min, new_max = int(tss.min()), int(tss.max())
         now = int(datetime.now(timezone.utc).timestamp())
