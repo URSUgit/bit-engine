@@ -158,6 +158,23 @@ BINANCE_SYMBOL_MAP = {
     "MATIC-USD": "MATICUSDT", "LINK-USD": "LINKUSDT", "LTC-USD": "LTCUSDT",
 }
 
+
+def binance_symbol(symbol: str) -> str | None:
+    """Resolve a catalog symbol to its Binance pair.
+
+    Accepts both Yahoo-style ("BTC-USD", via the map) and Binance-native
+    symbols ("BTCUSDT"). The backtester and seeded cache use the native form,
+    which previously never matched the map — so the Binance fallback silently
+    skipped the exact symbols it exists for.
+    """
+    mapped = BINANCE_SYMBOL_MAP.get(symbol)
+    if mapped:
+        return mapped
+    s = symbol.upper()
+    if s.isalnum() and s.endswith(("USDT", "USDC")):
+        return s
+    return None
+
 # Binance supports 1s, 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M
 BINANCE_INTERVAL_MAP = {
     "1s": "1s", "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m",
@@ -181,7 +198,7 @@ async def fetch_binance_bars(
     interval: str = "1d",
 ) -> list[Bar]:
     """Binance klines paginated fetch — 1000 bars per call."""
-    binance_sym = BINANCE_SYMBOL_MAP.get(symbol)
+    binance_sym = binance_symbol(symbol)
     if not binance_sym:
         return []
     binance_int = BINANCE_INTERVAL_MAP.get(interval, "1d")
@@ -407,7 +424,7 @@ class HistoricalDataLoader:
             bars = await fetch_stooq_bars(symbol, start_date, end_date, interval)
 
         # Fallback 3: Binance (crypto — key-free, may be geo-blocked)
-        if not bars and symbol in BINANCE_SYMBOL_MAP:
+        if not bars and binance_symbol(symbol):
             log.info("Yahoo/Stooq empty for %s, trying Binance", symbol)
             source = "binance"
             bars = await fetch_binance_bars(symbol, start_date, end_date, interval)

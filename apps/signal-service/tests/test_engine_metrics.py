@@ -92,3 +92,17 @@ def test_compute_metrics_empty_inputs_safe():
     m = compute_metrics(10_000, [], [], "1d")
     assert m.total_trades == 0
     assert m.final_equity == 10_000
+
+
+def test_binance_symbol_resolver():
+    """Regression: native Binance symbols (BTCUSDT) never matched the
+    Yahoo-keyed map, so the Binance data fallback silently skipped them and
+    daily history stayed frozen at the GitHub dataset's last day."""
+    from app.backtest.data import binance_symbol
+
+    assert binance_symbol("BTCUSDT") == "BTCUSDT"
+    assert binance_symbol("btcusdt") == "BTCUSDT"
+    assert binance_symbol("BTC-USD") == "BTCUSDT"
+    assert binance_symbol("SOLUSDC") == "SOLUSDC"
+    assert binance_symbol("AAPL") is None
+    assert binance_symbol("EURUSD=X") is None
