@@ -123,6 +123,35 @@ def test_annualization_factor_covers_intraday_intervals():
     assert crypto_factors == sorted(crypto_factors, reverse=True)
 
 
+def test_incremental_macd_matches_naive_reference():
+    """The O(1)-per-bar _MacdState must reproduce the O(n^2) reference
+    _macd_values on every prefix — it replaced a per-bar full recompute
+    that made a 6-month hourly MACD backtest take ~166s."""
+    import random
+
+    from app.backtest.strategies.macd import _MacdState, _macd_values
+
+    rng = random.Random(42)
+    closes: list[float] = []
+    price = 100.0
+    for _ in range(400):
+        price *= 1 + rng.uniform(-0.02, 0.02)
+        closes.append(price)
+
+    for fast, slow, signal in ((12, 26, 9), (5, 15, 4), (3, 7, 2)):
+        st = _MacdState(fast, slow, signal)
+        for n, close in enumerate(closes, start=1):
+            st.update(close)
+            ref = _macd_values(closes[:n], fast, slow, signal)
+            if n < slow + signal:
+                assert ref is None
+                continue
+            assert ref is not None
+            macd_ref, sig_ref, _hist = ref
+            assert st.macd_now == pytest.approx(macd_ref, abs=1e-9)
+            assert st.sig_now == pytest.approx(sig_ref, abs=1e-9)
+
+
 def test_asset_class_recognizes_native_binance_symbols():
     """Regression: _asset_class only checked the Yahoo-keyed catalog, so
     BTCUSDT fell through to 'stock' — wrong annualization and, worse,

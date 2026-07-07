@@ -407,7 +407,13 @@ class HistoricalDataLoader:
             if meta and len(cached) > 50:
                 # Check if cache is reasonably fresh (within a day for daily data)
                 stale_threshold = 86400 * 2 if interval == "1d" else 3600 * 2
-                if (datetime.now(timezone.utc).timestamp() - meta["last_fetched_at"]) < stale_threshold:
+                fresh = (datetime.now(timezone.utc).timestamp() - meta["last_fetched_at"]) < stale_threshold
+                # A fully historical window can't grow new bars: if the last
+                # fetch happened after the window ended, the cache is
+                # definitive at any age. Without this, every intraday
+                # backtest re-downloaded months of bars once per 2 hours.
+                historical = end_ts <= meta["last_fetched_at"]
+                if fresh or historical:
                     log.info("Cache hit: %s %s — %d bars", symbol, interval, len(cached))
                     return cached
 
