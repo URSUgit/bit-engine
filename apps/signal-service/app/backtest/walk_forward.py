@@ -1,8 +1,11 @@
 """Walk-forward validation — splits history into N in/out-of-sample windows."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .engine import Backtest
@@ -145,7 +148,10 @@ def run_walk_forward(
                 interval=interval,
                 asset_class=asset_cls,
             )
-        except Exception:
+        except Exception as exc:
+            # Fold failures must not kill the whole walk-forward, but a
+            # silent 0.0-metrics fold is indistinguishable from a flat one.
+            log.warning("walk-forward fold %d in-sample failed: %r", split_idx + 1, exc)
             in_metrics = None
             in_trades = []
 
@@ -166,7 +172,8 @@ def run_walk_forward(
                 interval=interval,
                 asset_class=asset_cls,
             )
-        except Exception:
+        except Exception as exc:
+            log.warning("walk-forward fold %d out-of-sample failed: %r", split_idx + 1, exc)
             out_metrics = None
             out_trades = []
 

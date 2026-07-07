@@ -28,7 +28,9 @@ async def list_markets(keyword: str = "", limit: int = 20):
             for m in markets
         ]
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Polymarket API error: {exc}")
+        # {exc!r} not {exc}: str() of timeouts/cancellations is often empty,
+        # which produced undiagnosable 'Polymarket API error: ' responses.
+        raise HTTPException(status_code=502, detail=f"Polymarket API error: {exc!r}")
 
 
 @router.get("/markets/{condition_id}/orderbook")
