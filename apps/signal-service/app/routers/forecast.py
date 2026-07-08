@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from app.forecast.analysis import benford_test, narrate
 from app.forecast.service import HORIZONS_S, forecast_service
 from app.forecast.strategies import strategy_catalog
 
@@ -77,6 +78,35 @@ async def track_symbol(symbol: str):
 async def live(symbol: str = Query("BTCUSDT"), tick_tail: int = Query(600, ge=10, le=2400)):
     """Everything the chart needs: recent ticks, open forecasts, recent scored ones."""
     return forecast_service.live(symbol, tick_tail=tick_tail)
+
+
+@router.get("/narrate")
+async def narrator(symbol: str = Query("BTCUSDT")):
+    """Plain-language commentary on the live forecast state (rule-based)."""
+    return {"symbol": symbol.upper(), "messages": narrate(forecast_service, symbol)}
+
+
+@router.get("/benford")
+async def benford(
+    symbol: str = Query("BTCUSDT"),
+    position: int = Query(1, ge=1, le=4),
+    source: str = Query("delta", pattern="^(delta|price)$"),
+):
+    """Benford's-law test on the k-th significant digit of tick moves.
+
+    source=delta (default) tests tick-to-tick price changes — they span
+    orders of magnitude, which Benford requires. source=price tests raw
+    levels, which cluster tightly and generally will not conform.
+    """
+    ticks = list(forecast_service.ticks.get(symbol.upper(), ()))
+    if source == "delta":
+        values = [p2 - p1 for (_, p1), (_, p2) in zip(ticks, ticks[1:]) if p2 != p1]
+    else:
+        values = [p for _, p in ticks]
+    result = benford_test(values, position)
+    result["symbol"] = symbol.upper()
+    result["source"] = source
+    return result
 
 
 @router.get("/accuracy")

@@ -2,18 +2,33 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ComposedChart,
-  Line,
-  Scatter,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ReferenceLine,
-  ResponsiveContainer,
-  CartesianGrid,
-  Legend,
-} from "recharts";
-import { Check, X, Plus, Trash2, Power, Activity } from "lucide-react";
+  createChart,
+  ColorType,
+  LineStyle,
+  type IChartApi,
+  type ISeriesApi,
+  type UTCTimestamp,
+  type SeriesMarker,
+  type Time,
+} from "lightweight-charts";
+import {
+  Check,
+  X,
+  Plus,
+  Trash2,
+  Power,
+  Activity,
+  Maximize2,
+  MessageSquareText,
+  TrendingUp,
+  Award,
+  Zap,
+  Eye,
+  Info,
+  ChevronRight,
+  ChevronDown,
+  BarChart3,
+} from "lucide-react";
 
 // ─── Types (mirror /api/v1/forecast payloads) ─────────────────────────────────
 
@@ -41,6 +56,7 @@ interface LivePayload {
   symbol: string;
   ticks: TickPoint[];
   pending: ForecastRec[];
+  latest: Record<string, ForecastRec>;
   resolved_recent: ForecastRec[];
   horizons_s: number[];
   voided: number;
@@ -59,6 +75,7 @@ interface CompositionInfo {
 }
 
 interface AccuracyRow {
+  symbol: string;
   composition: string;
   horizon_s: number;
   n: number;
@@ -70,14 +87,16 @@ interface AccuracyRow {
   direction_hit_rate: number | null;
 }
 
-// ─── Categorical palette (validated, dark mode, fixed order — never cycled) ──
+// ─── Palette (validated categorical slots; fixed order, never cycled) ────────
+// Compositions and indicators are different identity classes but share one
+// chart, so they draw from disjoint slots of the validated palette.
 
-const SERIES_COLORS = ["#3987e5", "#199e70", "#c98500", "#9085e9", "#e66767", "#d55181"];
+const COMP_COLORS = ["#3987e5", "#199e70", "#c98500", "#e66767"];
 const OTHER_COLOR = "#8a8a86";
-// Status colors (reserved for hit/miss, shown with ✓/✕ glyphs, never color-alone)
 const HIT_COLOR = "#199e70";
 const MISS_COLOR = "#e66767";
 
+const HORIZONS = [5, 30, 60, 300, 600] as const;
 const HORIZON_LABELS: Record<number, string> = {
   5: "5s",
   30: "30s",
@@ -86,13 +105,71 @@ const HORIZON_LABELS: Record<number, string> = {
   600: "10m",
 };
 
-const fmtTime = (ts: number) =>
-  new Date(ts * 1000).toLocaleTimeString([], { hour12: false });
+// ─── Indicators (computed client-side from the tick stream) ──────────────────
 
-const fmtPrice = (p: number) =>
-  p >= 1000 ? p.toLocaleString([], { maximumFractionDigits: 0 }) : p.toPrecision(5);
+type IndicatorId = "ema60" | "ema300" | "sma60" | "bb300";
 
-// ─── Small fetch helper against the API proxy ────────────────────────────────
+interface IndicatorDef {
+  id: IndicatorId;
+  label: string;
+  color: string;
+}
+
+const INDICATORS: IndicatorDef[] = [
+  { id: "ema60", label: "EMA 1m", color: "#d95926" },
+  { id: "ema300", label: "EMA 5m", color: "#d55181" },
+  { id: "sma60", label: "SMA 1m", color: "#9085e9" },
+  { id: "bb300", label: "Bollinger 5m", color: "#71717a" },
+];
+
+function emaSeries(ticks: TickPoint[], tauS: number): { time: UTCTimestamp; value: number }[] {
+  if (!ticks.length) return [];
+  const out: { time: UTCTimestamp; value: number }[] = [];
+  let ema = ticks[0].price;
+  let prevT = ticks[0].ts;
+  for (const t of ticks) {
+    const dt = Math.max(t.ts - prevT, 0.001);
+    ema += (1 - Math.exp(-dt / tauS)) * (t.price - ema);
+    prevT = t.ts;
+    out.push({ time: t.ts as UTCTimestamp, value: ema });
+  }
+  return out;
+}
+
+function smaSeries(ticks: TickPoint[], windowS: number): { time: UTCTimestamp; value: number }[] {
+  const out: { time: UTCTimestamp; value: number }[] = [];
+  let start = 0;
+  let sum = 0;
+  for (let i = 0; i < ticks.length; i++) {
+    sum += ticks[i].price;
+    while (ticks[start].ts < ticks[i].ts - windowS) {
+      sum -= ticks[start].price;
+      start++;
+    }
+    out.push({ time: ticks[i].ts as UTCTimestamp, value: sum / (i - start + 1) });
+  }
+  return out;
+}
+
+function bollinger(ticks: TickPoint[], windowS: number, k = 2) {
+  const upper: { time: UTCTimestamp; value: number }[] = [];
+  const mid: { time: UTCTimestamp; value: number }[] = [];
+  const lower: { time: UTCTimestamp; value: number }[] = [];
+  let start = 0;
+  for (let i = 0; i < ticks.length; i++) {
+    while (ticks[start].ts < ticks[i].ts - windowS) start++;
+    const w = ticks.slice(start, i + 1);
+    const m = w.reduce((s, t) => s + t.price, 0) / w.length;
+    const sd = Math.sqrt(w.reduce((s, t) => s + (t.price - m) ** 2, 0) / w.length);
+    const time = ticks[i].ts as UTCTimestamp;
+    mid.push({ time, value: m });
+    upper.push({ time, value: m + k * sd });
+    lower.push({ time, value: m - k * sd });
+  }
+  return { upper, mid, lower };
+}
+
+// ─── API helper ───────────────────────────────────────────────────────────────
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api/v1/forecast${path}`, init);
@@ -100,73 +177,429 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-// ─── Chart marks ──────────────────────────────────────────────────────────────
+// ─── Chart component (imperative lightweight-charts wrapper) ─────────────────
 
-/** Pending forecast: hollow circle in the composition's hue. */
-function PendingDot(props: { cx?: number; cy?: number; fill?: string }) {
-  const { cx, cy, fill } = props;
-  if (cx == null || cy == null) return null;
-  return (
-    <circle cx={cx} cy={cy} r={4} fill="#1a1a19" stroke={fill} strokeWidth={2} />
-  );
+interface ChartHandles {
+  chart: IChartApi;
+  price: ISeriesApi<"Area">;
+  indicators: Map<string, ISeriesApi<"Line">>;
+  forecasts: Map<string, ISeriesApi<"Line">>;
+  lastTickTs: number;
 }
 
-/** Resolved forecast: ✓ (hit) or ✕ (miss) — shape carries the state, not color alone. */
-function ResolvedGlyph(props: { cx?: number; cy?: number; hit?: boolean }) {
-  const { cx, cy, hit } = props;
-  if (cx == null || cy == null) return null;
-  const c = hit ? HIT_COLOR : MISS_COLOR;
-  if (hit) {
-    return (
-      <path
-        d={`M ${cx - 4} ${cy} l 3 3 l 5 -6`}
-        stroke={c}
-        strokeWidth={2}
-        fill="none"
-        strokeLinecap="round"
-      />
-    );
-  }
-  return (
-    <g stroke={c} strokeWidth={2} strokeLinecap="round">
-      <line x1={cx - 3.5} y1={cy - 3.5} x2={cx + 3.5} y2={cy + 3.5} />
-      <line x1={cx - 3.5} y1={cy + 3.5} x2={cx + 3.5} y2={cy - 3.5} />
-    </g>
-  );
+function ForecastChart({
+  live,
+  horizons,
+  indicators,
+  colorFor,
+  fitSignal,
+}: {
+  live: LivePayload | null;
+  horizons: Set<number>;
+  indicators: Set<IndicatorId>;
+  colorFor: (name: string) => string;
+  fitSignal: number;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const h = useRef<ChartHandles | null>(null);
+
+  // Create the chart once.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const chart = createChart(el, {
+      autoSize: true,
+      layout: {
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: "#a1a1aa",
+        fontSize: 11,
+      },
+      grid: {
+        vertLines: { color: "#27272a", style: LineStyle.Dotted },
+        horzLines: { color: "#27272a", style: LineStyle.Dotted },
+      },
+      crosshair: { mode: 0 },
+      timeScale: {
+        timeVisible: true,
+        secondsVisible: true,
+        borderColor: "#3f3f46",
+        rightOffset: 12,
+      },
+      rightPriceScale: { borderColor: "#3f3f46" },
+      handleScroll: true,
+      handleScale: true, // wheel + pinch + drag zoom
+    });
+    const price = chart.addAreaSeries({
+      lineColor: "#e4e4e7",
+      lineWidth: 2,
+      topColor: "rgba(228, 228, 231, 0.12)",
+      bottomColor: "rgba(228, 228, 231, 0.0)",
+      priceLineVisible: true,
+      lastValueVisible: true,
+      priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+    });
+    h.current = { chart, price, indicators: new Map(), forecasts: new Map(), lastTickTs: 0 };
+    return () => {
+      chart.remove();
+      h.current = null;
+    };
+  }, []);
+
+  // Feed ticks: full set on symbol change / first load, incremental after —
+  // incremental update() keeps the user's zoom and makes the price "move".
+  useEffect(() => {
+    const handles = h.current;
+    if (!handles || !live?.ticks.length) return;
+    const ticks = live.ticks;
+    if (handles.lastTickTs === 0 || ticks[0].ts > handles.lastTickTs) {
+      handles.price.setData(
+        ticks.map((t) => ({ time: t.ts as UTCTimestamp, value: t.price }))
+      );
+      handles.chart.timeScale().fitContent();
+    } else {
+      for (const t of ticks) {
+        if (t.ts > handles.lastTickTs) {
+          handles.price.update({ time: t.ts as UTCTimestamp, value: t.price });
+        }
+      }
+    }
+    handles.lastTickTs = ticks[ticks.length - 1].ts;
+  }, [live]);
+
+  // Indicator overlays: add/remove series to match the toggled set.
+  useEffect(() => {
+    const handles = h.current;
+    if (!handles || !live?.ticks.length) return;
+    const want = new Set<string>();
+    for (const def of INDICATORS) {
+      if (!indicators.has(def.id)) continue;
+      if (def.id === "bb300") {
+        want.add("bb300:upper").add("bb300:mid").add("bb300:lower");
+      } else {
+        want.add(def.id);
+      }
+    }
+    // Remove stale
+    for (const [key, series] of handles.indicators) {
+      if (!want.has(key)) {
+        handles.chart.removeSeries(series);
+        handles.indicators.delete(key);
+      }
+    }
+    // Ensure + set data
+    const ensure = (key: string, color: string, dashed = false) => {
+      let s = handles.indicators.get(key);
+      if (!s) {
+        s = handles.chart.addLineSeries({
+          color,
+          lineWidth: 1,
+          lineStyle: dashed ? LineStyle.Dashed : LineStyle.Solid,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        handles.indicators.set(key, s);
+      }
+      return s;
+    };
+    if (indicators.has("ema60"))
+      ensure("ema60", INDICATORS[0].color).setData(emaSeries(live.ticks, 60));
+    if (indicators.has("ema300"))
+      ensure("ema300", INDICATORS[1].color).setData(emaSeries(live.ticks, 300));
+    if (indicators.has("sma60"))
+      ensure("sma60", INDICATORS[2].color).setData(smaSeries(live.ticks, 60));
+    if (indicators.has("bb300")) {
+      const bb = bollinger(live.ticks, 300);
+      ensure("bb300:upper", INDICATORS[3].color, true).setData(bb.upper);
+      ensure("bb300:mid", INDICATORS[3].color, true).setData(bb.mid);
+      ensure("bb300:lower", INDICATORS[3].color, true).setData(bb.lower);
+    }
+  }, [live, indicators]);
+
+  // Forecast paths (latest forecast per composition through the selected
+  // horizons, projected into the future) + resolved hit/miss markers.
+  useEffect(() => {
+    const handles = h.current;
+    if (!handles || !live?.ticks.length) return;
+    const now = live.ticks[live.ticks.length - 1];
+
+    const byComp = new Map<string, ForecastRec[]>();
+    for (const rec of Object.values(live.latest)) {
+      if (!horizons.has(rec.horizon_s)) continue;
+      if (!byComp.has(rec.composition)) byComp.set(rec.composition, []);
+      byComp.get(rec.composition)!.push(rec);
+    }
+
+    for (const [key, series] of handles.forecasts) {
+      if (!byComp.has(key)) {
+        handles.chart.removeSeries(series);
+        handles.forecasts.delete(key);
+      }
+    }
+    for (const [comp, recs] of byComp) {
+      let s = handles.forecasts.get(comp);
+      if (!s) {
+        s = handles.chart.addLineSeries({
+          color: colorFor(comp),
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          pointMarkersVisible: true,
+          pointMarkersRadius: 3.5,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        handles.forecasts.set(comp, s);
+      }
+      const pts = recs
+        .sort((a, b) => a.due_ts - b.due_ts)
+        .map((r) => ({ time: Math.round(r.due_ts) as UTCTimestamp, value: r.predicted_price }));
+      // Anchor the path at the live price so it reads as a projection.
+      const data = [{ time: now.ts as UTCTimestamp, value: now.price }, ...pts].filter(
+        (p, i, arr) => i === 0 || p.time > arr[i - 1].time
+      );
+      s.setData(data);
+    }
+
+    // Resolved forecasts: ✓ / ✕ markers on the price series (shape + text
+    // carry the state — never color alone).
+    const markers: SeriesMarker<Time>[] = live.resolved_recent
+      .filter((r) => horizons.has(r.horizon_s) && r.direction_hit !== null)
+      .slice(-60)
+      .map((r) => ({
+        time: Math.round(r.due_ts) as UTCTimestamp,
+        position: r.direction_hit ? ("belowBar" as const) : ("aboveBar" as const),
+        color: r.direction_hit ? HIT_COLOR : MISS_COLOR,
+        shape: "circle" as const,
+        text: r.direction_hit ? "✓" : "✕",
+        size: 0.6,
+      }))
+      .sort((a, b) => (a.time as number) - (b.time as number));
+    handles.price.setMarkers(markers);
+  }, [live, horizons, colorFor]);
+
+  // Fit button
+  useEffect(() => {
+    if (fitSignal > 0) h.current?.chart.timeScale().fitContent();
+  }, [fitSignal]);
+
+  return <div ref={containerRef} className="h-[460px] w-full" />;
 }
 
-interface TooltipEntry {
-  name?: string;
-  value?: number | string;
-  payload?: Record<string, unknown>;
+// ─── Narrator panel ───────────────────────────────────────────────────────────
+
+interface NarratorMsg {
+  ts: number;
+  kind: string;
+  text: string;
 }
 
-function ChartTooltip({ active, payload }: { active?: boolean; payload?: TooltipEntry[] }) {
-  if (!active || !payload?.length) return null;
-  const rows = payload.filter((e) => e.value != null);
-  if (!rows.length) return null;
-  const first = rows[0].payload as { ts?: number } | undefined;
+const KIND_ICON: Record<string, typeof Info> = {
+  price: TrendingUp,
+  volatility: Activity,
+  leader: Award,
+  event: Zap,
+  outlook: Eye,
+  status: Info,
+};
+
+function NarratorPanel({ symbol }: { symbol: string }) {
+  const [messages, setMessages] = useState<(NarratorMsg & { key: string })[]>([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMessages([]);
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const data = await api<{ messages: NarratorMsg[] }>(`/narrate?symbol=${symbol}`);
+        if (cancelled) return;
+        setMessages((prev) => {
+          const seen = new Set(prev.slice(-40).map((m) => m.text));
+          const fresh = data.messages
+            .filter((m) => !seen.has(m.text))
+            .map((m) => ({ ...m, key: `${m.ts}-${m.kind}-${m.text.slice(0, 40)}` }));
+          if (!fresh.length) return prev;
+          return [...prev, ...fresh].slice(-80);
+        });
+      } catch {
+        /* retried next cycle */
+      }
+    };
+    poll();
+    const t = setInterval(poll, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [symbol]);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages]);
+
   return (
-    <div className="rounded-md border border-zinc-700 bg-zinc-900/95 px-3 py-2 text-xs shadow-lg">
-      {first?.ts != null && (
-        <div className="mb-1 text-zinc-400">{fmtTime(first.ts)}</div>
-      )}
-      {rows.map((e, i) => {
-        const p = e.payload as Record<string, unknown> | undefined;
-        const comp = p?.composition as string | undefined;
-        const h = p?.horizon_s as number | undefined;
-        return (
-          <div key={i} className="text-zinc-100">
-            {comp ? `${comp} · ${HORIZON_LABELS[h ?? 0] ?? h}` : e.name}:{" "}
-            <span className="font-mono">{fmtPrice(Number(e.value))}</span>
-            {p?.pct_error != null && (
-              <span className="ml-1 text-zinc-400">
-                (err {(p.pct_error as number).toFixed(3)}%)
+    <div className="flex h-72 flex-col rounded-lg border border-zinc-800 bg-zinc-900/50">
+      <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-2">
+        <MessageSquareText size={14} className="text-zinc-400" />
+        <h2 className="text-sm font-semibold text-zinc-200">Narrator</h2>
+        <span className="text-xs text-zinc-500">live commentary on {symbol}</span>
+      </div>
+      <div ref={scrollRef} className="flex-1 space-y-2 overflow-y-auto p-3">
+        {messages.length === 0 && (
+          <div className="text-xs text-zinc-500">Listening — commentary starts once data flows…</div>
+        )}
+        {messages.map((m) => {
+          const Icon = KIND_ICON[m.kind] ?? Info;
+          return (
+            <div key={m.key} className="flex items-start gap-2">
+              <span className="mt-0.5 rounded bg-zinc-800 p-1 text-zinc-400">
+                <Icon size={11} />
               </span>
-            )}
-          </div>
+              <div className="rounded-md rounded-tl-none bg-zinc-800/60 px-2.5 py-1.5 text-xs leading-relaxed text-zinc-200">
+                {m.text}
+                <span className="ml-2 text-[10px] text-zinc-500">
+                  {new Date(m.ts * 1000).toLocaleTimeString([], { hour12: false })}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Benford panel ────────────────────────────────────────────────────────────
+
+interface BenfordResult {
+  position: number;
+  n: number;
+  rows: { digit: number; observed: number; observed_pct: number; expected_pct: number }[];
+  chi2: number;
+  chi2_critical_p05: number;
+  conforms: boolean | null;
+  source: string;
+}
+
+function BenfordPanel({ symbol }: { symbol: string }) {
+  const [position, setPosition] = useState(1);
+  const [source, setSource] = useState<"delta" | "price">("delta");
+  const [data, setData] = useState<BenfordResult | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const d = await api<BenfordResult>(
+          `/benford?symbol=${symbol}&position=${position}&source=${source}`
         );
-      })}
+        if (!cancelled) setData(d);
+      } catch {
+        /* retried next cycle */
+      }
+    };
+    poll();
+    const t = setInterval(poll, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [symbol, position, source]);
+
+  const maxPct = data
+    ? Math.max(...data.rows.map((r) => Math.max(r.observed_pct, r.expected_pct)), 1) * 1.15
+    : 1;
+
+  return (
+    <div className="flex h-72 flex-col rounded-lg border border-zinc-800 bg-zinc-900/50">
+      <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 px-4 py-2">
+        <BarChart3 size={14} className="text-zinc-400" />
+        <h2 className="text-sm font-semibold text-zinc-200">Benford&apos;s law</h2>
+        {[1, 2, 3].map((p) => (
+          <Chip key={p} on={position === p} onClick={() => setPosition(p)}>
+            {p === 1 ? "1st" : p === 2 ? "2nd" : "3rd"} digit
+          </Chip>
+        ))}
+        <Chip on={source === "delta"} onClick={() => setSource(source === "delta" ? "price" : "delta")}>
+          {source === "delta" ? "tick moves" : "raw prices"}
+        </Chip>
+        {data && (
+          <span className="ml-auto text-xs text-zinc-400">
+            n={data.n} · χ²={data.chi2.toFixed(1)} vs {data.chi2_critical_p05.toFixed(1)}{" "}
+            {data.conforms == null ? (
+              <span className="text-zinc-500">(need ≥100 samples)</span>
+            ) : data.conforms ? (
+              <span className="text-emerald-400">✓ conforms</span>
+            ) : (
+              <span className="text-red-400">✕ deviates</span>
+            )}
+          </span>
+        )}
+      </div>
+      <div className="flex-1 p-3">
+        {data && data.n > 0 ? (
+          <svg viewBox="0 0 100 56" preserveAspectRatio="none" className="h-full w-full">
+            {data.rows.map((r, i) => {
+              const slot = 100 / data.rows.length;
+              const x = i * slot;
+              const barW = slot * 0.55;
+              const obsH = (r.observed_pct / maxPct) * 46;
+              const expY = 48 - (r.expected_pct / maxPct) * 46;
+              return (
+                <g key={r.digit}>
+                  <title>
+                    {`digit ${r.digit}: observed ${r.observed_pct.toFixed(1)}% (${r.observed}), Benford ${r.expected_pct.toFixed(1)}%`}
+                  </title>
+                  {/* observed bar */}
+                  <rect
+                    x={x + (slot - barW) / 2}
+                    y={48 - obsH}
+                    width={barW}
+                    height={obsH}
+                    rx={0.8}
+                    fill="#3987e5"
+                  />
+                  {/* expected Benford level — dash across the slot */}
+                  <line
+                    x1={x + slot * 0.12}
+                    x2={x + slot * 0.88}
+                    y1={expY}
+                    y2={expY}
+                    stroke="#e4e4e7"
+                    strokeWidth={0.7}
+                    strokeDasharray="1.5 1"
+                  />
+                  <text
+                    x={x + slot / 2}
+                    y={54}
+                    textAnchor="middle"
+                    fontSize={3.4}
+                    fill="#a1a1aa"
+                  >
+                    {r.digit}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+        ) : (
+          <div className="flex h-full items-center justify-center text-xs text-zinc-500">
+            Collecting tick moves…
+          </div>
+        )}
+      </div>
+      <div className="flex items-center gap-4 border-t border-zinc-800 px-4 py-1.5 text-[11px] text-zinc-500">
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2 w-2 rounded-sm bg-[#3987e5]" /> observed
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-0 w-3 border-t border-dashed border-zinc-200" /> Benford
+          expected
+        </span>
+        <span className="ml-auto">
+          {source === "delta" ? "digits of tick-to-tick price moves" : "digits of raw price levels"}
+        </span>
+      </div>
     </div>
   );
 }
@@ -186,13 +619,22 @@ function ComposerPanel({
 }) {
   const [name, setName] = useState("");
   const [weights, setWeights] = useState<Record<string, number>>({});
+  const [params, setParams] = useState<Record<string, Record<string, number>>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const setParam = (strategy: string, key: string, value: number) =>
+    setParams((p) => ({ ...p, [strategy]: { ...(p[strategy] ?? {}), [key]: value } }));
 
   const create = async () => {
     const members = Object.entries(weights)
       .filter(([, w]) => w > 0)
-      .map(([strategy, weight]) => ({ strategy, weight }));
+      .map(([strategy, weight]) => ({
+        strategy,
+        weight,
+        params: params[strategy] ?? {},
+      }));
     if (!name.trim() || members.length === 0) {
       setError("Name the composition and give at least one strategy a positive weight.");
       return;
@@ -207,6 +649,7 @@ function ComposerPanel({
       });
       setName("");
       setWeights({});
+      setParams({});
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -230,25 +673,64 @@ function ComposerPanel({
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
       <h2 className="mb-3 text-sm font-semibold text-zinc-200">Compose a forecaster</h2>
-      <div className="mb-3 space-y-2">
-        {strategies.map((s) => (
-          <div key={s.name} className="flex items-center gap-2">
-            <input
-              type="number"
-              min={0}
-              step={0.25}
-              value={weights[s.name] ?? 0}
-              onChange={(e) =>
-                setWeights((w) => ({ ...w, [s.name]: Number(e.target.value) }))
-              }
-              className="w-16 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-100"
-              aria-label={`Weight for ${s.name}`}
-            />
-            <span className="text-xs text-zinc-300" title={s.description}>
-              {s.name}
-            </span>
-          </div>
-        ))}
+      <div className="mb-3 space-y-1.5">
+        {strategies.map((s) => {
+          const isOpen = expanded[s.name] ?? false;
+          const hasParams = Object.keys(s.params_schema).length > 0;
+          const included = (weights[s.name] ?? 0) > 0;
+          return (
+            <div
+              key={s.name}
+              className={`rounded border ${
+                included ? "border-zinc-700 bg-zinc-950/60" : "border-zinc-800/60"
+              } px-2 py-1.5`}
+            >
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  step={0.25}
+                  value={weights[s.name] ?? 0}
+                  onChange={(e) =>
+                    setWeights((w) => ({ ...w, [s.name]: Number(e.target.value) }))
+                  }
+                  className="w-16 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-100"
+                  aria-label={`Weight for ${s.name}`}
+                />
+                <span className="text-xs font-medium text-zinc-200">{s.name}</span>
+                <button
+                  onClick={() => setExpanded((x) => ({ ...x, [s.name]: !isOpen }))}
+                  className="ml-auto flex items-center gap-1 rounded p-1 text-zinc-500 hover:text-zinc-200"
+                  title="Details & parameters"
+                >
+                  {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                </button>
+              </div>
+              {isOpen && (
+                <div className="mt-1.5 space-y-1.5 border-t border-zinc-800 pt-1.5">
+                  <p className="text-[11px] leading-relaxed text-zinc-400">{s.description}</p>
+                  {hasParams ? (
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                      {Object.entries(s.params_schema).map(([key, schema]) => (
+                        <label key={key} className="flex items-center justify-between gap-2 text-[11px] text-zinc-400">
+                          <span title={key}>{schema.label ?? key}</span>
+                          <input
+                            type="number"
+                            value={params[s.name]?.[key] ?? schema.default}
+                            onChange={(e) => setParam(s.name, key, Number(e.target.value))}
+                            className="w-16 rounded border border-zinc-700 bg-zinc-950 px-1.5 py-0.5 text-right text-[11px] text-zinc-100"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-zinc-500">No parameters.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
       <div className="flex gap-2">
         <input
@@ -268,7 +750,7 @@ function ComposerPanel({
       {error && <div className="mt-2 text-xs text-red-400">{error}</div>}
 
       <h3 className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-        Active compositions
+        Compositions
       </h3>
       <ul className="space-y-1">
         {compositions.map((c) => (
@@ -280,7 +762,17 @@ function ComposerPanel({
             <span className={c.active ? "text-zinc-200" : "text-zinc-500 line-through"}>
               {c.name}
             </span>
-            <span className="text-zinc-500">
+            <span
+              className="text-zinc-500"
+              title={c.members
+                .map((m) => {
+                  const p = Object.entries(m.params ?? {})
+                    .map(([k, v]) => `${k}=${v}`)
+                    .join(", ");
+                  return `${m.strategy} (weight ${m.weight}${p ? `; ${p}` : ""})`;
+                })
+                .join("\n")}
+            >
               {c.members.map((m) => `${m.strategy}×${m.weight}`).join(" + ")}
             </span>
             <span className="ml-auto flex gap-1">
@@ -312,12 +804,15 @@ function ComposerPanel({
 
 function AccuracyTable({
   rows,
+  horizons,
   colorFor,
 }: {
   rows: AccuracyRow[];
+  horizons: Set<number>;
   colorFor: (name: string) => string;
 }) {
-  if (!rows.length) {
+  const visible = rows.filter((r) => horizons.has(r.horizon_s));
+  if (!visible.length) {
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 text-xs text-zinc-500">
         Error validation appears here once forecasts start resolving (first rows within ~30s
@@ -341,7 +836,7 @@ function AccuracyTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {visible.map((r) => (
             <tr
               key={`${r.composition}-${r.horizon_s}`}
               className="border-b border-zinc-800/50 text-zinc-300"
@@ -372,6 +867,39 @@ function AccuracyTable({
   );
 }
 
+// ─── Toggle chip ──────────────────────────────────────────────────────────────
+
+function Chip({
+  on,
+  onClick,
+  color,
+  children,
+}: {
+  on: boolean;
+  onClick: () => void;
+  color?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+        on
+          ? "border-zinc-500 bg-zinc-800 text-zinc-100"
+          : "border-zinc-800 bg-transparent text-zinc-500 hover:text-zinc-300"
+      }`}
+    >
+      {color && (
+        <span
+          className="inline-block h-2 w-2 rounded-full"
+          style={{ background: on ? color : "#52525b" }}
+        />
+      )}
+      {children}
+    </button>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ForecasterPage() {
@@ -382,16 +910,18 @@ export default function ForecasterPage() {
   const [compositions, setCompositions] = useState<CompositionInfo[]>([]);
   const [accuracy, setAccuracy] = useState<AccuracyRow[]>([]);
   const [offline, setOffline] = useState(false);
+  const [horizons, setHorizons] = useState<Set<number>>(new Set(HORIZONS));
+  const [indicators, setIndicators] = useState<Set<IndicatorId>>(new Set(["ema60"]));
+  const [fitSignal, setFitSignal] = useState(0);
   const compOrder = useRef<string[]>([]);
 
-  // Stable categorical slot per composition — first-seen order, never repainted.
   const colorFor = useCallback((name: string) => {
     let idx = compOrder.current.indexOf(name);
     if (idx === -1) {
       compOrder.current.push(name);
       idx = compOrder.current.length - 1;
     }
-    return idx < SERIES_COLORS.length ? SERIES_COLORS[idx] : OTHER_COLOR;
+    return idx < COMP_COLORS.length ? COMP_COLORS[idx] : OTHER_COLOR;
   }, []);
 
   const refreshMeta = useCallback(async () => {
@@ -405,7 +935,7 @@ export default function ForecasterPage() {
       setCompositions(comps);
       setSymbols(syms.symbols);
     } catch {
-      /* meta refresh is retried on the next cycle */
+      /* retried on the next cycle */
     }
   }, []);
 
@@ -417,7 +947,7 @@ export default function ForecasterPage() {
     let cancelled = false;
     const poll = async () => {
       try {
-        const data = await api<LivePayload>(`/live?symbol=${symbol}&tick_tail=600`);
+        const data = await api<LivePayload>(`/live?symbol=${symbol}&tick_tail=1200`);
         if (!cancelled) {
           setLive(data);
           setOffline(false);
@@ -436,7 +966,7 @@ export default function ForecasterPage() {
     };
     poll();
     pollAccuracy();
-    const t1 = setInterval(poll, 2000);
+    const t1 = setInterval(poll, 1000); // 1s — matches server tick sampling
     const t2 = setInterval(pollAccuracy, 10000);
     return () => {
       cancelled = true;
@@ -445,41 +975,37 @@ export default function ForecasterPage() {
     };
   }, [symbol]);
 
-  const chart = useMemo(() => {
-    if (!live?.ticks.length) return null;
-    const ticks = live.ticks;
-    const now = ticks[ticks.length - 1].ts;
-    const byComp = new Map<string, ForecastRec[]>();
-    for (const f of live.pending) {
-      if (!byComp.has(f.composition)) byComp.set(f.composition, []);
-      byComp.get(f.composition)!.push(f);
-    }
-    const resolvedHits = live.resolved_recent
-      .filter((f) => f.direction_hit === true && f.due_ts >= now - 900)
-      .map((f) => ({ ts: f.due_ts, price: f.predicted_price, ...f }));
-    const resolvedMisses = live.resolved_recent
-      .filter((f) => f.direction_hit === false && f.due_ts >= now - 900)
-      .map((f) => ({ ts: f.due_ts, price: f.predicted_price, ...f }));
-    const prices = [
-      ...ticks.map((t) => t.price),
-      ...live.pending.map((f) => f.predicted_price),
-    ];
-    return {
-      ticks,
-      now,
-      byComp,
-      resolvedHits,
-      resolvedMisses,
-      domain: [ticks[0].ts, now + 620] as [number, number],
-      yDomain: [Math.min(...prices) * 0.9995, Math.max(...prices) * 1.0005] as [number, number],
-    };
-  }, [live]);
+  const toggleHorizon = (h: number) =>
+    setHorizons((prev) => {
+      const next = new Set(prev);
+      if (next.has(h)) {
+        if (next.size > 1) next.delete(h); // never allow an empty selection
+      } else {
+        next.add(h);
+      }
+      return next;
+    });
+
+  const toggleIndicator = (id: IndicatorId) =>
+    setIndicators((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const lastPrice = live?.ticks.length ? live.ticks[live.ticks.length - 1].price : null;
+  const priceDelta = useMemo(() => {
+    if (!live?.ticks.length || live.ticks.length < 2) return 0;
+    return lastPrice! - live.ticks[live.ticks.length - 2].price;
+  }, [live, lastPrice]);
 
   return (
     <div className="space-y-4 p-6">
+      {/* Header row: symbol, live price, status */}
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="flex items-center gap-2 text-lg font-semibold text-zinc-100">
-          <Activity size={18} /> Live price forecaster
+          <Activity size={18} /> Forecaster
         </h1>
         <select
           value={symbol}
@@ -490,9 +1016,19 @@ export default function ForecasterPage() {
             <option key={s}>{s}</option>
           ))}
         </select>
-        <span className="text-xs text-zinc-500">
-          horizons: {(live?.horizons_s ?? [5, 30, 60, 300, 600]).map((h) => HORIZON_LABELS[h]).join(" · ")}
-        </span>
+        {lastPrice != null && (
+          <span
+            className={`font-mono text-lg tabular-nums ${
+              priceDelta > 0
+                ? "text-emerald-400"
+                : priceDelta < 0
+                  ? "text-red-400"
+                  : "text-zinc-200"
+            }`}
+          >
+            {lastPrice.toLocaleString([], { maximumFractionDigits: 2 })}
+          </span>
+        )}
         {offline && (
           <span className="rounded bg-red-950 px-2 py-0.5 text-xs text-red-300">
             signal-service unreachable — is it running with the forecast module?
@@ -500,98 +1036,77 @@ export default function ForecasterPage() {
         )}
         <span className="ml-auto flex items-center gap-3 text-xs text-zinc-400">
           <span className="flex items-center gap-1">
-            <Check size={12} color={HIT_COLOR} /> direction hit
+            <Check size={12} color={HIT_COLOR} /> hit
           </span>
           <span className="flex items-center gap-1">
             <X size={12} color={MISS_COLOR} /> miss
           </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 rounded-full border-2 border-zinc-400" />{" "}
-            open forecast
-          </span>
+          <button
+            onClick={() => setFitSignal((n) => n + 1)}
+            title="Fit chart to data"
+            className="flex items-center gap-1 rounded border border-zinc-700 px-2 py-0.5 text-zinc-300 hover:bg-zinc-800"
+          >
+            <Maximize2 size={11} /> Fit
+          </button>
         </span>
       </div>
 
+      {/* Filter rows: horizons + indicators (one filter bar above the chart) */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs uppercase tracking-wide text-zinc-600">Horizon</span>
+        {HORIZONS.map((hz) => (
+          <Chip key={hz} on={horizons.has(hz)} onClick={() => toggleHorizon(hz)}>
+            {HORIZON_LABELS[hz]}
+          </Chip>
+        ))}
+        <span className="ml-4 text-xs uppercase tracking-wide text-zinc-600">Indicators</span>
+        {INDICATORS.map((ind) => (
+          <Chip
+            key={ind.id}
+            on={indicators.has(ind.id)}
+            onClick={() => toggleIndicator(ind.id)}
+            color={ind.color}
+          >
+            {ind.label}
+          </Chip>
+        ))}
+        <span className="ml-4 text-xs uppercase tracking-wide text-zinc-600">Forecasts</span>
+        {compositions
+          .filter((c) => c.active)
+          .map((c) => (
+            <span key={c.name} className="flex items-center gap-1.5 text-xs text-zinc-300">
+              <span
+                className="inline-block h-2 w-2 rounded-full"
+                style={{ background: colorFor(c.name) }}
+              />
+              {c.name}
+            </span>
+          ))}
+      </div>
+
+      {/* Chart: native wheel/drag zoom, live-updating price */}
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-2">
-        {chart ? (
-          <ResponsiveContainer width="100%" height={420}>
-            <ComposedChart margin={{ top: 8, right: 16, bottom: 4, left: 8 }}>
-              <CartesianGrid stroke="#27272a" strokeDasharray="2 4" vertical={false} />
-              <XAxis
-                dataKey="ts"
-                type="number"
-                domain={chart.domain}
-                tickFormatter={fmtTime}
-                stroke="#52525b"
-                fontSize={11}
-                allowDataOverflow
-              />
-              <YAxis
-                dataKey="price"
-                type="number"
-                domain={chart.yDomain}
-                tickFormatter={fmtPrice}
-                stroke="#52525b"
-                fontSize={11}
-                width={70}
-              />
-              <Tooltip content={<ChartTooltip />} />
-              <Legend
-                wrapperStyle={{ fontSize: 11, color: "#a1a1aa" }}
-                iconSize={10}
-                formatter={(v: string) => <span style={{ color: "#d4d4d8" }}>{v}</span>}
-              />
-              <ReferenceLine
-                x={chart.now}
-                stroke="#71717a"
-                strokeDasharray="4 4"
-                label={{ value: "now", fill: "#a1a1aa", fontSize: 10, position: "top" }}
-              />
-              <Line
-                data={chart.ticks}
-                dataKey="price"
-                name={symbol}
-                stroke="#e4e4e7"
-                strokeWidth={2}
-                dot={false}
-                isAnimationActive={false}
-              />
-              {[...chart.byComp.entries()].map(([comp, recs]) => (
-                <Scatter
-                  key={comp}
-                  data={recs.map((f) => ({ ts: f.due_ts, price: f.predicted_price, ...f }))}
-                  dataKey="price"
-                  name={comp}
-                  fill={colorFor(comp)}
-                  shape={<PendingDot />}
-                  isAnimationActive={false}
-                />
-              ))}
-              <Scatter
-                data={chart.resolvedHits}
-                dataKey="price"
-                name="resolved ✓"
-                fill={HIT_COLOR}
-                shape={<ResolvedGlyph hit />}
-                isAnimationActive={false}
-              />
-              <Scatter
-                data={chart.resolvedMisses}
-                dataKey="price"
-                name="resolved ✕"
-                fill={MISS_COLOR}
-                shape={<ResolvedGlyph />}
-                isAnimationActive={false}
-              />
-            </ComposedChart>
-          </ResponsiveContainer>
+        {live?.ticks.length ? (
+          <ForecastChart
+            live={live}
+            horizons={horizons}
+            indicators={indicators}
+            colorFor={colorFor}
+            fitSignal={fitSignal}
+          />
         ) : (
-          <div className="flex h-[420px] items-center justify-center text-sm text-zinc-500">
+          <div className="flex h-[460px] items-center justify-center text-sm text-zinc-500">
             {offline
               ? "Waiting for the signal-service…"
               : "Collecting live ticks — the chart appears within a few seconds."}
           </div>
         )}
+      </div>
+
+      {/* Narrator + Benford analysis */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <NarratorPanel symbol={symbol} />
+        <BenfordPanel symbol={symbol} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1.6fr]">
@@ -601,7 +1116,7 @@ export default function ForecasterPage() {
           colorFor={colorFor}
           onChanged={refreshMeta}
         />
-        <AccuracyTable rows={accuracy} colorFor={colorFor} />
+        <AccuracyTable rows={accuracy} horizons={horizons} colorFor={colorFor} />
       </div>
     </div>
   );

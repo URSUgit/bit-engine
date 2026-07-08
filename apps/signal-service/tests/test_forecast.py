@@ -230,3 +230,80 @@ def test_bad_ticks_rejected():
     svc.record_tick("TESTUSDT", math.nan)
     svc.record_tick("TESTUSDT", math.inf)
     assert len(svc.ticks["TESTUSDT"]) == 0
+
+
+# ── narrator + benford ────────────────────────────────────────────────────
+
+def test_benford_expected_distributions_sum_to_one():
+    from app.forecast.analysis import benford_expected
+
+    for pos in (1, 2, 3):
+        probs = benford_expected(pos)
+        assert sum(probs.values()) == pytest.approx(1.0, abs=1e-9)
+    assert set(benford_expected(1)) == set(range(1, 10))
+    assert set(benford_expected(3)) == set(range(0, 10))
+    # First-digit law: P(1) ~ 30.1%, P(9) ~ 4.6%
+    assert benford_expected(1)[1] == pytest.approx(0.30103, abs=1e-4)
+    assert benford_expected(1)[9] == pytest.approx(0.04576, abs=1e-4)
+
+
+def test_kth_significant_digit_extraction():
+    from app.forecast.analysis import kth_significant_digit as kd
+
+    assert kd(64241.5, 1) == 6
+    assert kd(64241.5, 2) == 4
+    assert kd(64241.5, 3) == 2
+    assert kd(0.004512, 1) == 4
+    assert kd(0.004512, 3) == 1
+    assert kd(-7.25, 1) == 7
+    assert kd(0.0, 1) is None
+    assert kd(5.0, 2) is None  # '5' has one significant digit
+
+
+def test_benford_test_conforms_on_benford_sample_and_flags_uniform():
+    import random
+
+    from app.forecast.analysis import benford_test
+
+    rng = random.Random(5)
+    # log-uniform sample follows Benford
+    benford_vals = [10 ** rng.uniform(-3, 3) for _ in range(3000)]
+    res = benford_test(benford_vals, 1)
+    assert res["n"] == 3000
+    assert res["conforms"] is True
+
+    # constant-first-digit sample violates it badly
+    bad_vals = [rng.uniform(1.0, 1.99) for _ in range(3000)]
+    res_bad = benford_test(bad_vals, 1)
+    assert res_bad["conforms"] is False
+
+    # tiny samples return no verdict
+    assert benford_test(benford_vals[:20], 1)["conforms"] is None
+
+
+def test_narrator_warms_up_then_comments():
+    from app.forecast.analysis import narrate
+
+    svc = ForecastService(symbols=["TESTUSDT"])
+    assert any("Warming up" in m["text"] for m in narrate(svc, "TESTUSDT"))
+
+    t0 = 10_000.0
+    for i in range(601):
+        svc.record_tick("TESTUSDT", 100.0 + 0.1 * i, t0 + i)
+    # 30 emit rounds so every (composition, horizon) group clears the
+    # narrator's n>=20 bar for naming a leader.
+    for k in range(30):
+        svc.emit(t0 + 300 + 10 * k)
+    for i in range(1, 601):
+        svc.record_tick("TESTUSDT", 160.0 + 0.1 * i, t0 + 600 + i)
+    svc.resolve(t0 + 1300)
+
+    msgs = narrate(svc, "testusdt")
+    kinds = {m["kind"] for m in msgs}
+    assert "price" in kinds
+    assert "leader" in kinds       # accuracy has n>=20 per group
+    assert "event" in kinds
+    texts = " ".join(m["text"] for m in msgs)
+    assert "TESTUSDT" in texts
+    for m in msgs:
+        assert m["ts"] > 0 and m["text"]
