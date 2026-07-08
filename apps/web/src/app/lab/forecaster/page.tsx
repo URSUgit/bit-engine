@@ -495,13 +495,51 @@ const BENFORD_WINDOWS: { label: string; value: number | "auto" }[] = [
 const fmtWindow = (s: number) =>
   s === 0 ? "all ticks" : s < 60 ? `${s}s` : `${Math.round(s / 60)}m`;
 
+/** A freshly collected sample visibly "landing" in its digit bin. */
+interface BenfordDrop {
+  id: number;
+  digit: number;
+  count: number;
+}
+
+function FallingDot({ targetPct, count }: { targetPct: number; count: number }) {
+  const [landed, setLanded] = useState(false);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setLanded(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  const big = count > 1;
+  return (
+    <span
+      className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2"
+      style={{
+        top: landed ? `calc(${100 - targetPct}% - 14px)` : "-6px",
+        opacity: landed ? 0 : 1,
+        transition: "top 650ms cubic-bezier(0.45, 0, 1, 1), opacity 400ms 700ms",
+      }}
+    >
+      <span
+        className={`flex items-center justify-center rounded-full bg-sky-300 font-bold text-zinc-900 shadow-[0_0_8px_rgba(57,135,229,0.9)] ${
+          big ? "h-3.5 w-3.5 text-[9px]" : "h-2.5 w-2.5 text-[8px]"
+        }`}
+      >
+        {big ? count : ""}
+      </span>
+    </span>
+  );
+}
+
 function BenfordPanel({ symbol }: { symbol: string }) {
   const [position, setPosition] = useState(1);
   const [window_, setWindow] = useState<number | "auto">("auto");
   const [data, setData] = useState<BenfordResult | null>(null);
+  const [drops, setDrops] = useState<BenfordDrop[]>([]);
+  const prevCounts = useRef<{ key: string; counts: Map<number, number> } | null>(null);
+  const dropId = useRef(1);
 
   useEffect(() => {
     let cancelled = false;
+    const timeouts: ReturnType<typeof setTimeout>[] = [];
     const poll = async () => {
       try {
         const qs =
@@ -511,7 +549,30 @@ function BenfordPanel({ symbol }: { symbol: string }) {
         const d = await api<BenfordResult>(
           `/benford?symbol=${symbol}&position=${position}&source=delta${qs}`
         );
-        if (!cancelled) setData(d);
+        if (cancelled) return;
+        // Diff per-digit counts against the previous poll of the SAME
+        // sample (symbol/position/window): new samples become falling
+        // dots that visibly land in their digit bin.
+        const key = `${symbol}:${position}:${d.window_s}`;
+        const counts = new Map(d.rows.map((r) => [r.digit, r.observed]));
+        if (prevCounts.current?.key === key) {
+          const fresh: BenfordDrop[] = [];
+          for (const [digit, obs] of counts) {
+            const delta = obs - (prevCounts.current.counts.get(digit) ?? 0);
+            if (delta > 0) fresh.push({ id: dropId.current++, digit, count: delta });
+          }
+          if (fresh.length) {
+            setDrops((prev) => [...prev.slice(-20), ...fresh]);
+            const ids = new Set(fresh.map((f) => f.id));
+            timeouts.push(
+              setTimeout(() => setDrops((prev) => prev.filter((x) => !ids.has(x.id))), 1400)
+            );
+          }
+        } else {
+          setDrops([]);
+        }
+        prevCounts.current = { key, counts };
+        setData(d);
       } catch {
         /* retried next cycle */
       }
@@ -521,6 +582,7 @@ function BenfordPanel({ symbol }: { symbol: string }) {
     return () => {
       cancelled = true;
       clearInterval(t);
+      timeouts.forEach(clearTimeout);
     };
   }, [symbol, position, window_]);
 
@@ -631,6 +693,12 @@ function BenfordPanel({ symbol }: { symbol: string }) {
                     <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-xs font-semibold tabular-nums text-zinc-300">
                       {r.digit}
                     </span>
+                    {/* freshly collected samples landing in this bin */}
+                    {drops
+                      .filter((dr) => dr.digit === r.digit)
+                      .map((dr) => (
+                        <FallingDot key={dr.id} targetPct={barPct} count={dr.count} />
+                      ))}
                   </div>
                 );
               })}
