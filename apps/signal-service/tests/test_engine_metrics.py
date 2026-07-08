@@ -152,6 +152,80 @@ def test_incremental_macd_matches_naive_reference():
             assert st.sig_now == pytest.approx(sig_ref, abs=1e-9)
 
 
+def test_every_registered_strategy_runs_in_the_engine():
+    """Smoke test: each of the 26 strategies must complete a run without
+    raising. Regression for 9 strategies (aroon, dema_cross, donchian,
+    heikin_ashi, keltner, rsi_ma_filter, supertrend, triple_ema,
+    williams_r) that called self.get_param(), which the Strategy base
+    class never defined — they crashed on their first bar."""
+    import random
+    from datetime import datetime, timedelta, timezone
+
+    from app.backtest.engine import Backtest
+    from app.backtest.models import Bar
+    from app.backtest.strategies import STRATEGIES
+
+    rng = random.Random(11)
+    bars, price = [], 30_000.0
+    t = datetime(2023, 6, 1, tzinfo=timezone.utc)
+    for i in range(300):
+        o = price
+        price *= 1 + rng.uniform(-0.01, 0.011)  # slight upward drift
+        h, l = max(o, price) * 1.002, min(o, price) * 0.998
+        bars.append(Bar(timestamp=t, open=o, high=h, low=l, close=price, volume=1_000.0))
+        t += timedelta(hours=1)
+
+    assert len(STRATEGIES) >= 20
+    for name, cls in STRATEGIES.items():
+        trades, equity = Backtest().run(bars, cls(), symbol="BTC-USD", interval="1h")
+        assert equity, f"strategy '{name}' produced no equity curve"
+
+
+def test_elder_macd_histogram_matches_per_prefix_naive():
+    """Regression: the histogram series must equal the old per-prefix EMA
+    rebuild it replaced (which was O(n^2) per call, O(n^3) per backtest)."""
+    import random
+
+    from app.backtest.strategies.elder_impulse import _macd_histogram_series
+
+    def naive(closes, fast, slow, signal):
+        def ema(vals, p):
+            k = 2.0 / (p + 1)
+            e = sum(vals[:p]) / p
+            for v in vals[p:]:
+                e = v * k + e * (1 - k)
+            return e
+
+        if len(closes) < slow + signal:
+            return []
+        macd = [
+            ema(closes[:i], fast) - ema(closes[:i], slow)
+            for i in range(max(fast, slow), len(closes) + 1)
+        ]
+        if len(macd) < signal:
+            return []
+        k = 2.0 / (signal + 1)
+        sig = sum(macd[:signal]) / signal
+        out = [macd[signal - 1] - sig]
+        for v in macd[signal:]:
+            sig = v * k + sig * (1 - k)
+            out.append(v - sig)
+        return out
+
+    rng = random.Random(3)
+    closes, price = [], 100.0
+    for _ in range(300):
+        price *= 1 + rng.uniform(-0.02, 0.02)
+        closes.append(price)
+
+    for fast, slow, signal in ((12, 26, 9), (5, 15, 4)):
+        got = _macd_histogram_series(closes, fast, slow, signal)
+        want = naive(closes, fast, slow, signal)
+        assert len(got) == len(want)
+        for g, w in zip(got, want):
+            assert g == pytest.approx(w, abs=1e-9)
+
+
 def test_asset_class_recognizes_native_binance_symbols():
     """Regression: _asset_class only checked the Yahoo-keyed catalog, so
     BTCUSDT fell through to 'stock' — wrong annualization and, worse,

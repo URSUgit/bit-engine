@@ -192,8 +192,12 @@ class ForecastService:
         composition: str | None = None,
         horizon_s: int | None = None,
     ) -> list[dict]:
-        """Rolling error stats grouped by (composition, horizon)."""
-        groups: dict[tuple[str, int], list[ForecastRecord]] = {}
+        """Rolling error stats grouped by (symbol, composition, horizon).
+
+        Grouping by symbol matters: pooling BTC (~$60k) with ETH (~$3k)
+        would make dollar-scale stats like MAE/RMSE meaningless.
+        """
+        groups: dict[tuple[str, str, int], list[ForecastRecord]] = {}
         for rec in self.resolved:
             if symbol and rec.symbol != symbol.upper():
                 continue
@@ -201,16 +205,17 @@ class ForecastService:
                 continue
             if horizon_s and rec.horizon_s != horizon_s:
                 continue
-            groups.setdefault((rec.composition, rec.horizon_s), []).append(rec)
+            groups.setdefault((rec.symbol, rec.composition, rec.horizon_s), []).append(rec)
 
         out = []
-        for (comp, h), recs in sorted(groups.items()):
+        for (sym, comp, h), recs in sorted(groups.items()):
             n = len(recs)
             abs_errs = [r.abs_error for r in recs]
             pct_errs = [r.pct_error for r in recs]
             calls = [r for r in recs if r.direction_hit is not None]
             hits = sum(1 for r in calls if r.direction_hit)
             out.append({
+                "symbol": sym,
                 "composition": comp,
                 "horizon_s": h,
                 "n": n,
