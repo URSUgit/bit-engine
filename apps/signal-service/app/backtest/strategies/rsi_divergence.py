@@ -84,8 +84,13 @@ class RSIDivergenceStrategy(Strategy):
                 return "close"
             return "hold"
 
-        # Compute RSI series for the lookback window
-        rsi_series = [_rsi(closes[:i + 1], period) for i in range(len(closes) - lookback, len(closes))]
+        # Compute RSI series for the lookback window. _rsi only reads the
+        # last `period` deltas, so hand it just that tail — passing the full
+        # prefix made every call O(history) and this strategy O(n^2).
+        rsi_series = [
+            _rsi(closes[max(0, i - period): i + 1], period)
+            for i in range(len(closes) - lookback, len(closes))
+        ]
         price_series = closes[-lookback:]
 
         price_lows = _find_local_lows(price_series, pw)

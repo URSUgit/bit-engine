@@ -268,7 +268,7 @@ async def test_signal_builder(req: TestBuilderRequest):
     try:
         bars = await loader.load(req.symbol, req.start_date, end_iso, req.interval)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Failed to load bars: {exc}")
+        raise HTTPException(status_code=400, detail=f"Failed to load bars: {exc!r}")
 
     if len(bars) < 30:
         raise HTTPException(

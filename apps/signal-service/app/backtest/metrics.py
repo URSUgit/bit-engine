@@ -7,16 +7,37 @@ from datetime import datetime
 from .models import Bar, EquityPoint, PerformanceMetrics, Trade
 
 
+# Bar duration in seconds for every interval the data layer can serve
+# (Binance: 1s–1M; Yahoo/Stooq/Kraken: 1h–1mo). Keys mirror data.py maps.
+_INTERVAL_SECONDS = {
+    "1s": 1, "1m": 60, "3m": 180, "5m": 300, "15m": 900, "30m": 1_800,
+    "1h": 3_600, "2h": 7_200, "4h": 14_400, "6h": 21_600, "8h": 28_800,
+    "12h": 43_200, "1d": 86_400, "3d": 259_200, "1wk": 604_800,
+    "1w": 604_800, "1mo": 2_629_800,
+}
+
+_STOCK_SESSION_SECONDS = 6.5 * 3_600  # NYSE/Nasdaq regular session
+
+
 def _annualization_factor(interval: str, asset_class: str = "stock") -> float:
-    """Trading periods per year for annualization."""
-    if interval == "1d":
-        # Crypto trades 365 days, stocks ~252
+    """Trading periods per year for annualization.
+
+    Crypto trades 24/7 (365 days/year); stocks ~252 sessions of 6.5 hours.
+    """
+    sec = _INTERVAL_SECONDS.get(interval)
+    if sec is None:
+        # Unknown interval: assume daily bars rather than mis-scaling wildly.
         return 365.0 if asset_class == "crypto" else 252.0
-    if interval == "1h":
-        return 24 * 365 if asset_class == "crypto" else 252 * 6.5
-    if interval == "1wk":
-        return 52.0
-    return 252.0
+    if sec < 86_400:  # intraday
+        if asset_class == "crypto":
+            return 365.0 * 86_400 / sec
+        return 252.0 * _STOCK_SESSION_SECONDS / sec
+    days = sec / 86_400
+    if asset_class == "crypto":
+        return 365.0 / days
+    # Stocks: 252 tradable daily bars; coarser bars follow the calendar
+    # (1wk ~52.2, 1mo = 12).
+    return 252.0 if days <= 1 else 365.25 / days
 
 
 def compute_returns(equity: list[float]) -> list[float]:

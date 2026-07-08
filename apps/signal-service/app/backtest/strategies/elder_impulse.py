@@ -31,22 +31,16 @@ def _macd_histogram_series(
     if len(closes) < slow + signal:
         return []
 
-    # Build MACD line series from index `slow-1` onward
-    macd_line_series: list[float] = []
-    for i in range(slow, len(closes) + 1):
-        fast_vals = closes[:i]
-        slow_vals = closes[:i]
-        if len(fast_vals) < fast or len(slow_vals) < slow:
-            continue
-        k_fast = 2.0 / (fast + 1)
-        ema_fast = sum(fast_vals[:fast]) / fast
-        for v in fast_vals[fast:]:
-            ema_fast = v * k_fast + ema_fast * (1 - k_fast)
-        k_slow = 2.0 / (slow + 1)
-        ema_slow = sum(slow_vals[:slow]) / slow
-        for v in slow_vals[slow:]:
-            ema_slow = v * k_slow + ema_slow * (1 - k_slow)
-        macd_line_series.append(ema_fast - ema_slow)
+    # Build MACD line series from index `slow-1` onward. The EMA over the
+    # prefix closes[:i] is _ema_series(closes, p)[i - p], so one O(n) pass
+    # per EMA replaces the old per-prefix rebuild (which was O(n^2) per
+    # call and made this the slowest strategy in the engine).
+    fast_series = _ema_series(closes, fast)
+    slow_series = _ema_series(closes, slow)
+    macd_line_series: list[float] = [
+        fast_series[i - fast] - slow_series[i - slow]
+        for i in range(max(fast, slow), len(closes) + 1)
+    ]
 
     if len(macd_line_series) < signal:
         return []

@@ -42,6 +42,11 @@ class Strategy(ABC):
         merged.update({k: v for k, v in params.items() if v is not None})
         self.params = merged
 
+    def get_param(self, key: str, default=None):
+        """Param value with fallback (params already carry schema defaults)."""
+        v = self.params.get(key)
+        return default if v is None else v
+
     def prepare(self, bars: list[Bar], progress_cb=None) -> None:
         """
         Optional hook called once with the FULL bar series before the engine loop.

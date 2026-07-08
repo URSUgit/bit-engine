@@ -94,6 +94,152 @@ def test_compute_metrics_empty_inputs_safe():
     assert m.final_equity == 10_000
 
 
+def test_annualization_factor_covers_intraday_intervals():
+    """Regression: only 1d/1h/1wk were mapped, so every other supported
+    interval (1m–12h, 3d, 1mo) fell back to 252 — a 1m crypto backtest
+    annualized Sharpe with √252 instead of √525600 (~45x understated)."""
+    from app.backtest.metrics import _annualization_factor as ann
+
+    # Crypto trades 24/7: 365 days of bars per year.
+    assert ann("1m", "crypto") == pytest.approx(525_600)
+    assert ann("15m", "crypto") == pytest.approx(35_040)
+    assert ann("4h", "crypto") == pytest.approx(2_190)
+    assert ann("1d", "crypto") == pytest.approx(365)
+    assert ann("3d", "crypto") == pytest.approx(365 / 3)
+
+    # Stocks: 252 sessions of 6.5 hours.
+    assert ann("1d", "stock") == pytest.approx(252)
+    assert ann("1h", "stock") == pytest.approx(252 * 6.5)
+    assert ann("15m", "stock") == pytest.approx(252 * 26)
+    assert ann("1wk", "stock") == pytest.approx(52.2, rel=0.01)
+    assert ann("1mo", "stock") == pytest.approx(12.0, rel=0.01)
+
+    # Unknown intervals degrade to daily, never to a wild intraday scale.
+    assert ann("weird", "stock") == pytest.approx(252)
+    assert ann("weird", "crypto") == pytest.approx(365)
+
+    # Factor must shrink monotonically as bars get coarser.
+    crypto_factors = [ann(i, "crypto") for i in ("1m", "5m", "1h", "4h", "1d", "1wk")]
+    assert crypto_factors == sorted(crypto_factors, reverse=True)
+
+
+def test_incremental_macd_matches_naive_reference():
+    """The O(1)-per-bar _MacdState must reproduce the O(n^2) reference
+    _macd_values on every prefix — it replaced a per-bar full recompute
+    that made a 6-month hourly MACD backtest take ~166s."""
+    import random
+
+    from app.backtest.strategies.macd import _MacdState, _macd_values
+
+    rng = random.Random(42)
+    closes: list[float] = []
+    price = 100.0
+    for _ in range(400):
+        price *= 1 + rng.uniform(-0.02, 0.02)
+        closes.append(price)
+
+    for fast, slow, signal in ((12, 26, 9), (5, 15, 4), (3, 7, 2)):
+        st = _MacdState(fast, slow, signal)
+        for n, close in enumerate(closes, start=1):
+            st.update(close)
+            ref = _macd_values(closes[:n], fast, slow, signal)
+            if n < slow + signal:
+                assert ref is None
+                continue
+            assert ref is not None
+            macd_ref, sig_ref, _hist = ref
+            assert st.macd_now == pytest.approx(macd_ref, abs=1e-9)
+            assert st.sig_now == pytest.approx(sig_ref, abs=1e-9)
+
+
+def test_every_registered_strategy_runs_in_the_engine():
+    """Smoke test: each of the 26 strategies must complete a run without
+    raising. Regression for 9 strategies (aroon, dema_cross, donchian,
+    heikin_ashi, keltner, rsi_ma_filter, supertrend, triple_ema,
+    williams_r) that called self.get_param(), which the Strategy base
+    class never defined — they crashed on their first bar."""
+    import random
+    from datetime import datetime, timedelta, timezone
+
+    from app.backtest.engine import Backtest
+    from app.backtest.models import Bar
+    from app.backtest.strategies import STRATEGIES
+
+    rng = random.Random(11)
+    bars, price = [], 30_000.0
+    t = datetime(2023, 6, 1, tzinfo=timezone.utc)
+    for i in range(300):
+        o = price
+        price *= 1 + rng.uniform(-0.01, 0.011)  # slight upward drift
+        h, l = max(o, price) * 1.002, min(o, price) * 0.998
+        bars.append(Bar(timestamp=t, open=o, high=h, low=l, close=price, volume=1_000.0))
+        t += timedelta(hours=1)
+
+    assert len(STRATEGIES) >= 20
+    for name, cls in STRATEGIES.items():
+        trades, equity = Backtest().run(bars, cls(), symbol="BTC-USD", interval="1h")
+        assert equity, f"strategy '{name}' produced no equity curve"
+
+
+def test_elder_macd_histogram_matches_per_prefix_naive():
+    """Regression: the histogram series must equal the old per-prefix EMA
+    rebuild it replaced (which was O(n^2) per call, O(n^3) per backtest)."""
+    import random
+
+    from app.backtest.strategies.elder_impulse import _macd_histogram_series
+
+    def naive(closes, fast, slow, signal):
+        def ema(vals, p):
+            k = 2.0 / (p + 1)
+            e = sum(vals[:p]) / p
+            for v in vals[p:]:
+                e = v * k + e * (1 - k)
+            return e
+
+        if len(closes) < slow + signal:
+            return []
+        macd = [
+            ema(closes[:i], fast) - ema(closes[:i], slow)
+            for i in range(max(fast, slow), len(closes) + 1)
+        ]
+        if len(macd) < signal:
+            return []
+        k = 2.0 / (signal + 1)
+        sig = sum(macd[:signal]) / signal
+        out = [macd[signal - 1] - sig]
+        for v in macd[signal:]:
+            sig = v * k + sig * (1 - k)
+            out.append(v - sig)
+        return out
+
+    rng = random.Random(3)
+    closes, price = [], 100.0
+    for _ in range(300):
+        price *= 1 + rng.uniform(-0.02, 0.02)
+        closes.append(price)
+
+    for fast, slow, signal in ((12, 26, 9), (5, 15, 4)):
+        got = _macd_histogram_series(closes, fast, slow, signal)
+        want = naive(closes, fast, slow, signal)
+        assert len(got) == len(want)
+        for g, w in zip(got, want):
+            assert g == pytest.approx(w, abs=1e-9)
+
+
+def test_asset_class_recognizes_native_binance_symbols():
+    """Regression: _asset_class only checked the Yahoo-keyed catalog, so
+    BTCUSDT fell through to 'stock' — wrong annualization and, worse,
+    funding rates were never applied for native Binance pairs."""
+    from app.backtest.engine import _asset_class
+
+    assert _asset_class("BTC-USD") == "crypto"   # catalog path
+    assert _asset_class("BTCUSDT") == "crypto"   # native Binance path
+    assert _asset_class("SOLUSDC") == "crypto"
+    assert _asset_class("AAPL") == "stock"
+    assert _asset_class("EURUSD=X") == "forex"
+    assert _asset_class("GC=F") == "commodity"
+
+
 def test_binance_symbol_resolver():
     """Regression: native Binance symbols (BTCUSDT) never matched the
     Yahoo-keyed map, so the Binance data fallback silently skipped them and
