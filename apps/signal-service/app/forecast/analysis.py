@@ -76,6 +76,10 @@ def benford_test(values: list[float], position: int = 1) -> dict:
         })
     df = len(expected) - 1
     crit = _CHI2_CRIT[df]
+    if position == 1:
+        # A leading significant digit can never be 0, so this bin must stay
+        # at zero — shown anyway for observation. Excluded from chi-square.
+        rows.insert(0, {"digit": 0, "observed": 0, "observed_pct": 0.0, "expected_pct": 0.0})
     return {
         "position": position,
         "n": n,
