@@ -438,7 +438,7 @@ function NarratorPanel({ symbol }: { symbol: string }) {
   }, [messages]);
 
   return (
-    <div className="flex h-96 flex-col rounded-lg border border-zinc-800 bg-zinc-900/50">
+    <div className="flex h-[27rem] flex-col rounded-lg border border-zinc-800 bg-zinc-900/50">
       <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-2">
         <MessageSquareText size={14} className="text-zinc-400" />
         <h2 className="text-sm font-semibold text-zinc-200">Narrator</h2>
@@ -495,6 +495,113 @@ const BENFORD_WINDOWS: { label: string; value: number | "auto" }[] = [
 const fmtWindow = (s: number) =>
   s === 0 ? "all ticks" : s < 60 ? `${s}s` : `${Math.round(s / 60)}m`;
 
+/** Mirror of the backend's significant-digit extraction (analysis.py). */
+function sigDigitString(value: number): string {
+  const v = Math.abs(value);
+  if (v === 0 || !Number.isFinite(v)) return "";
+  const [mantissa] = v.toExponential(14).split("e");
+  return mantissa.replace(".", "").replace(/0+$/, "");
+}
+
+function kthSigDigit(value: number, k: number): number | null {
+  const s = sigDigitString(value);
+  return k <= s.length ? Number(s[k - 1]) : null;
+}
+
+/** Decimal rendering of |value| that shows all-and-only significant digits
+ *  (plus structural zeros), so the arrowed digit is exactly the collected one. */
+function formatMoveDigits(value: number, maxSig = 6): { text: string; sigIndexes: number[] } {
+  const v = Math.abs(value);
+  if (v === 0 || !Number.isFinite(v)) return { text: "0", sigIndexes: [] };
+  const s = sigDigitString(v).slice(0, maxSig);
+  const e = Math.floor(Math.log10(v));
+  let text: string;
+  if (e >= 0) {
+    const intPart = s.length > e ? s.slice(0, e + 1) : s.padEnd(e + 1, "0");
+    const frac = s.length > e + 1 ? s.slice(e + 1) : "";
+    text = frac ? `${intPart}.${frac}` : intPart;
+  } else {
+    text = `0.${"0".repeat(-e - 1)}${s}`;
+  }
+  // Indexes (into text) of each significant digit, in order.
+  const sigIndexes: number[] = [];
+  let started = false;
+  for (let i = 0; i < text.length && sigIndexes.length < s.length; i++) {
+    const ch = text[i];
+    if (ch === ".") continue;
+    if (!started && ch === "0") continue;
+    started = true;
+    sigIndexes.push(i);
+  }
+  return { text, sigIndexes };
+}
+
+/** Live view of the number being collected right now, arrow on the k-th digit. */
+function CollectorStrip({ ticks, position }: { ticks: TickPoint[]; position: number }) {
+  if (ticks.length < 2) {
+    return (
+      <div className="border-b border-zinc-800/60 px-4 py-2 text-xs text-zinc-500">
+        Waiting for two ticks to form the first move…
+      </div>
+    );
+  }
+  const prev = ticks[ticks.length - 2];
+  const last = ticks[ticks.length - 1];
+  const delta = last.price - prev.price;
+  const bin = kthSigDigit(delta, position);
+  const { text, sigIndexes } = formatMoveDigits(delta);
+  const arrowIdx = sigIndexes[position - 1];
+  const ordinal = position === 1 ? "1st" : position === 2 ? "2nd" : "3rd";
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-zinc-800/60 px-4 py-2 text-xs">
+      <span className="flex items-center gap-1.5 text-zinc-500">
+        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
+        collecting {ordinal} digit of each tick move
+      </span>
+      <span className="font-mono text-sm tabular-nums" key={last.ts}>
+        <span className={delta > 0 ? "text-emerald-400" : delta < 0 ? "text-red-400" : "text-zinc-500"}>
+          {delta > 0 ? "+" : delta < 0 ? "−" : "±"}
+        </span>
+        {delta === 0 ? (
+          <span className="text-zinc-500">0</span>
+        ) : (
+          text.split("").map((ch, i) => (
+            <span key={i} className="relative inline-block">
+              {i === arrowIdx && (
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[9px] leading-none text-sky-300">
+                  ▼
+                </span>
+              )}
+              <span
+                className={
+                  i === arrowIdx
+                    ? "rounded-sm bg-sky-500/25 px-0.5 font-bold text-sky-300"
+                    : "text-zinc-400"
+                }
+              >
+                {ch}
+              </span>
+            </span>
+          ))
+        )}
+      </span>
+      {delta === 0 ? (
+        <span className="text-zinc-500">price unchanged — nothing collected</span>
+      ) : bin == null ? (
+        <span className="text-amber-400/80">
+          this move has no {ordinal} significant digit — skipped
+        </span>
+      ) : (
+        <span className="text-sky-300">
+          → bin <span className="font-mono font-bold">{bin}</span>
+        </span>
+      )}
+      <span className="ml-auto text-zinc-600">1 move / tick (~1s)</span>
+    </div>
+  );
+}
+
 /** A freshly collected sample visibly "landing" in its digit bin. */
 interface BenfordDrop {
   id: number;
@@ -529,7 +636,7 @@ function FallingDot({ targetPct, count }: { targetPct: number; count: number }) 
   );
 }
 
-function BenfordPanel({ symbol }: { symbol: string }) {
+function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] }) {
   const [position, setPosition] = useState(1);
   const [window_, setWindow] = useState<number | "auto">("auto");
   const [data, setData] = useState<BenfordResult | null>(null);
@@ -595,7 +702,7 @@ function BenfordPanel({ symbol }: { symbol: string }) {
   }));
 
   return (
-    <div className="flex h-96 flex-col rounded-lg border border-zinc-800 bg-zinc-900/50">
+    <div className="flex h-[27rem] flex-col rounded-lg border border-zinc-800 bg-zinc-900/50">
       {/* Header: title + digit position + window length */}
       <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 px-4 py-2">
         <BarChart3 size={14} className="text-zinc-400" />
@@ -613,6 +720,9 @@ function BenfordPanel({ symbol }: { symbol: string }) {
           </Chip>
         ))}
       </div>
+
+      {/* Live collector: the exact digit being harvested from each move */}
+      <CollectorStrip ticks={ticks} position={position} />
 
       {/* Verdict strip: window used, sample count, chi-square */}
       {data && (
@@ -1231,7 +1341,7 @@ export default function ForecasterPage() {
       {/* Narrator + Benford analysis */}
       <div className="grid gap-4 lg:grid-cols-2">
         <NarratorPanel symbol={symbol} />
-        <BenfordPanel symbol={symbol} />
+        <BenfordPanel symbol={symbol} ticks={live?.ticks ?? []} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1.6fr]">
