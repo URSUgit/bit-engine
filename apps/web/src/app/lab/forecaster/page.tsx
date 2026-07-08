@@ -679,7 +679,22 @@ function FallingDot({ targetPct, count }: { targetPct: number; count: number }) 
   );
 }
 
-function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] }) {
+export interface BenfordSetup {
+  position: number;
+  source: "price" | "delta";
+  digitMode: DigitMode;
+  nonce: number;
+}
+
+function BenfordPanel({
+  symbol,
+  ticks,
+  apply,
+}: {
+  symbol: string;
+  ticks: TickPoint[];
+  apply: BenfordSetup | null;
+}) {
   const [position, setPosition] = useState(1);
   const [source, setSource] = useState<"price" | "delta">("price");
   const [digitMode, setDigitMode] = useState<DigitMode>("literal");
@@ -688,6 +703,15 @@ function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] })
   const [drops, setDrops] = useState<BenfordDrop[]>([]);
   const prevCounts = useRef<{ key: string; counts: Map<number, number> } | null>(null);
   const dropId = useRef(1);
+
+  // Backtest's "use this setup live": adopt the ideal configuration.
+  useEffect(() => {
+    if (!apply) return;
+    setPosition(apply.position);
+    setSource(apply.source);
+    setDigitMode(apply.digitMode);
+    setWindow("auto");
+  }, [apply]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1047,7 +1071,13 @@ function RollingChi2Chart({
   );
 }
 
-function BenfordBacktestPanel({ symbols }: { symbols: string[] }) {
+function BenfordBacktestPanel({
+  symbols,
+  onApply,
+}: {
+  symbols: string[];
+  onApply: (setup: Omit<BenfordSetup, "nonce">) => void;
+}) {
   const [symbol, setSymbol] = useState("BTC-USD");
   const [interval_, setInterval_] = useState("1d");
   const [startDate, setStartDate] = useState("2022-01-01");
@@ -1147,6 +1177,19 @@ function BenfordBacktestPanel({ symbols }: { symbols: string[] }) {
                 <X size={12} /> deviates
               </span>
             )}
+            <button
+              onClick={() =>
+                onApply({
+                  position: data.best!.position,
+                  source: data.best!.source === "delta" ? "delta" : "price",
+                  digitMode,
+                })
+              }
+              className="rounded bg-sky-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-sky-500"
+              title="Apply this ideal configuration to the live Benford panel"
+            >
+              Use this setup live ↑
+            </button>
             <span className="ml-auto text-zinc-500">
               {data.n_closes} bars · {data.combos_tested} combos · {data.symbol} {data.interval}
             </span>
@@ -1531,6 +1574,8 @@ export default function ForecasterPage() {
   const [horizons, setHorizons] = useState<Set<number>>(new Set(HORIZONS));
   const [indicators, setIndicators] = useState<Set<IndicatorId>>(new Set(["ema60"]));
   const [fitSignal, setFitSignal] = useState(0);
+  const [benfordApply, setBenfordApply] = useState<BenfordSetup | null>(null);
+  const benfordRef = useRef<HTMLDivElement>(null);
   const compOrder = useRef<string[]>([]);
 
   const colorFor = useCallback((name: string) => {
@@ -1724,11 +1769,19 @@ export default function ForecasterPage() {
       {/* Narrator + Benford analysis */}
       <div className="grid gap-4 lg:grid-cols-2">
         <NarratorPanel symbol={symbol} />
-        <BenfordPanel symbol={symbol} ticks={live?.ticks ?? []} />
+        <div ref={benfordRef}>
+          <BenfordPanel symbol={symbol} ticks={live?.ticks ?? []} apply={benfordApply} />
+        </div>
       </div>
 
       {/* Historical Benford scan */}
-      <BenfordBacktestPanel symbols={symbols} />
+      <BenfordBacktestPanel
+        symbols={symbols}
+        onApply={(setup) => {
+          setBenfordApply({ ...setup, nonce: Date.now() });
+          benfordRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
+      />
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1.6fr]">
         <ComposerPanel
