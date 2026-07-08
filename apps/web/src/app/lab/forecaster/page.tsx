@@ -853,7 +853,8 @@ function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] })
         </span>
         <span className="ml-auto">
           x: {position === 1 ? "1st" : position === 2 ? "2nd" : "3rd"} significant digit of{" "}
-          {source === "price" ? "the live price (1/s)" : "tick-to-tick moves"} · y: share of samples
+          {source === "price" ? "the live price (1/s)" : "tick-to-tick moves"}
+          {position === 1 && " (1–9; a leading digit can't be 0)"} · y: share of samples
         </span>
       </div>
     </div>
@@ -1071,6 +1072,11 @@ function BenfordBacktestPanel({ symbols }: { symbols: string[] }) {
             <div>
               <div className="mb-2 text-[11px] uppercase tracking-wide text-zinc-500">
                 Ideal distribution — observed vs Benford
+                {data.best.position === 1 && (
+                  <span className="ml-2 normal-case text-zinc-600">
+                    digits 1–9 — a leading digit can&apos;t be 0
+                  </span>
+                )}
               </div>
               <BenfordDistChart rows={data.best.rows} />
             </div>
