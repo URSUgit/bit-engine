@@ -561,7 +561,7 @@ function CollectorStrip({
 }) {
   if (ticks.length < 2) {
     return (
-      <div className="border-b border-zinc-800/60 px-4 py-2 text-xs text-zinc-500">
+      <div className="flex h-10 items-center border-b border-zinc-800/60 px-4 text-xs text-zinc-500">
         Waiting for live ticks…
       </div>
     );
@@ -582,14 +582,15 @@ function CollectorStrip({
   const ordinal = position === 1 ? "1st" : position === 2 ? "2nd" : "3rd";
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-zinc-800/60 px-4 py-2 text-xs">
-      <span className="flex items-center gap-1.5 text-zinc-500">
+    /* Fixed height + nowrap: live content must never reflow the page */
+    <div className="flex h-10 items-center gap-x-3 overflow-hidden whitespace-nowrap border-b border-zinc-800/60 px-4 text-xs">
+      <span className="flex shrink-0 items-center gap-1.5 text-zinc-500">
         <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
         {source === "price"
           ? `collecting ${ordinal} digit of the live price`
           : `collecting ${ordinal} digit of each tick move`}
       </span>
-      <span className="font-mono text-sm tabular-nums" key={last.ts}>
+      <span className="inline-block min-w-[9.5rem] font-mono text-sm tabular-nums" key={last.ts}>
         {source === "delta" && (
           <span className={delta > 0 ? "text-emerald-400" : delta < 0 ? "text-red-400" : "text-zinc-500"}>
             {delta > 0 ? "+" : delta < 0 ? "−" : "±"}
@@ -629,7 +630,7 @@ function CollectorStrip({
           → bin <span className="font-mono font-bold">{bin}</span>
         </span>
       )}
-      <span className="ml-auto text-zinc-600">1 nr / second</span>
+      <span className="ml-auto shrink-0 text-zinc-600">1 nr / second</span>
     </div>
   );
 }
@@ -774,7 +775,7 @@ function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] })
 
       {/* Verdict strip: window used, sample count, chi-square */}
       {data && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-zinc-800/60 px-4 py-1.5 text-xs text-zinc-400">
+        <div className="flex h-8 items-center gap-x-4 overflow-hidden whitespace-nowrap border-b border-zinc-800/60 px-4 text-xs text-zinc-400">
           <span>
             window: <span className="font-mono text-zinc-200">{fmtWindow(data.window_s)}</span>
             {window_ === "auto" && <span className="text-zinc-500"> (auto best-fit)</span>}
@@ -1392,9 +1393,10 @@ function AccuracyTable({
     );
   }
   return (
-    <div className="overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900/50">
+    /* Fixed max height + internal scroll: growing rows must not push the page */
+    <div className="max-h-[27rem] overflow-auto rounded-lg border border-zinc-800 bg-zinc-900/50">
       <table className="w-full text-left text-xs">
-        <thead>
+        <thead className="sticky top-0 bg-zinc-900">
           <tr className="border-b border-zinc-800 text-zinc-500">
             <th className="px-3 py-2 font-medium">Composition</th>
             <th className="px-3 py-2 font-medium">Horizon</th>
@@ -1574,7 +1576,7 @@ export default function ForecasterPage() {
   return (
     <div className="space-y-4 p-6">
       {/* Header row: symbol, live price, status */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex min-h-9 flex-wrap items-center gap-3">
         <h1 className="flex items-center gap-2 text-lg font-semibold text-zinc-100">
           <Activity size={18} /> Forecaster
         </h1>
@@ -1589,7 +1591,7 @@ export default function ForecasterPage() {
         </select>
         {lastPrice != null && (
           <span
-            className={`font-mono text-lg tabular-nums ${
+            className={`inline-block min-w-[8rem] text-right font-mono text-lg tabular-nums ${
               priceDelta > 0
                 ? "text-emerald-400"
                 : priceDelta < 0
