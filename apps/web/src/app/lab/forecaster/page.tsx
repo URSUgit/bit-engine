@@ -438,7 +438,7 @@ function NarratorPanel({ symbol }: { symbol: string }) {
   }, [messages]);
 
   return (
-    <div className="flex h-72 flex-col rounded-lg border border-zinc-800 bg-zinc-900/50">
+    <div className="flex h-96 flex-col rounded-lg border border-zinc-800 bg-zinc-900/50">
       <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-2">
         <MessageSquareText size={14} className="text-zinc-400" />
         <h2 className="text-sm font-semibold text-zinc-200">Narrator</h2>
@@ -479,19 +479,37 @@ interface BenfordResult {
   chi2_critical_p05: number;
   conforms: boolean | null;
   source: string;
+  window_s: number;
+  windows_tried?: { window_s: number; n: number; chi2: number }[];
 }
+
+const BENFORD_WINDOWS: { label: string; value: number | "auto" }[] = [
+  { label: "Auto", value: "auto" },
+  { label: "1m", value: 60 },
+  { label: "5m", value: 300 },
+  { label: "10m", value: 600 },
+  { label: "20m", value: 1200 },
+  { label: "All", value: 0 },
+];
+
+const fmtWindow = (s: number) =>
+  s === 0 ? "all ticks" : s < 60 ? `${s}s` : `${Math.round(s / 60)}m`;
 
 function BenfordPanel({ symbol }: { symbol: string }) {
   const [position, setPosition] = useState(1);
-  const [source, setSource] = useState<"delta" | "price">("delta");
+  const [window_, setWindow] = useState<number | "auto">("auto");
   const [data, setData] = useState<BenfordResult | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const poll = async () => {
       try {
+        const qs =
+          window_ === "auto"
+            ? "&auto_window=true"
+            : `&window_s=${window_}`;
         const d = await api<BenfordResult>(
-          `/benford?symbol=${symbol}&position=${position}&source=${source}`
+          `/benford?symbol=${symbol}&position=${position}&source=delta${qs}`
         );
         if (!cancelled) setData(d);
       } catch {
@@ -499,105 +517,133 @@ function BenfordPanel({ symbol }: { symbol: string }) {
       }
     };
     poll();
-    const t = setInterval(poll, 10000);
+    const t = setInterval(poll, 3000); // live: watch the distribution take shape
     return () => {
       cancelled = true;
       clearInterval(t);
     };
-  }, [symbol, position, source]);
+  }, [symbol, position, window_]);
 
   const maxPct = data
-    ? Math.max(...data.rows.map((r) => Math.max(r.observed_pct, r.expected_pct)), 1) * 1.15
+    ? Math.max(...data.rows.map((r) => Math.max(r.observed_pct, r.expected_pct)), 1) * 1.2
     : 1;
+  const gridLines = [0.25, 0.5, 0.75, 1.0].map((f) => ({
+    frac: f,
+    pct: maxPct * f,
+  }));
 
   return (
-    <div className="flex h-72 flex-col rounded-lg border border-zinc-800 bg-zinc-900/50">
+    <div className="flex h-96 flex-col rounded-lg border border-zinc-800 bg-zinc-900/50">
+      {/* Header: title + digit position + window length */}
       <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 px-4 py-2">
         <BarChart3 size={14} className="text-zinc-400" />
         <h2 className="text-sm font-semibold text-zinc-200">Benford&apos;s law</h2>
+        <span className="text-xs text-zinc-600">·</span>
         {[1, 2, 3].map((p) => (
           <Chip key={p} on={position === p} onClick={() => setPosition(p)}>
             {p === 1 ? "1st" : p === 2 ? "2nd" : "3rd"} digit
           </Chip>
         ))}
-        <Chip on={source === "delta"} onClick={() => setSource(source === "delta" ? "price" : "delta")}>
-          {source === "delta" ? "tick moves" : "raw prices"}
-        </Chip>
-        {data && (
-          <span className="ml-auto text-xs text-zinc-400">
-            n={data.n} · χ²={data.chi2.toFixed(1)} vs {data.chi2_critical_p05.toFixed(1)}{" "}
-            {data.conforms == null ? (
-              <span className="text-zinc-500">(need ≥100 samples)</span>
-            ) : data.conforms ? (
-              <span className="text-emerald-400">✓ conforms</span>
-            ) : (
-              <span className="text-red-400">✕ deviates</span>
-            )}
-          </span>
-        )}
+        <span className="ml-2 text-xs uppercase tracking-wide text-zinc-600">Window</span>
+        {BENFORD_WINDOWS.map((w) => (
+          <Chip key={w.label} on={window_ === w.value} onClick={() => setWindow(w.value)}>
+            {w.label}
+          </Chip>
+        ))}
       </div>
-      <div className="flex-1 p-3">
+
+      {/* Verdict strip: window used, sample count, chi-square */}
+      {data && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-zinc-800/60 px-4 py-1.5 text-xs text-zinc-400">
+          <span>
+            window: <span className="font-mono text-zinc-200">{fmtWindow(data.window_s)}</span>
+            {window_ === "auto" && <span className="text-zinc-500"> (auto best-fit)</span>}
+          </span>
+          <span>
+            samples: <span className="font-mono text-zinc-200">{data.n}</span> tick moves
+          </span>
+          <span>
+            χ² <span className="font-mono text-zinc-200">{data.chi2.toFixed(1)}</span>
+            <span className="text-zinc-500"> / crit {data.chi2_critical_p05.toFixed(1)}</span>
+          </span>
+          {data.conforms == null ? (
+            <span className="text-zinc-500">collecting — need ≥100 samples for a verdict</span>
+          ) : data.conforms ? (
+            <span className="flex items-center gap-1 text-emerald-400">
+              <Check size={12} /> conforms to Benford
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 text-red-400">
+              <X size={12} /> deviates from Benford
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Chart: CSS bars with % labels, % gridlines, digit identification */}
+      <div className="relative flex-1 pb-8 pl-12 pr-4 pt-4">
         {data && data.n > 0 ? (
-          <svg viewBox="0 0 100 56" preserveAspectRatio="none" className="h-full w-full">
-            {data.rows.map((r, i) => {
-              const slot = 100 / data.rows.length;
-              const x = i * slot;
-              const barW = slot * 0.55;
-              const obsH = (r.observed_pct / maxPct) * 46;
-              const expY = 48 - (r.expected_pct / maxPct) * 46;
-              return (
-                <g key={r.digit}>
-                  <title>
-                    {`digit ${r.digit}: observed ${r.observed_pct.toFixed(1)}% (${r.observed}), Benford ${r.expected_pct.toFixed(1)}%`}
-                  </title>
-                  {/* observed bar */}
-                  <rect
-                    x={x + (slot - barW) / 2}
-                    y={48 - obsH}
-                    width={barW}
-                    height={obsH}
-                    rx={0.8}
-                    fill="#3987e5"
+          <>
+            {/* gridlines + y-axis % labels */}
+            {gridLines.map((g) => (
+              <div
+                key={g.frac}
+                className="pointer-events-none absolute left-12 right-4 border-t border-dashed border-zinc-800"
+                style={{ bottom: `${2 + g.frac * 82}%` }}
+              >
+                <span className="absolute -top-2 right-full pr-1 text-[10px] tabular-nums text-zinc-600">
+                  {g.pct.toFixed(0)}%
+                </span>
+              </div>
+            ))}
+            <div className="relative flex h-full items-end gap-[3%]">
+              {data.rows.map((r) => (
+                <div
+                  key={r.digit}
+                  className="group relative flex h-full flex-1 flex-col items-center justify-end"
+                  title={`digit ${r.digit}: observed ${r.observed_pct.toFixed(2)}% (${r.observed} of ${data.n}), Benford expects ${r.expected_pct.toFixed(2)}%`}
+                >
+                  {/* % label above the bar */}
+                  <span className="mb-0.5 text-[10px] font-medium tabular-nums text-zinc-300">
+                    {r.observed_pct.toFixed(1)}%
+                  </span>
+                  {/* observed bar — height animates as the distribution shapes */}
+                  <div
+                    className="w-3/5 rounded-t-sm bg-[#3987e5] transition-[height] duration-700 ease-out"
+                    style={{ height: `${(r.observed_pct / maxPct) * 100}%` }}
                   />
-                  {/* expected Benford level — dash across the slot */}
-                  <line
-                    x1={x + slot * 0.12}
-                    x2={x + slot * 0.88}
-                    y1={expY}
-                    y2={expY}
-                    stroke="#e4e4e7"
-                    strokeWidth={0.7}
-                    strokeDasharray="1.5 1"
+                  {/* expected Benford level */}
+                  <div
+                    className="pointer-events-none absolute left-[10%] right-[10%] border-t-2 border-dashed border-zinc-200"
+                    style={{ bottom: `${(r.expected_pct / maxPct) * 100}%` }}
                   />
-                  <text
-                    x={x + slot / 2}
-                    y={54}
-                    textAnchor="middle"
-                    fontSize={3.4}
-                    fill="#a1a1aa"
-                  >
+                  {/* digit identification */}
+                  <span className="absolute -bottom-6 text-xs font-semibold tabular-nums text-zinc-300">
                     {r.digit}
-                  </text>
-                </g>
-              );
-            })}
-          </svg>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-zinc-500">
             Collecting tick moves…
           </div>
         )}
       </div>
+
+      {/* Legend + axis caption */}
       <div className="flex items-center gap-4 border-t border-zinc-800 px-4 py-1.5 text-[11px] text-zinc-500">
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-2 w-2 rounded-sm bg-[#3987e5]" /> observed
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-0 w-3 border-t border-dashed border-zinc-200" /> Benford
+          <span className="inline-block h-0 w-3 border-t-2 border-dashed border-zinc-200" /> Benford
           expected
         </span>
         <span className="ml-auto">
-          {source === "delta" ? "digits of tick-to-tick price moves" : "digits of raw price levels"}
+          x: {position === 1 ? "1st" : position === 2 ? "2nd" : "3rd"} significant digit of
+          tick-to-tick moves · y: share of samples
         </span>
       </div>
     </div>

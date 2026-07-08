@@ -307,3 +307,33 @@ def test_narrator_warms_up_then_comments():
     assert "TESTUSDT" in texts
     for m in msgs:
         assert m["ts"] > 0 and m["text"]
+
+
+def test_benford_best_window_picks_lowest_chi2_with_enough_samples():
+    import math as _math
+    import random
+
+    from app.forecast.analysis import BENFORD_WINDOWS_S, benford_best_window
+
+    rng = random.Random(9)
+    # 40 min of ticks whose moves are log-uniform (Benford-conforming)
+    ticks, t0, price = [], 50_000.0, 30_000.0
+    for i in range(2400):
+        move = 10 ** rng.uniform(-2, 2) * rng.choice((-1, 1))
+        price = max(1.0, price + move)
+        ticks.append((t0 + i, price))
+
+    best = benford_best_window(ticks, 1)
+    assert best["window_s"] in BENFORD_WINDOWS_S
+    assert best["n"] >= 100
+    assert len(best["windows_tried"]) == len(BENFORD_WINDOWS_S)
+    # every candidate with enough samples has chi2 >= the winner's
+    # (windows_tried values are rounded to 2dp, so allow that slack)
+    for row in best["windows_tried"]:
+        if row["n"] >= 100:
+            assert row["chi2"] >= best["chi2"] - 0.011
+    assert _math.isfinite(best["chi2"])
+
+    # far too little data: falls back to window_s=0 (all ticks)
+    tiny = benford_best_window(ticks[:20], 1)
+    assert tiny["window_s"] == 0

@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.forecast.analysis import benford_test, narrate
+from app.forecast.analysis import benford_best_window, benford_test, narrate
 from app.forecast.service import HORIZONS_S, forecast_service
 from app.forecast.strategies import strategy_catalog
 
@@ -91,19 +91,29 @@ async def benford(
     symbol: str = Query("BTCUSDT"),
     position: int = Query(1, ge=1, le=4),
     source: str = Query("delta", pattern="^(delta|price)$"),
+    window_s: int = Query(0, ge=0, le=3600, description="Trailing sample window in seconds; 0 = all ticks"),
+    auto_window: bool = Query(False, description="Pick the window length that best fits Benford"),
 ):
     """Benford's-law test on the k-th significant digit of tick moves.
 
     source=delta (default) tests tick-to-tick price changes — they span
     orders of magnitude, which Benford requires. source=price tests raw
     levels, which cluster tightly and generally will not conform.
+    auto_window tries several trailing windows and returns the best fit.
     """
     ticks = list(forecast_service.ticks.get(symbol.upper(), ()))
-    if source == "delta":
-        values = [p2 - p1 for (_, p1), (_, p2) in zip(ticks, ticks[1:]) if p2 != p1]
+    if auto_window and source == "delta":
+        result = benford_best_window(ticks, position)
     else:
-        values = [p for _, p in ticks]
-    result = benford_test(values, position)
+        if window_s > 0 and ticks:
+            cutoff = ticks[-1][0] - window_s
+            ticks = [(t, p) for t, p in ticks if t >= cutoff]
+        if source == "delta":
+            values = [p2 - p1 for (_, p1), (_, p2) in zip(ticks, ticks[1:]) if p2 != p1]
+        else:
+            values = [p for _, p in ticks]
+        result = benford_test(values, position)
+        result["window_s"] = window_s
     result["symbol"] = symbol.upper()
     result["source"] = source
     return result

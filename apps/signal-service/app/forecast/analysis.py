@@ -87,6 +87,43 @@ def benford_test(values: list[float], position: int = 1) -> dict:
     }
 
 
+# Candidate sample windows (seconds) for auto-fit, shortest to longest.
+BENFORD_WINDOWS_S: tuple[int, ...] = (60, 120, 300, 600, 900, 1200, 1800, 2400)
+
+
+def benford_best_window(
+    ticks: list[tuple[float, float]],
+    position: int = 1,
+    min_n: int = 100,
+) -> dict:
+    """Try several trailing window lengths and keep the one whose tick-move
+    digit distribution best fits Benford (lowest chi-square with n >= min_n).
+
+    Returns the winning benford_test result, annotated with `window_s` and a
+    `windows_tried` summary so the UI can show why this length was chosen.
+    """
+    tried: list[dict] = []
+    best: dict | None = None
+    last_t = ticks[-1][0] if ticks else 0.0
+    for window_s in BENFORD_WINDOWS_S:
+        cutoff = last_t - window_s
+        w = [(t, p) for t, p in ticks if t >= cutoff]
+        values = [p2 - p1 for (_, p1), (_, p2) in zip(w, w[1:]) if p2 != p1]
+        res = benford_test(values, position)
+        tried.append({"window_s": window_s, "n": res["n"], "chi2": round(res["chi2"], 2)})
+        if res["n"] < min_n:
+            continue
+        if best is None or res["chi2"] < best["chi2"]:
+            best = res
+            best["window_s"] = window_s
+    if best is None:  # not enough data anywhere: fall back to everything
+        values = [p2 - p1 for (_, p1), (_, p2) in zip(ticks, ticks[1:]) if p2 != p1]
+        best = benford_test(values, position)
+        best["window_s"] = 0
+    best["windows_tried"] = tried
+    return best
+
+
 # ── Narrator ─────────────────────────────────────────────────────────────────
 
 def _pct(a: float, b: float) -> float:
