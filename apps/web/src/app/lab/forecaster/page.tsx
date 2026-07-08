@@ -860,6 +860,275 @@ function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] })
   );
 }
 
+// ─── Benford backtest panel ───────────────────────────────────────────────────
+
+interface BenfordBTResult {
+  combos_tested: number;
+  n_closes: number;
+  symbol: string;
+  interval: string;
+  start: string;
+  end: string;
+  results: {
+    source: string;
+    position: number;
+    window_n: number;
+    n: number;
+    chi2: number;
+    chi2_critical_p05: number;
+    conforms: boolean | null;
+  }[];
+  best:
+    | (BenfordResult & { source: string; position: number; window_n: number })
+    | null;
+  rolling: { index: number; chi2: number }[];
+}
+
+/** Static observed-vs-expected distribution chart (winner's "ideal" graph). */
+function BenfordDistChart({ rows }: { rows: BenfordResult["rows"] }) {
+  const maxPct = Math.max(...rows.map((r) => Math.max(r.observed_pct, r.expected_pct)), 1) * 1.2;
+  return (
+    <div className="relative h-44 border-b border-l border-zinc-700 pl-1">
+      {[0.5, 1.0].map((f) => (
+        <div
+          key={f}
+          className="pointer-events-none absolute left-0 right-0 border-t border-dashed border-zinc-800"
+          style={{ bottom: `${f * 100}%` }}
+        >
+          <span className="absolute -top-2 right-full pr-1 text-[9px] tabular-nums text-zinc-600">
+            {(maxPct * f).toFixed(0)}%
+          </span>
+        </div>
+      ))}
+      <div className="flex h-full items-end gap-[3%] px-[2%]">
+        {rows.map((r) => (
+          <div
+            key={r.digit}
+            className="relative h-full flex-1"
+            title={`digit ${r.digit}: observed ${r.observed_pct.toFixed(2)}%, Benford ${r.expected_pct.toFixed(2)}%`}
+          >
+            <div
+              className="absolute bottom-0 left-1/2 w-3/5 -translate-x-1/2 rounded-t-sm bg-[#3987e5]"
+              style={{ height: `${(r.observed_pct / maxPct) * 100}%` }}
+            />
+            <div
+              className="pointer-events-none absolute left-[8%] right-[8%] border-t-2 border-dashed border-zinc-200"
+              style={{ bottom: `${(r.expected_pct / maxPct) * 100}%` }}
+            />
+            <span className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[10px] font-semibold tabular-nums text-zinc-400">
+              {r.digit}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Rolling chi-square line: how Benford conformity evolved over the history. */
+function RollingChi2Chart({
+  rolling,
+  critical,
+}: {
+  rolling: { index: number; chi2: number }[];
+  critical: number;
+}) {
+  if (rolling.length < 2) return null;
+  const maxChi = Math.max(...rolling.map((p) => p.chi2), critical) * 1.15;
+  const minIdx = rolling[0].index;
+  const spanIdx = rolling[rolling.length - 1].index - minIdx || 1;
+  const pts = rolling
+    .map((p) => `${(((p.index - minIdx) / spanIdx) * 100).toFixed(2)},${(100 - (p.chi2 / maxChi) * 100).toFixed(2)}`)
+    .join(" ");
+  const critY = 100 - (critical / maxChi) * 100;
+  return (
+    <div className="relative h-44">
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
+        <line
+          x1={0}
+          x2={100}
+          y1={critY}
+          y2={critY}
+          stroke="#e66767"
+          strokeWidth={0.8}
+          strokeDasharray="2 1.5"
+          vectorEffect="non-scaling-stroke"
+        />
+        <polyline
+          points={pts}
+          fill="none"
+          stroke="#3987e5"
+          strokeWidth={1.5}
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+      <span className="absolute right-1 text-[9px] text-red-400" style={{ top: `calc(${critY}% - 12px)` }}>
+        χ² critical {critical.toFixed(1)} — above = deviates
+      </span>
+    </div>
+  );
+}
+
+function BenfordBacktestPanel({ symbols }: { symbols: string[] }) {
+  const [symbol, setSymbol] = useState("BTC-USD");
+  const [interval_, setInterval_] = useState("1d");
+  const [startDate, setStartDate] = useState("2022-01-01");
+  const [data, setData] = useState<BenfordBTResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const d = await api<BenfordBTResult>(
+        `/benford/backtest?symbol=${encodeURIComponent(symbol)}&interval=${interval_}&start_date=${startDate}`
+      );
+      setData(d);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const ordinal = (p: number) => (p === 1 ? "1st" : p === 2 ? "2nd" : "3rd");
+
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900/50">
+      <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 px-4 py-2">
+        <BarChart3 size={14} className="text-zinc-400" />
+        <h2 className="text-sm font-semibold text-zinc-200">Benford backtest</h2>
+        <span className="text-xs text-zinc-500">
+          scan history for the ideal digit distribution
+        </span>
+        <span className="ml-4 flex flex-wrap items-center gap-2">
+          <input
+            value={symbol}
+            onChange={(e) => setSymbol(e.target.value)}
+            list="benford-bt-symbols"
+            className="w-28 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-100"
+            aria-label="Symbol"
+          />
+          <datalist id="benford-bt-symbols">
+            {["BTC-USD", "ETH-USD", "SOL-USD", ...symbols].map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+          {["15m", "1h", "4h", "1d"].map((iv) => (
+            <Chip key={iv} on={interval_ === iv} onClick={() => setInterval_(iv)}>
+              {iv}
+            </Chip>
+          ))}
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-100"
+            aria-label="Start date"
+          />
+          <button
+            onClick={run}
+            disabled={busy}
+            className="rounded bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-900 hover:bg-white disabled:opacity-50"
+          >
+            {busy ? "Scanning…" : "Run backtest"}
+          </button>
+        </span>
+      </div>
+      {error && <div className="px-4 py-2 text-xs text-red-400">{error}</div>}
+
+      {data?.best && (
+        <>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-zinc-800/60 px-4 py-2 text-xs text-zinc-300">
+            <span className="font-semibold text-zinc-100">Ideal configuration:</span>
+            <span>
+              {ordinal(data.best.position)} digit of{" "}
+              {data.best.source === "delta" ? "bar-to-bar moves" : "closing prices"}
+            </span>
+            <span>
+              window: <span className="font-mono">{data.best.window_n}</span> samples
+            </span>
+            <span>
+              χ² <span className="font-mono">{data.best.chi2.toFixed(1)}</span>
+              <span className="text-zinc-500"> / crit {data.best.chi2_critical_p05.toFixed(1)}</span>
+            </span>
+            {data.best.conforms ? (
+              <span className="flex items-center gap-1 text-emerald-400">
+                <Check size={12} /> conforms
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-red-400">
+                <X size={12} /> deviates
+              </span>
+            )}
+            <span className="ml-auto text-zinc-500">
+              {data.n_closes} bars · {data.combos_tested} combos · {data.symbol} {data.interval}
+            </span>
+          </div>
+
+          <div className="grid gap-6 px-4 pb-8 pt-3 lg:grid-cols-2">
+            <div>
+              <div className="mb-2 text-[11px] uppercase tracking-wide text-zinc-500">
+                Ideal distribution — observed vs Benford
+              </div>
+              <BenfordDistChart rows={data.best.rows} />
+            </div>
+            <div>
+              <div className="mb-2 text-[11px] uppercase tracking-wide text-zinc-500">
+                Conformity over history (rolling χ², lower is better)
+              </div>
+              <RollingChi2Chart rolling={data.rolling} critical={data.best.chi2_critical_p05} />
+            </div>
+          </div>
+
+          <div className="overflow-x-auto border-t border-zinc-800/60">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-zinc-800 text-zinc-500">
+                  <th className="px-3 py-1.5 font-medium">#</th>
+                  <th className="px-3 py-1.5 font-medium">Source</th>
+                  <th className="px-3 py-1.5 font-medium">Digit</th>
+                  <th className="px-3 py-1.5 text-right font-medium">Window</th>
+                  <th className="px-3 py-1.5 text-right font-medium">n</th>
+                  <th className="px-3 py-1.5 text-right font-medium">χ²</th>
+                  <th className="px-3 py-1.5 font-medium">Verdict</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.results.slice(0, 10).map((r, i) => (
+                  <tr key={i} className="border-b border-zinc-800/40 text-zinc-300">
+                    <td className="px-3 py-1 text-zinc-500">{i + 1}</td>
+                    <td className="px-3 py-1">{r.source === "delta" ? "moves" : "prices"}</td>
+                    <td className="px-3 py-1">{ordinal(r.position)}</td>
+                    <td className="px-3 py-1 text-right font-mono">{r.window_n}</td>
+                    <td className="px-3 py-1 text-right font-mono">{r.n}</td>
+                    <td className="px-3 py-1 text-right font-mono">{r.chi2.toFixed(1)}</td>
+                    <td className="px-3 py-1">
+                      {r.conforms == null ? "—" : r.conforms ? (
+                        <span className="text-emerald-400">conforms</span>
+                      ) : (
+                        <span className="text-red-400">deviates</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      {!data && !error && (
+        <div className="px-4 py-6 text-center text-xs text-zinc-500">
+          Pick a symbol, interval and start date, then run — every (source × digit × window)
+          combination is ranked by χ² fit to Benford; the winner&apos;s distribution and its
+          conformity over time are charted.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Composer panel ───────────────────────────────────────────────────────────
 
 function ComposerPanel({
@@ -1364,6 +1633,9 @@ export default function ForecasterPage() {
         <NarratorPanel symbol={symbol} />
         <BenfordPanel symbol={symbol} ticks={live?.ticks ?? []} />
       </div>
+
+      {/* Historical Benford scan */}
+      <BenfordBacktestPanel symbols={symbols} />
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1.6fr]">
         <ComposerPanel

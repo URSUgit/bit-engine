@@ -337,3 +337,45 @@ def test_benford_best_window_picks_lowest_chi2_with_enough_samples():
     # far too little data: falls back to window_s=0 (all ticks)
     tiny = benford_best_window(ticks[:20], 1)
     assert tiny["window_s"] == 0
+
+
+def test_benford_backtest_ranks_combos_and_details_winner():
+    import random
+
+    from app.forecast.analysis import BENFORD_BT_WINDOWS, benford_backtest
+
+    rng = random.Random(13)
+    closes, price = [], 30_000.0
+    for _ in range(3000):
+        # multiplicative random walk: deltas span magnitudes (Benford-ish)
+        price *= 1 + rng.uniform(-0.03, 0.031)
+        closes.append(price)
+
+    res = benford_backtest(closes)
+    assert res["n_closes"] == 3000
+    assert res["combos_tested"] > 0
+    assert res["results"], "expected ranked results"
+
+    # ranked ascending by chi2 among scored rows
+    scored = [r for r in res["results"] if r["n"] >= 100]
+    chis = [r["chi2"] for r in scored]
+    assert chis == sorted(chis)
+
+    best = res["best"]
+    assert best is not None
+    assert best["source"] in ("delta", "price")
+    assert best["position"] in (1, 2, 3)
+    assert best["window_n"] in BENFORD_BT_WINDOWS
+    assert len(best["rows"]) in (9, 10)
+    assert sum(r["expected_pct"] for r in best["rows"]) == pytest.approx(100.0, abs=0.01)
+
+    # rolling series exists, is chronological, and stays bounded in size
+    assert res["rolling"]
+    idxs = [p["index"] for p in res["rolling"]]
+    assert idxs == sorted(idxs)
+    assert len(res["rolling"]) <= 70
+
+    # too little data -> no winner, no crash
+    tiny = benford_backtest(closes[:50])
+    assert tiny["best"] is None
+    assert tiny["rolling"] == []

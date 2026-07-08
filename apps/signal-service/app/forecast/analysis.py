@@ -129,6 +129,72 @@ def benford_best_window(
     return best
 
 
+# Sample-count windows tried by the historical Benford backtest.
+BENFORD_BT_WINDOWS: tuple[int, ...] = (100, 250, 500, 1000, 2000, 5000)
+
+
+def benford_backtest(
+    closes: list[float],
+    positions: tuple[int, ...] = (1, 2, 3),
+    sources: tuple[str, ...] = ("delta", "price"),
+) -> dict:
+    """Scan historical closes for the configuration that best fits Benford.
+
+    Tries every (source, digit position, trailing sample-count window)
+    combination, ranks by chi-square (n >= 100), and returns the winner's
+    full digit distribution plus a rolling chi-square series so the UI can
+    chart how conformity evolved across the history.
+    """
+    series: dict[str, list[float]] = {}
+    if "delta" in sources:
+        series["delta"] = [b - a for a, b in zip(closes, closes[1:]) if b != a]
+    if "price" in sources:
+        series["price"] = list(closes)
+
+    results: list[dict] = []
+    for source, values in series.items():
+        for position in positions:
+            for win in BENFORD_BT_WINDOWS:
+                if win > len(values):
+                    continue
+                res = benford_test(values[-win:], position)
+                results.append({
+                    "source": source,
+                    "position": position,
+                    "window_n": win,
+                    "n": res["n"],
+                    "chi2": round(res["chi2"], 2),
+                    "chi2_critical_p05": res["chi2_critical_p05"],
+                    "conforms": res["conforms"],
+                })
+    scored = [r for r in results if r["n"] >= 100]
+    scored.sort(key=lambda r: r["chi2"])
+    results.sort(key=lambda r: (r["chi2"] if r["n"] >= 100 else float("inf")))
+
+    best_detail = None
+    rolling: list[dict] = []
+    if scored:
+        b = scored[0]
+        values = series[b["source"]]
+        best_detail = benford_test(values[-b["window_n"]:], b["position"])
+        best_detail.update({k: b[k] for k in ("source", "position", "window_n")})
+        # Rolling chi2 across history: same window, stepped so the series
+        # stays a manageable size.
+        win = b["window_n"]
+        step = max(1, (len(values) - win) // 60) if len(values) > win else 1
+        for end in range(win, len(values) + 1, step):
+            r = benford_test(values[end - win: end], b["position"])
+            rolling.append({"index": end, "chi2": round(r["chi2"], 2)})
+
+    return {
+        "combos_tested": len(results),
+        "results": results[:20],
+        "best": best_detail,
+        "rolling": rolling,
+        "n_closes": len(closes),
+    }
+
+
 # ── Narrator ─────────────────────────────────────────────────────────────────
 
 def _pct(a: float, b: float) -> float:

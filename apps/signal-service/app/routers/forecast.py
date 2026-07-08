@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.forecast.analysis import benford_best_window, benford_test, narrate
+from app.forecast.analysis import benford_backtest, benford_best_window, benford_test, narrate
 from app.forecast.service import HORIZONS_S, forecast_service
 from app.forecast.strategies import strategy_catalog
 
@@ -116,6 +116,36 @@ async def benford(
         result["window_s"] = window_s
     result["symbol"] = symbol.upper()
     result["source"] = source
+    return result
+
+
+@router.get("/benford/backtest")
+async def benford_backtest_endpoint(
+    symbol: str = Query("BTC-USD"),
+    interval: str = Query("1d", pattern="^(1m|5m|15m|1h|4h|1d)$"),
+    start_date: str = Query("2020-01-01"),
+    end_date: str | None = Query(None),
+):
+    """Historical Benford scan: which (source, digit, sample window) best
+    fits Benford on this symbol's history — the 'ideal distribution'."""
+    from app.backtest.data import HistoricalDataLoader
+
+    loader = HistoricalDataLoader()
+    try:
+        bars = await loader.load(symbol, start_date, end_date, interval)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to load bars: {exc!r}")
+    if len(bars) < 120:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Only {len(bars)} bars for {symbol} {interval} — need at least 120",
+        )
+    closes = [b.close for b in bars]
+    result = benford_backtest(closes)
+    result["symbol"] = symbol
+    result["interval"] = interval
+    result["start"] = str(getattr(bars[0], "timestamp", start_date))
+    result["end"] = str(getattr(bars[-1], "timestamp", end_date))
     return result
 
 
