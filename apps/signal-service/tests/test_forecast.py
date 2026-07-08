@@ -364,7 +364,7 @@ def test_benford_backtest_ranks_combos_and_details_winner():
     best = res["best"]
     assert best is not None
     assert best["source"] in ("delta", "price")
-    assert best["position"] in (1, 2, 3)
+    assert best["position"] in (1, 2, 3, 4, 5, 6)
     assert best["window_n"] in BENFORD_BT_WINDOWS
     assert len(best["rows"]) in (9, 10)
     assert sum(r["expected_pct"] for r in best["rows"]) == pytest.approx(100.0, abs=0.01)
@@ -409,3 +409,19 @@ def test_literal_digit_mode_integrates_zero_as_leading_bin():
     classic = benford_test(values, 1, digit_mode="significant")
     zero_classic = next(r for r in classic["rows"] if r["digit"] == 0)
     assert zero_classic["observed"] == 0
+
+
+def test_benford_expected_deep_positions():
+    from app.forecast.analysis import benford_expected
+
+    for pos in (4, 5, 6):
+        probs = benford_expected(pos)
+        assert set(probs) == set(range(0, 10))
+        assert sum(probs.values()) == pytest.approx(1.0, abs=1e-9)
+        # deep positions approach uniform
+        for p in probs.values():
+            assert p == pytest.approx(0.1, abs=0.005 if pos >= 5 else 0.02)
+    # position 6+ is exactly uniform (approximation documented)
+    assert all(p == 0.1 for p in benford_expected(6).values())
+    with pytest.raises(ValueError):
+        benford_expected(9)

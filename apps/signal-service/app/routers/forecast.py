@@ -89,7 +89,7 @@ async def narrator(symbol: str = Query("BTCUSDT")):
 @router.get("/benford")
 async def benford(
     symbol: str = Query("BTCUSDT"),
-    position: int = Query(1, ge=1, le=4),
+    position: int = Query(1, ge=1, le=6),
     source: str = Query("delta", pattern="^(delta|price)$"),
     window_s: int = Query(0, ge=0, le=3600, description="Trailing sample window in seconds; 0 = all ticks"),
     auto_window: bool = Query(False, description="Pick the window length that best fits Benford"),

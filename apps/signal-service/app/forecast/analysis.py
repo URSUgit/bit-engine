@@ -24,18 +24,34 @@ if TYPE_CHECKING:  # pragma: no cover
 _CHI2_CRIT = {8: 15.507, 9: 16.919}
 
 
+_EXPECTED_CACHE: dict[int, dict[int, float]] = {}
+
+
 def benford_expected(position: int) -> dict[int, float]:
-    """P(k-th significant digit = d). Position 1: d in 1..9; else d in 0..9."""
-    if position < 1 or position > 4:
-        raise ValueError("digit position must be 1..4")
+    """P(k-th significant digit = d). Position 1: d in 1..9; else d in 0..9.
+
+    Exact generalized Benford up to position 5; from position 6 the exact
+    distribution is uniform to within <1e-5, so uniform is returned.
+    Results are cached — position 5 alone sums 90k log terms.
+    """
+    if position < 1 or position > 8:
+        raise ValueError("digit position must be 1..8")
+    cached = _EXPECTED_CACHE.get(position)
+    if cached is not None:
+        return cached
     if position == 1:
-        return {d: math.log10(1 + 1 / d) for d in range(1, 10)}
-    lo = 10 ** (position - 2)
-    hi = 10 ** (position - 1)
-    return {
-        d: sum(math.log10(1 + 1 / (10 * j + d)) for j in range(lo, hi))
-        for d in range(0, 10)
-    }
+        probs = {d: math.log10(1 + 1 / d) for d in range(1, 10)}
+    elif position >= 6:
+        probs = {d: 0.1 for d in range(0, 10)}
+    else:
+        lo = 10 ** (position - 2)
+        hi = 10 ** (position - 1)
+        probs = {
+            d: sum(math.log10(1 + 1 / (10 * j + d)) for j in range(lo, hi))
+            for d in range(0, 10)
+        }
+    _EXPECTED_CACHE[position] = probs
+    return probs
 
 
 def kth_significant_digit(value: float, position: int) -> int | None:
@@ -173,7 +189,7 @@ BENFORD_BT_WINDOWS: tuple[int, ...] = (100, 250, 500, 1000, 2000, 5000)
 
 def benford_backtest(
     closes: list[float],
-    positions: tuple[int, ...] = (1, 2, 3),
+    positions: tuple[int, ...] = (1, 2, 3, 4, 5, 6),
     sources: tuple[str, ...] = ("delta", "price"),
     digit_mode: str = "significant",
 ) -> dict:

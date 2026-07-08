@@ -495,6 +495,16 @@ const BENFORD_WINDOWS: { label: string; value: number | "auto" }[] = [
 const fmtWindow = (s: number) =>
   s === 0 ? "all ticks" : s < 60 ? `${s}s` : `${Math.round(s / 60)}m`;
 
+const ORD = (p: number) => (p === 1 ? "1st" : p === 2 ? "2nd" : p === 3 ? "3rd" : `${p}th`);
+
+const DIGIT_POSITIONS = [1, 2, 3, 4, 5, 6];
+
+// The 0 bin at position 1 is "potential only": outside the chi-square
+// calculation, drawn in its own color so it never reads as a scored bin.
+const POTENTIAL_COLOR = "#c98500";
+const isPotentialBin = (r: { digit: number; expected_pct: number }) =>
+  r.digit === 0 && r.expected_pct === 0;
+
 /** Mirror of the backend's significant-digit extraction (analysis.py). */
 function sigDigitString(value: number): string {
   const v = Math.abs(value);
@@ -570,7 +580,7 @@ function CollectorStrip({
   const last = ticks[ticks.length - 1];
   const delta = last.price - prev.price;
   const value = source === "price" ? last.price : delta;
-  const { text, sigIndexes } = formatMoveDigits(value, source === "price" ? 7 : 6);
+  const { text, sigIndexes } = formatMoveDigits(value, Math.max(position + 2, source === "price" ? 7 : 6));
   const idxs = digitMode === "literal" ? literalIndexes(text) : sigIndexes;
   const arrowIdx = idxs[position - 1];
   const bin =
@@ -579,7 +589,7 @@ function CollectorStrip({
         ? Number(text[arrowIdx])
         : null
       : kthSigDigit(value, position);
-  const ordinal = position === 1 ? "1st" : position === 2 ? "2nd" : "3rd";
+  const ordinal = ORD(position);
 
   return (
     /* Fixed height + nowrap: live content must never reflow the page */
@@ -743,9 +753,9 @@ function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] })
         <BarChart3 size={14} className="text-zinc-400" />
         <h2 className="text-sm font-semibold text-zinc-200">Benford&apos;s law</h2>
         <span className="text-xs text-zinc-600">·</span>
-        {[1, 2, 3].map((p) => (
+        {DIGIT_POSITIONS.map((p) => (
           <Chip key={p} on={position === p} onClick={() => setPosition(p)}>
-            {p === 1 ? "1st" : p === 2 ? "2nd" : "3rd"} digit
+            {ORD(p)}
           </Chip>
         ))}
         <span className="ml-2 text-xs uppercase tracking-wide text-zinc-600">Source</span>
@@ -825,31 +835,46 @@ function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] })
               {data.rows.map((r) => {
                 const barPct = (r.observed_pct / maxPct) * 100;
                 const expPct = (r.expected_pct / maxPct) * 100;
+                const potential = isPotentialBin(r);
                 return (
                   <div
                     key={r.digit}
                     className="relative h-full flex-1"
-                    title={`digit ${r.digit}: observed ${r.observed_pct.toFixed(2)}% (${r.observed} of ${data.n}), Benford expects ${r.expected_pct.toFixed(2)}%`}
+                    title={
+                      potential
+                        ? `digit 0 (potential only, outside χ²): observed ${r.observed_pct.toFixed(2)}% (${r.observed} of ${data.n})`
+                        : `digit ${r.digit}: observed ${r.observed_pct.toFixed(2)}% (${r.observed} of ${data.n}), Benford expects ${r.expected_pct.toFixed(2)}%`
+                    }
                   >
                     {/* observed bar — anchored to the axis, height animates live */}
                     <div
-                      className="absolute bottom-0 left-1/2 w-3/5 -translate-x-1/2 rounded-t-sm bg-[#3987e5] transition-[height] duration-700 ease-out"
+                      className={`absolute bottom-0 left-1/2 w-3/5 -translate-x-1/2 rounded-t-sm transition-[height] duration-700 ease-out ${
+                        potential ? "bg-[#c98500]" : "bg-[#3987e5]"
+                      }`}
                       style={{ height: `${barPct}%` }}
                     />
                     {/* observed % label riding on top of the bar */}
                     <span
-                      className="absolute left-1/2 -translate-x-1/2 text-[10px] font-medium tabular-nums text-zinc-300 transition-[bottom] duration-700 ease-out"
+                      className={`absolute left-1/2 -translate-x-1/2 text-[10px] font-medium tabular-nums transition-[bottom] duration-700 ease-out ${
+                        potential ? "text-amber-500" : "text-zinc-300"
+                      }`}
                       style={{ bottom: `calc(${barPct}% + 2px)` }}
                     >
                       {r.observed_pct.toFixed(1)}
                     </span>
-                    {/* expected Benford level at its exact % height */}
-                    <div
-                      className="pointer-events-none absolute left-[8%] right-[8%] border-t-2 border-dashed border-zinc-200"
-                      style={{ bottom: `${expPct}%` }}
-                    />
+                    {/* expected Benford level at its exact % height (none for the potential bin) */}
+                    {!potential && (
+                      <div
+                        className="pointer-events-none absolute left-[8%] right-[8%] border-t-2 border-dashed border-zinc-200"
+                        style={{ bottom: `${expPct}%` }}
+                      />
+                    )}
                     {/* digit identification */}
-                    <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-xs font-semibold tabular-nums text-zinc-300">
+                    <span
+                      className={`absolute -bottom-6 left-1/2 -translate-x-1/2 text-xs font-semibold tabular-nums ${
+                        potential ? "text-amber-500" : "text-zinc-300"
+                      }`}
+                    >
                       {r.digit}
                     </span>
                     {/* freshly collected samples landing in this bin */}
@@ -879,13 +904,18 @@ function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] })
           <span className="inline-block h-0 w-3 border-t-2 border-dashed border-zinc-200" /> Benford
           expected
         </span>
+        {position === 1 && (
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2 w-2 rounded-sm bg-[#c98500]" /> 0 — potential only,
+            outside χ²
+          </span>
+        )}
         <span className="ml-auto">
-          x: {position === 1 ? "1st" : position === 2 ? "2nd" : "3rd"} significant digit of{" "}
+          x: {ORD(position)} digit of{" "}
           {source === "price" ? "the live price (1/s)" : "tick-to-tick moves"}
           {position === 1 &&
-            (digitMode === "literal"
-              ? " (0 integrated: numbers read as written, 0.53 leads with 0; dashes = classic Benford reference for 1–9)"
-              : " (classic: 0 can never lead a significant digit, bin stays 0%)")}{" "}
+            digitMode === "literal" &&
+            " (read as written: 0.53 leads with 0)"}{" "}
           · y: share of samples
         </span>
       </div>
@@ -934,25 +964,40 @@ function BenfordDistChart({ rows }: { rows: BenfordResult["rows"] }) {
         </div>
       ))}
       <div className="flex h-full items-end gap-[3%] px-[2%]">
-        {rows.map((r) => (
-          <div
-            key={r.digit}
-            className="relative h-full flex-1"
-            title={`digit ${r.digit}: observed ${r.observed_pct.toFixed(2)}%, Benford ${r.expected_pct.toFixed(2)}%`}
-          >
+        {rows.map((r) => {
+          const potential = isPotentialBin(r);
+          return (
             <div
-              className="absolute bottom-0 left-1/2 w-3/5 -translate-x-1/2 rounded-t-sm bg-[#3987e5]"
-              style={{ height: `${(r.observed_pct / maxPct) * 100}%` }}
-            />
-            <div
-              className="pointer-events-none absolute left-[8%] right-[8%] border-t-2 border-dashed border-zinc-200"
-              style={{ bottom: `${(r.expected_pct / maxPct) * 100}%` }}
-            />
-            <span className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[10px] font-semibold tabular-nums text-zinc-400">
-              {r.digit}
-            </span>
-          </div>
-        ))}
+              key={r.digit}
+              className="relative h-full flex-1"
+              title={
+                potential
+                  ? `digit 0 (potential only, outside χ²): observed ${r.observed_pct.toFixed(2)}%`
+                  : `digit ${r.digit}: observed ${r.observed_pct.toFixed(2)}%, Benford ${r.expected_pct.toFixed(2)}%`
+              }
+            >
+              <div
+                className={`absolute bottom-0 left-1/2 w-3/5 -translate-x-1/2 rounded-t-sm ${
+                  potential ? "bg-[#c98500]" : "bg-[#3987e5]"
+                }`}
+                style={{ height: `${(r.observed_pct / maxPct) * 100}%` }}
+              />
+              {!potential && (
+                <div
+                  className="pointer-events-none absolute left-[8%] right-[8%] border-t-2 border-dashed border-zinc-200"
+                  style={{ bottom: `${(r.expected_pct / maxPct) * 100}%` }}
+                />
+              )}
+              <span
+                className={`absolute -bottom-5 left-1/2 -translate-x-1/2 text-[10px] font-semibold tabular-nums ${
+                  potential ? "text-amber-500" : "text-zinc-400"
+                }`}
+              >
+                {r.digit}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1026,7 +1071,7 @@ function BenfordBacktestPanel({ symbols }: { symbols: string[] }) {
     }
   };
 
-  const ordinal = (p: number) => (p === 1 ? "1st" : p === 2 ? "2nd" : "3rd");
+  const ordinal = ORD;
 
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900/50">
@@ -1113,9 +1158,9 @@ function BenfordBacktestPanel({ symbols }: { symbols: string[] }) {
                 Ideal distribution — observed vs Benford
                 {data.best.position === 1 && (
                   <span className="ml-2 normal-case text-zinc-600">
-                    {digitMode === "literal"
-                      ? "0 integrated — numbers read as written (0.53 leads with 0)"
-                      : "classic — 0 can never lead, bin stays 0%"}
+                    <span className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#c98500] align-middle" />
+                    0 is potential only — outside χ²
+                    {digitMode === "literal" && " (read as written: 0.53 leads with 0)"}
                   </span>
                 )}
               </div>
