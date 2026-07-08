@@ -102,8 +102,8 @@ async def benford(
     auto_window tries several trailing windows and returns the best fit.
     """
     ticks = list(forecast_service.ticks.get(symbol.upper(), ()))
-    if auto_window and source == "delta":
-        result = benford_best_window(ticks, position)
+    if auto_window:
+        result = benford_best_window(ticks, position, source=source)
     else:
         if window_s > 0 and ticks:
             cutoff = ticks[-1][0] - window_s

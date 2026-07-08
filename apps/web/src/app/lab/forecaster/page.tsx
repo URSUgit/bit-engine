@@ -537,19 +537,28 @@ function formatMoveDigits(value: number, maxSig = 6): { text: string; sigIndexes
 }
 
 /** Live view of the number being collected right now, arrow on the k-th digit. */
-function CollectorStrip({ ticks, position }: { ticks: TickPoint[]; position: number }) {
+function CollectorStrip({
+  ticks,
+  position,
+  source,
+}: {
+  ticks: TickPoint[];
+  position: number;
+  source: "price" | "delta";
+}) {
   if (ticks.length < 2) {
     return (
       <div className="border-b border-zinc-800/60 px-4 py-2 text-xs text-zinc-500">
-        Waiting for two ticks to form the first move…
+        Waiting for live ticks…
       </div>
     );
   }
   const prev = ticks[ticks.length - 2];
   const last = ticks[ticks.length - 1];
   const delta = last.price - prev.price;
-  const bin = kthSigDigit(delta, position);
-  const { text, sigIndexes } = formatMoveDigits(delta);
+  const value = source === "price" ? last.price : delta;
+  const bin = kthSigDigit(value, position);
+  const { text, sigIndexes } = formatMoveDigits(value, source === "price" ? 7 : 6);
   const arrowIdx = sigIndexes[position - 1];
   const ordinal = position === 1 ? "1st" : position === 2 ? "2nd" : "3rd";
 
@@ -557,13 +566,17 @@ function CollectorStrip({ ticks, position }: { ticks: TickPoint[]; position: num
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-zinc-800/60 px-4 py-2 text-xs">
       <span className="flex items-center gap-1.5 text-zinc-500">
         <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
-        collecting {ordinal} digit of each tick move
+        {source === "price"
+          ? `collecting ${ordinal} digit of the live price`
+          : `collecting ${ordinal} digit of each tick move`}
       </span>
       <span className="font-mono text-sm tabular-nums" key={last.ts}>
-        <span className={delta > 0 ? "text-emerald-400" : delta < 0 ? "text-red-400" : "text-zinc-500"}>
-          {delta > 0 ? "+" : delta < 0 ? "−" : "±"}
-        </span>
-        {delta === 0 ? (
+        {source === "delta" && (
+          <span className={delta > 0 ? "text-emerald-400" : delta < 0 ? "text-red-400" : "text-zinc-500"}>
+            {delta > 0 ? "+" : delta < 0 ? "−" : "±"}
+          </span>
+        )}
+        {value === 0 ? (
           <span className="text-zinc-500">0</span>
         ) : (
           text.split("").map((ch, i) => (
@@ -586,18 +599,18 @@ function CollectorStrip({ ticks, position }: { ticks: TickPoint[]; position: num
           ))
         )}
       </span>
-      {delta === 0 ? (
+      {source === "delta" && delta === 0 ? (
         <span className="text-zinc-500">price unchanged — nothing collected</span>
       ) : bin == null ? (
         <span className="text-amber-400/80">
-          this move has no {ordinal} significant digit — skipped
+          no {ordinal} significant digit here — skipped
         </span>
       ) : (
         <span className="text-sky-300">
           → bin <span className="font-mono font-bold">{bin}</span>
         </span>
       )}
-      <span className="ml-auto text-zinc-600">1 move / tick (~1s)</span>
+      <span className="ml-auto text-zinc-600">1 nr / second</span>
     </div>
   );
 }
@@ -638,6 +651,7 @@ function FallingDot({ targetPct, count }: { targetPct: number; count: number }) 
 
 function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] }) {
   const [position, setPosition] = useState(1);
+  const [source, setSource] = useState<"price" | "delta">("price");
   const [window_, setWindow] = useState<number | "auto">("auto");
   const [data, setData] = useState<BenfordResult | null>(null);
   const [drops, setDrops] = useState<BenfordDrop[]>([]);
@@ -654,13 +668,13 @@ function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] })
             ? "&auto_window=true"
             : `&window_s=${window_}`;
         const d = await api<BenfordResult>(
-          `/benford?symbol=${symbol}&position=${position}&source=delta${qs}`
+          `/benford?symbol=${symbol}&position=${position}&source=${source}${qs}`
         );
         if (cancelled) return;
         // Diff per-digit counts against the previous poll of the SAME
-        // sample (symbol/position/window): new samples become falling
-        // dots that visibly land in their digit bin.
-        const key = `${symbol}:${position}:${d.window_s}`;
+        // sample (symbol/position/source/window): new samples become
+        // falling dots that visibly land in their digit bin.
+        const key = `${symbol}:${position}:${source}:${d.window_s}`;
         const counts = new Map(d.rows.map((r) => [r.digit, r.observed]));
         if (prevCounts.current?.key === key) {
           const fresh: BenfordDrop[] = [];
@@ -691,7 +705,7 @@ function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] })
       clearInterval(t);
       timeouts.forEach(clearTimeout);
     };
-  }, [symbol, position, window_]);
+  }, [symbol, position, source, window_]);
 
   const maxPct = data
     ? Math.max(...data.rows.map((r) => Math.max(r.observed_pct, r.expected_pct)), 1) * 1.2
@@ -713,6 +727,13 @@ function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] })
             {p === 1 ? "1st" : p === 2 ? "2nd" : "3rd"} digit
           </Chip>
         ))}
+        <span className="ml-2 text-xs uppercase tracking-wide text-zinc-600">Source</span>
+        <Chip on={source === "price"} onClick={() => setSource("price")}>
+          price digits
+        </Chip>
+        <Chip on={source === "delta"} onClick={() => setSource("delta")}>
+          move digits
+        </Chip>
         <span className="ml-2 text-xs uppercase tracking-wide text-zinc-600">Window</span>
         {BENFORD_WINDOWS.map((w) => (
           <Chip key={w.label} on={window_ === w.value} onClick={() => setWindow(w.value)}>
@@ -721,8 +742,8 @@ function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] })
         ))}
       </div>
 
-      {/* Live collector: the exact digit being harvested from each move */}
-      <CollectorStrip ticks={ticks} position={position} />
+      {/* Live collector: the exact digit being harvested every second */}
+      <CollectorStrip ticks={ticks} position={position} source={source} />
 
       {/* Verdict strip: window used, sample count, chi-square */}
       {data && (
@@ -831,8 +852,8 @@ function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] })
           expected
         </span>
         <span className="ml-auto">
-          x: {position === 1 ? "1st" : position === 2 ? "2nd" : "3rd"} significant digit of
-          tick-to-tick moves · y: share of samples
+          x: {position === 1 ? "1st" : position === 2 ? "2nd" : "3rd"} significant digit of{" "}
+          {source === "price" ? "the live price (1/s)" : "tick-to-tick moves"} · y: share of samples
         </span>
       </div>
     </div>

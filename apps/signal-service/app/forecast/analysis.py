@@ -91,10 +91,17 @@ def benford_test(values: list[float], position: int = 1) -> dict:
 BENFORD_WINDOWS_S: tuple[int, ...] = (60, 120, 300, 600, 900, 1200, 1800, 2400)
 
 
+def _window_values(w: list[tuple[float, float]], source: str) -> list[float]:
+    if source == "price":
+        return [p for _, p in w]
+    return [p2 - p1 for (_, p1), (_, p2) in zip(w, w[1:]) if p2 != p1]
+
+
 def benford_best_window(
     ticks: list[tuple[float, float]],
     position: int = 1,
     min_n: int = 100,
+    source: str = "delta",
 ) -> dict:
     """Try several trailing window lengths and keep the one whose tick-move
     digit distribution best fits Benford (lowest chi-square with n >= min_n).
@@ -108,8 +115,7 @@ def benford_best_window(
     for window_s in BENFORD_WINDOWS_S:
         cutoff = last_t - window_s
         w = [(t, p) for t, p in ticks if t >= cutoff]
-        values = [p2 - p1 for (_, p1), (_, p2) in zip(w, w[1:]) if p2 != p1]
-        res = benford_test(values, position)
+        res = benford_test(_window_values(w, source), position)
         tried.append({"window_s": window_s, "n": res["n"], "chi2": round(res["chi2"], 2)})
         if res["n"] < min_n:
             continue
@@ -117,8 +123,7 @@ def benford_best_window(
             best = res
             best["window_s"] = window_s
     if best is None:  # not enough data anywhere: fall back to everything
-        values = [p2 - p1 for (_, p1), (_, p2) in zip(ticks, ticks[1:]) if p2 != p1]
-        best = benford_test(values, position)
+        best = benford_test(_window_values(ticks, source), position)
         best["window_s"] = 0
     best["windows_tried"] = tried
     return best
