@@ -93,6 +93,8 @@ async def benford(
     source: str = Query("delta", pattern="^(delta|price)$"),
     window_s: int = Query(0, ge=0, le=3600, description="Trailing sample window in seconds; 0 = all ticks"),
     auto_window: bool = Query(False, description="Pick the window length that best fits Benford"),
+    digit_mode: str = Query("significant", pattern="^(significant|literal)$",
+                            description="literal reads the number as written, so 0 can lead"),
 ):
     """Benford's-law test on the k-th significant digit of tick moves.
 
@@ -103,7 +105,7 @@ async def benford(
     """
     ticks = list(forecast_service.ticks.get(symbol.upper(), ()))
     if auto_window:
-        result = benford_best_window(ticks, position, source=source)
+        result = benford_best_window(ticks, position, source=source, digit_mode=digit_mode)
     else:
         if window_s > 0 and ticks:
             cutoff = ticks[-1][0] - window_s
@@ -112,7 +114,7 @@ async def benford(
             values = [p2 - p1 for (_, p1), (_, p2) in zip(ticks, ticks[1:]) if p2 != p1]
         else:
             values = [p for _, p in ticks]
-        result = benford_test(values, position)
+        result = benford_test(values, position, digit_mode)
         result["window_s"] = window_s
     result["symbol"] = symbol.upper()
     result["source"] = source
@@ -125,6 +127,7 @@ async def benford_backtest_endpoint(
     interval: str = Query("1d", pattern="^(1m|5m|15m|1h|4h|1d)$"),
     start_date: str = Query("2020-01-01"),
     end_date: str | None = Query(None),
+    digit_mode: str = Query("significant", pattern="^(significant|literal)$"),
 ):
     """Historical Benford scan: which (source, digit, sample window) best
     fits Benford on this symbol's history — the 'ideal distribution'."""
@@ -141,7 +144,7 @@ async def benford_backtest_endpoint(
             detail=f"Only {len(bars)} bars for {symbol} {interval} — need at least 120",
         )
     closes = [b.close for b in bars]
-    result = benford_backtest(closes)
+    result = benford_backtest(closes, digit_mode=digit_mode)
     result["symbol"] = symbol
     result["interval"] = interval
     result["start"] = str(getattr(bars[0], "timestamp", start_date))

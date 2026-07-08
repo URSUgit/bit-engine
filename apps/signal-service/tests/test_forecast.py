@@ -379,3 +379,33 @@ def test_benford_backtest_ranks_combos_and_details_winner():
     tiny = benford_backtest(closes[:50])
     assert tiny["best"] is None
     assert tiny["rolling"] == []
+
+
+def test_literal_digit_mode_integrates_zero_as_leading_bin():
+    from app.forecast.analysis import benford_test, kth_literal_digit
+
+    # As written: 0.53 -> 0,5,3 ; 12.3 -> 1,2,3 ; 30.0 -> 3,0
+    assert kth_literal_digit(0.53, 1) == 0
+    assert kth_literal_digit(0.53, 2) == 5
+    assert kth_literal_digit(0.53, 3) == 3
+    assert kth_literal_digit(12.3, 1) == 1
+    assert kth_literal_digit(30.0, 2) == 0
+    assert kth_literal_digit(0.0001, 1) == 0
+    assert kth_literal_digit(0.0, 1) is None
+
+    # Half the values below 1 -> the 0 bin collects about half the samples
+    values = [0.5 + (i % 10) * 0.01 for i in range(200)] + [5.0 + (i % 10) for i in range(200)]
+    res = benford_test(values, 1, digit_mode="literal")
+    assert res["digit_mode"] == "literal"
+    assert res["n"] == 400
+    zero_row = next(r for r in res["rows"] if r["digit"] == 0)
+    assert zero_row["observed"] == 200
+    assert zero_row["observed_pct"] == pytest.approx(50.0)
+    assert zero_row["expected_pct"] == 0.0  # Benford has no leading-0 expectation
+    # reference dashes scale to the non-zero-led share of samples
+    total_expected = sum(r["expected_pct"] for r in res["rows"])
+    assert total_expected == pytest.approx(50.0, abs=0.01)
+    # classic mode on the same values never counts a leading 0
+    classic = benford_test(values, 1, digit_mode="significant")
+    zero_classic = next(r for r in classic["rows"] if r["digit"] == 0)
+    assert zero_classic["observed"] == 0

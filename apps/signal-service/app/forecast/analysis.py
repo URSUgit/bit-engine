@@ -51,43 +51,76 @@ def kth_significant_digit(value: float, position: int) -> int | None:
     return int(sig[position - 1])
 
 
-def benford_test(values: list[float], position: int = 1) -> dict:
-    """Observed vs expected k-th-digit distribution + chi-square verdict."""
+def kth_literal_digit(value: float, position: int) -> int | None:
+    """The k-th digit of |value| as written (decimal point skipped), keeping
+    leading zeros — so 0.53 reads 0,5,3 and 0 CAN lead. Non-classic Benford."""
+    v = abs(value)
+    if v == 0 or not math.isfinite(v):
+        return None
+    s = f"{v:.12f}".rstrip("0").rstrip(".")
+    if not s:
+        return None
+    s = s.replace(".", "")
+    if position > len(s):
+        return None
+    return int(s[position - 1])
+
+
+def benford_test(values: list[float], position: int = 1, digit_mode: str = "significant") -> dict:
+    """Observed vs expected k-th-digit distribution + chi-square verdict.
+
+    digit_mode='significant' is classic Benford (0.53 reads 5,3 — a leading
+    digit is 1..9). digit_mode='literal' reads the number as written
+    (0.53 reads 0,5,3), so 0 is a real leading bin; the classic Benford
+    expectation stays as the 1..9 reference, scaled to the share of samples
+    that don't lead with 0, and chi-square is computed on that subset.
+    """
     expected = benford_expected(position)
-    counts = {d: 0 for d in expected}
+    counts = {d: 0 for d in range(0, 10)}
     n = 0
+    extract = kth_literal_digit if digit_mode == "literal" else kth_significant_digit
     for v in values:
-        d = kth_significant_digit(v, position)
-        if d is not None and d in counts:
+        d = extract(v, position)
+        if d is not None and (d in expected or digit_mode == "literal"):
             counts[d] += 1
             n += 1
+    # Chi-square runs on the bins that HAVE a Benford expectation.
+    n_ref = sum(counts[d] for d in expected)
+    scale = (n_ref / n) if n else 0.0  # reference share of all samples
     rows = []
     chi2 = 0.0
     for d, p in expected.items():
         obs = counts[d]
-        exp = n * p
-        if n > 0 and exp > 0:
+        exp = n_ref * p
+        if n_ref > 0 and exp > 0:
             chi2 += (obs - exp) ** 2 / exp
         rows.append({
             "digit": d,
             "observed": obs,
             "observed_pct": (obs / n * 100) if n else 0.0,
-            "expected_pct": p * 100,
+            "expected_pct": p * 100 * (scale if digit_mode == "literal" else 1.0),
         })
     df = len(expected) - 1
     crit = _CHI2_CRIT[df]
     if position == 1:
-        # A leading significant digit can never be 0, so this bin must stay
-        # at zero — shown anyway for observation. Excluded from chi-square.
-        rows.insert(0, {"digit": 0, "observed": 0, "observed_pct": 0.0, "expected_pct": 0.0})
+        # Digit 0: a real bin in literal mode (0.53 leads with 0); shown at
+        # zero for observation in classic mode. Never part of chi-square —
+        # Benford has no expectation for a leading 0.
+        rows.insert(0, {
+            "digit": 0,
+            "observed": counts[0],
+            "observed_pct": (counts[0] / n * 100) if n else 0.0,
+            "expected_pct": 0.0,
+        })
     return {
         "position": position,
+        "digit_mode": digit_mode,
         "n": n,
         "rows": rows,
         "chi2": chi2,
         "chi2_critical_p05": crit,
         # Only meaningful with a decent sample; below that, say so.
-        "conforms": (chi2 <= crit) if n >= 100 else None,
+        "conforms": (chi2 <= crit) if n_ref >= 100 else None,
     }
 
 
@@ -106,6 +139,7 @@ def benford_best_window(
     position: int = 1,
     min_n: int = 100,
     source: str = "delta",
+    digit_mode: str = "significant",
 ) -> dict:
     """Try several trailing window lengths and keep the one whose tick-move
     digit distribution best fits Benford (lowest chi-square with n >= min_n).
@@ -119,7 +153,7 @@ def benford_best_window(
     for window_s in BENFORD_WINDOWS_S:
         cutoff = last_t - window_s
         w = [(t, p) for t, p in ticks if t >= cutoff]
-        res = benford_test(_window_values(w, source), position)
+        res = benford_test(_window_values(w, source), position, digit_mode)
         tried.append({"window_s": window_s, "n": res["n"], "chi2": round(res["chi2"], 2)})
         if res["n"] < min_n:
             continue
@@ -127,7 +161,7 @@ def benford_best_window(
             best = res
             best["window_s"] = window_s
     if best is None:  # not enough data anywhere: fall back to everything
-        best = benford_test(_window_values(ticks, source), position)
+        best = benford_test(_window_values(ticks, source), position, digit_mode)
         best["window_s"] = 0
     best["windows_tried"] = tried
     return best
@@ -141,6 +175,7 @@ def benford_backtest(
     closes: list[float],
     positions: tuple[int, ...] = (1, 2, 3),
     sources: tuple[str, ...] = ("delta", "price"),
+    digit_mode: str = "significant",
 ) -> dict:
     """Scan historical closes for the configuration that best fits Benford.
 
@@ -161,7 +196,7 @@ def benford_backtest(
             for win in BENFORD_BT_WINDOWS:
                 if win > len(values):
                     continue
-                res = benford_test(values[-win:], position)
+                res = benford_test(values[-win:], position, digit_mode)
                 results.append({
                     "source": source,
                     "position": position,
@@ -180,14 +215,14 @@ def benford_backtest(
     if scored:
         b = scored[0]
         values = series[b["source"]]
-        best_detail = benford_test(values[-b["window_n"]:], b["position"])
+        best_detail = benford_test(values[-b["window_n"]:], b["position"], digit_mode)
         best_detail.update({k: b[k] for k in ("source", "position", "window_n")})
         # Rolling chi2 across history: same window, stepped so the series
         # stays a manageable size.
         win = b["window_n"]
         step = max(1, (len(values) - win) // 60) if len(values) > win else 1
         for end in range(win, len(values) + 1, step):
-            r = benford_test(values[end - win: end], b["position"])
+            r = benford_test(values[end - win: end], b["position"], digit_mode)
             rolling.append({"index": end, "chi2": round(r["chi2"], 2)})
 
     return {

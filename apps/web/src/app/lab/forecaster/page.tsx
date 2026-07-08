@@ -536,15 +536,28 @@ function formatMoveDigits(value: number, maxSig = 6): { text: string; sigIndexes
   return { text, sigIndexes };
 }
 
+type DigitMode = "literal" | "significant";
+
+/** Indexes (into text) of every numeral character — literal digits, 0 included. */
+function literalIndexes(text: string): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] >= "0" && text[i] <= "9") out.push(i);
+  }
+  return out;
+}
+
 /** Live view of the number being collected right now, arrow on the k-th digit. */
 function CollectorStrip({
   ticks,
   position,
   source,
+  digitMode,
 }: {
   ticks: TickPoint[];
   position: number;
   source: "price" | "delta";
+  digitMode: DigitMode;
 }) {
   if (ticks.length < 2) {
     return (
@@ -557,9 +570,15 @@ function CollectorStrip({
   const last = ticks[ticks.length - 1];
   const delta = last.price - prev.price;
   const value = source === "price" ? last.price : delta;
-  const bin = kthSigDigit(value, position);
   const { text, sigIndexes } = formatMoveDigits(value, source === "price" ? 7 : 6);
-  const arrowIdx = sigIndexes[position - 1];
+  const idxs = digitMode === "literal" ? literalIndexes(text) : sigIndexes;
+  const arrowIdx = idxs[position - 1];
+  const bin =
+    digitMode === "literal"
+      ? arrowIdx != null && value !== 0
+        ? Number(text[arrowIdx])
+        : null
+      : kthSigDigit(value, position);
   const ordinal = position === 1 ? "1st" : position === 2 ? "2nd" : "3rd";
 
   return (
@@ -652,6 +671,7 @@ function FallingDot({ targetPct, count }: { targetPct: number; count: number }) 
 function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] }) {
   const [position, setPosition] = useState(1);
   const [source, setSource] = useState<"price" | "delta">("price");
+  const [digitMode, setDigitMode] = useState<DigitMode>("literal");
   const [window_, setWindow] = useState<number | "auto">("auto");
   const [data, setData] = useState<BenfordResult | null>(null);
   const [drops, setDrops] = useState<BenfordDrop[]>([]);
@@ -668,13 +688,13 @@ function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] })
             ? "&auto_window=true"
             : `&window_s=${window_}`;
         const d = await api<BenfordResult>(
-          `/benford?symbol=${symbol}&position=${position}&source=${source}${qs}`
+          `/benford?symbol=${symbol}&position=${position}&source=${source}&digit_mode=${digitMode}${qs}`
         );
         if (cancelled) return;
         // Diff per-digit counts against the previous poll of the SAME
-        // sample (symbol/position/source/window): new samples become
+        // sample (symbol/position/source/mode/window): new samples become
         // falling dots that visibly land in their digit bin.
-        const key = `${symbol}:${position}:${source}:${d.window_s}`;
+        const key = `${symbol}:${position}:${source}:${digitMode}:${d.window_s}`;
         const counts = new Map(d.rows.map((r) => [r.digit, r.observed]));
         if (prevCounts.current?.key === key) {
           const fresh: BenfordDrop[] = [];
@@ -705,7 +725,7 @@ function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] })
       clearInterval(t);
       timeouts.forEach(clearTimeout);
     };
-  }, [symbol, position, source, window_]);
+  }, [symbol, position, source, digitMode, window_]);
 
   const maxPct = data
     ? Math.max(...data.rows.map((r) => Math.max(r.observed_pct, r.expected_pct)), 1) * 1.2
@@ -734,6 +754,13 @@ function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] })
         <Chip on={source === "delta"} onClick={() => setSource("delta")}>
           move digits
         </Chip>
+        <span className="ml-2 text-xs uppercase tracking-wide text-zinc-600">Mode</span>
+        <Chip on={digitMode === "literal"} onClick={() => setDigitMode("literal")}>
+          0 integrated
+        </Chip>
+        <Chip on={digitMode === "significant"} onClick={() => setDigitMode("significant")}>
+          classic
+        </Chip>
         <span className="ml-2 text-xs uppercase tracking-wide text-zinc-600">Window</span>
         {BENFORD_WINDOWS.map((w) => (
           <Chip key={w.label} on={window_ === w.value} onClick={() => setWindow(w.value)}>
@@ -743,7 +770,7 @@ function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] })
       </div>
 
       {/* Live collector: the exact digit being harvested every second */}
-      <CollectorStrip ticks={ticks} position={position} source={source} />
+      <CollectorStrip ticks={ticks} position={position} source={source} digitMode={digitMode} />
 
       {/* Verdict strip: window used, sample count, chi-square */}
       {data && (
@@ -854,7 +881,11 @@ function BenfordPanel({ symbol, ticks }: { symbol: string; ticks: TickPoint[] })
         <span className="ml-auto">
           x: {position === 1 ? "1st" : position === 2 ? "2nd" : "3rd"} significant digit of{" "}
           {source === "price" ? "the live price (1/s)" : "tick-to-tick moves"}
-          {position === 1 && " (0 shown to observe — it can never lead, so it stays at 0%)"} · y: share of samples
+          {position === 1 &&
+            (digitMode === "literal"
+              ? " (0 integrated: numbers read as written, 0.53 leads with 0; dashes = classic Benford reference for 1–9)"
+              : " (classic: 0 can never lead a significant digit, bin stays 0%)")}{" "}
+          · y: share of samples
         </span>
       </div>
     </div>
@@ -974,6 +1005,7 @@ function BenfordBacktestPanel({ symbols }: { symbols: string[] }) {
   const [symbol, setSymbol] = useState("BTC-USD");
   const [interval_, setInterval_] = useState("1d");
   const [startDate, setStartDate] = useState("2022-01-01");
+  const [digitMode, setDigitMode] = useState<DigitMode>("literal");
   const [data, setData] = useState<BenfordBTResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -983,7 +1015,7 @@ function BenfordBacktestPanel({ symbols }: { symbols: string[] }) {
     setError(null);
     try {
       const d = await api<BenfordBTResult>(
-        `/benford/backtest?symbol=${encodeURIComponent(symbol)}&interval=${interval_}&start_date=${startDate}`
+        `/benford/backtest?symbol=${encodeURIComponent(symbol)}&interval=${interval_}&start_date=${startDate}&digit_mode=${digitMode}`
       );
       setData(d);
     } catch (e) {
@@ -1021,6 +1053,12 @@ function BenfordBacktestPanel({ symbols }: { symbols: string[] }) {
               {iv}
             </Chip>
           ))}
+          <Chip on={digitMode === "literal"} onClick={() => setDigitMode("literal")}>
+            0 integrated
+          </Chip>
+          <Chip on={digitMode === "significant"} onClick={() => setDigitMode("significant")}>
+            classic
+          </Chip>
           <input
             type="date"
             value={startDate}
@@ -1074,7 +1112,9 @@ function BenfordBacktestPanel({ symbols }: { symbols: string[] }) {
                 Ideal distribution — observed vs Benford
                 {data.best.position === 1 && (
                   <span className="ml-2 normal-case text-zinc-600">
-                    0 shown to observe — it can never lead, so it stays at 0%
+                    {digitMode === "literal"
+                      ? "0 integrated — numbers read as written (0.53 leads with 0)"
+                      : "classic — 0 can never lead, bin stays 0%"}
                   </span>
                 )}
               </div>
