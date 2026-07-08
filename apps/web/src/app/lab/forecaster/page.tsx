@@ -581,50 +581,61 @@ function BenfordPanel({ symbol }: { symbol: string }) {
       )}
 
       {/* Chart: CSS bars with % labels, % gridlines, digit identification */}
-      <div className="relative flex-1 pb-8 pl-12 pr-4 pt-4">
+      <div className="flex-1 pb-8 pl-12 pr-4 pt-5">
         {data && data.n > 0 ? (
-          <>
-            {/* gridlines + y-axis % labels */}
+          /* Single coordinate system: gridlines, bars and expected dashes all
+             position against this plot area, so the % axis is exact. */
+          <div className="relative h-full border-b border-l border-zinc-700">
             {gridLines.map((g) => (
               <div
                 key={g.frac}
-                className="pointer-events-none absolute left-12 right-4 border-t border-dashed border-zinc-800"
-                style={{ bottom: `${2 + g.frac * 82}%` }}
+                className="pointer-events-none absolute left-0 right-0 border-t border-dashed border-zinc-800"
+                style={{ bottom: `${g.frac * 100}%` }}
               >
-                <span className="absolute -top-2 right-full pr-1 text-[10px] tabular-nums text-zinc-600">
-                  {g.pct.toFixed(0)}%
+                <span className="absolute -top-2 right-full pr-1.5 text-[10px] tabular-nums text-zinc-500">
+                  {g.pct.toFixed(1)}%
                 </span>
               </div>
             ))}
-            <div className="relative flex h-full items-end gap-[3%]">
-              {data.rows.map((r) => (
-                <div
-                  key={r.digit}
-                  className="group relative flex h-full flex-1 flex-col items-center justify-end"
-                  title={`digit ${r.digit}: observed ${r.observed_pct.toFixed(2)}% (${r.observed} of ${data.n}), Benford expects ${r.expected_pct.toFixed(2)}%`}
-                >
-                  {/* % label above the bar */}
-                  <span className="mb-0.5 text-[10px] font-medium tabular-nums text-zinc-300">
-                    {r.observed_pct.toFixed(1)}%
-                  </span>
-                  {/* observed bar — height animates as the distribution shapes */}
+            <span className="absolute -bottom-2 right-full pr-1.5 text-[10px] tabular-nums text-zinc-500">
+              0%
+            </span>
+            <div className="relative flex h-full items-end gap-[3%] px-[2%]">
+              {data.rows.map((r) => {
+                const barPct = (r.observed_pct / maxPct) * 100;
+                const expPct = (r.expected_pct / maxPct) * 100;
+                return (
                   <div
-                    className="w-3/5 rounded-t-sm bg-[#3987e5] transition-[height] duration-700 ease-out"
-                    style={{ height: `${(r.observed_pct / maxPct) * 100}%` }}
-                  />
-                  {/* expected Benford level */}
-                  <div
-                    className="pointer-events-none absolute left-[10%] right-[10%] border-t-2 border-dashed border-zinc-200"
-                    style={{ bottom: `${(r.expected_pct / maxPct) * 100}%` }}
-                  />
-                  {/* digit identification */}
-                  <span className="absolute -bottom-6 text-xs font-semibold tabular-nums text-zinc-300">
-                    {r.digit}
-                  </span>
-                </div>
-              ))}
+                    key={r.digit}
+                    className="relative h-full flex-1"
+                    title={`digit ${r.digit}: observed ${r.observed_pct.toFixed(2)}% (${r.observed} of ${data.n}), Benford expects ${r.expected_pct.toFixed(2)}%`}
+                  >
+                    {/* observed bar — anchored to the axis, height animates live */}
+                    <div
+                      className="absolute bottom-0 left-1/2 w-3/5 -translate-x-1/2 rounded-t-sm bg-[#3987e5] transition-[height] duration-700 ease-out"
+                      style={{ height: `${barPct}%` }}
+                    />
+                    {/* observed % label riding on top of the bar */}
+                    <span
+                      className="absolute left-1/2 -translate-x-1/2 text-[10px] font-medium tabular-nums text-zinc-300 transition-[bottom] duration-700 ease-out"
+                      style={{ bottom: `calc(${barPct}% + 2px)` }}
+                    >
+                      {r.observed_pct.toFixed(1)}
+                    </span>
+                    {/* expected Benford level at its exact % height */}
+                    <div
+                      className="pointer-events-none absolute left-[8%] right-[8%] border-t-2 border-dashed border-zinc-200"
+                      style={{ bottom: `${expPct}%` }}
+                    />
+                    {/* digit identification */}
+                    <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-xs font-semibold tabular-nums text-zinc-300">
+                      {r.digit}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
-          </>
+          </div>
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-zinc-500">
             Collecting tick moves…
