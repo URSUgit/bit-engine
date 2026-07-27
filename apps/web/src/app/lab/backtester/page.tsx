@@ -101,6 +101,7 @@ import { CapitalEfficiency } from "./components/capital-efficiency";
 import { StopTargetOptimizer } from "./components/stop-target-optimizer";
 import { BenfordAnalysis } from "./components/benford-analysis";
 import { TabPalette } from "./components/tab-palette";
+import { DataProvenanceBanner } from "./components/data-source";
 
 type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
 type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor" | "seasonality" | "risk_of_ruin" | "ev_explorer" | "replay" | "long_short" | "sizing_wizard" | "sharpe_contribution" | "exit_analysis" | "streak_dist" | "cost_sensitivity" | "perf_decay" | "dynamic_sizing" | "cluster" | "cap_efficiency" | "stop_target" | "benford";
@@ -1647,6 +1648,12 @@ function SingleResultsView({
       )}
       {result && (
         <div className={autoRunPending ? "opacity-60 transition-opacity duration-300" : "transition-opacity duration-300"}>
+          <DataProvenanceBanner
+            source={result.data_source}
+            isSynthetic={result.data_is_synthetic}
+            symbol={result.symbol}
+            interval={result.interval}
+          />
           <div className={`rounded-lg ${autoRunPending ? "ring-1 ring-cyan-500/50 animate-pulse" : ""}`}>
             <MetricsGrid result={result} />
           </div>
