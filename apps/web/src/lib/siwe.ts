@@ -1,19 +1,18 @@
 /**
  * Sign-In With Ethereum (EIP-4361 inspired, simplified for our flow):
  *
- * 1. Frontend asks gateway for a nonce keyed to address.
+ * 1. Frontend asks /api/auth/siwe/nonce for a single-use nonce (DB-stored,
+ *    10-minute TTL, keyed to the address).
  * 2. Frontend builds a message containing domain + address + nonce + issuedAt.
  * 3. Wallet signs message via personal_sign (EIP-191).
- * 4. Frontend POSTs {address, signature, message, nonce} to gateway.
- * 5. Gateway recovers signer from signature, checks signer == claimed address,
- *    checks nonce matches and hasn't expired, then issues a JWT.
- *
- * Standalone fallback: when gateway is offline we still verify the signature
- * locally with viem and issue a self-signed mock token so the UI keeps working.
+ * 4. NextAuth's `siwe` credentials provider verifies SERVER-SIDE: signature
+ *    recovery must match the address, the message must claim that address,
+ *    be fresh, and carry the stored nonce (consumed on use).
+ * 5. NextAuth issues the session cookie; the Prisma user (with its plan) is
+ *    upserted by wallet address.
  */
 
-import { recoverMessageAddress } from "viem";
-import { api } from "./api";
+import { signIn as nextAuthSignIn } from "next-auth/react";
 
 const SESSION_KEY = "bitprivat:session";
 
@@ -40,13 +39,6 @@ export function buildSiweMessage(params: { address: string; nonce: string; domai
   ].join("\n");
 }
 
-/** Generate a 32-char nonce locally (used only when gateway is offline). */
-function localNonce(): string {
-  const bytes = new Uint8Array(16);
-  if (typeof window !== "undefined") crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
 /**
  * Run the full SIWE flow given a wallet `signMessageAsync` from wagmi.
  * Resolves to a session that should be persisted with `saveSession`.
@@ -57,47 +49,33 @@ export async function signInWithEthereum(args: {
 }): Promise<SiweSession> {
   const { address, signMessageAsync } = args;
 
-  let nonce: string;
-  let issuedAt: string;
-  let useMock = false;
+  // 1. Server-issued single-use nonce (DB-stored, 10-minute TTL).
+  const res = await fetch(`/api/auth/siwe/nonce?address=${address.toLowerCase()}`);
+  if (!res.ok) throw new Error("Could not get a sign-in nonce");
+  const { nonce, issuedAt } = (await res.json()) as { nonce: string; issuedAt: string };
 
-  try {
-    const res = await api.auth.nonce(address);
-    nonce = res.nonce;
-    issuedAt = res.issuedAt;
-  } catch {
-    // Gateway offline — fall back to local nonce
-    nonce = localNonce();
-    issuedAt = new Date().toISOString();
-    useMock = true;
-  }
-
+  // 2. Wallet signs the SIWE message (EIP-191 personal_sign).
   const message = buildSiweMessage({ address, nonce, issuedAt });
   const signature = await signMessageAsync({ message });
 
-  if (!useMock) {
-    try {
-      const verify = await api.auth.verify({ address, signature, message, nonce });
-      return { address: verify.user.address, accessToken: verify.accessToken, issuedAt };
-    } catch {
-      useMock = true;
-    }
-  }
-
-  // Local verification fallback. Recovers signer with viem and confirms it
-  // matches the claimed address, then issues a mock token so the session is
-  // usable for read-only UI work.
-  const recovered = await recoverMessageAddress({ message, signature: signature as `0x${string}` });
-  if (recovered.toLowerCase() !== address.toLowerCase()) {
-    throw new Error("Signature does not match claimed address");
-  }
-
-  return {
+  // 3. NextAuth verifies everything server-side and issues the real session
+  //    cookie. Deliberately no client-side fallback: a mock session that
+  //    looks real is worse than a failed login.
+  const result = await nextAuthSignIn("siwe", {
     address,
-    accessToken: `mock.${btoa(address).replace(/=/g, "")}.${Date.now()}`,
-    issuedAt,
-    mock: true,
-  };
+    signature,
+    message,
+    redirect: false,
+  });
+  if (!result?.ok) {
+    throw new Error(
+      result?.error === "CredentialsSignin"
+        ? "Signature rejected by server"
+        : result?.error ?? "Sign-in failed"
+    );
+  }
+
+  return { address: address.toLowerCase(), accessToken: "nextauth", issuedAt };
 }
 
 export function saveSession(session: SiweSession): void {
