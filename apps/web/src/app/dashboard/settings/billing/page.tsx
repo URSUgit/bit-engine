@@ -49,6 +49,24 @@ export default function BillingPage() {
           <SettingsNav />
 
           <div className="flex flex-col gap-5">
+            {/* On-chain upgrade — the live payment rail (cards come later) */}
+            <a
+              href="/upgrade"
+              className="flex items-center gap-3 rounded-xl border border-cyan-800/60 bg-cyan-950/30 p-4 transition-colors hover:bg-cyan-950/50"
+            >
+              <Sparkles className="h-5 w-5 shrink-0 text-cyan-400" />
+              <div>
+                <div className="text-sm font-semibold text-cyan-300">
+                  Upgrade with crypto — pay once in USDC, on-chain
+                </div>
+                <div className="text-xs text-slate-400">
+                  Connect your wallet, sign in with Ethereum, send one transaction. Card billing
+                  arrives later.
+                </div>
+              </div>
+              <span className="ml-auto text-xs font-medium text-cyan-400">Open →</span>
+            </a>
+
             {/* Current plan summary */}
             <div className="card-dark p-6">
               <div className="flex items-start justify-between gap-4 flex-wrap">

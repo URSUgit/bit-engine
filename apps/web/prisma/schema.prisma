@@ -63,6 +63,22 @@ model User {
   watchlist     WatchlistItem[]
   settings      UserSettings?
   alerts        PriceAlert[]
+  payments      OnchainPayment[]
+}
+
+// ─── Billing (on-chain; card rails come later) ────────────────────────────────
+model OnchainPayment {
+  id        String   @id @default(cuid())
+  userId    String
+  txHash    String   @unique  // one upgrade per transaction, replay-proof
+  chainId   Int
+  token     String   // ERC-20 contract address (USDC)
+  amount    String   // raw token units as decimal string (6dp for USDC)
+  plan      String   // plan granted by this payment
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // ─── Paper Trading ────────────────────────────────────────────────────────────
