@@ -26,6 +26,7 @@ import {
   Newspaper,
   Database,
   ShieldCheck,
+  Youtube,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoMark } from "@/components/Logo";
@@ -92,6 +93,7 @@ const navGroups: NavGroup[] = [
       { label: "Strategy Lab", href: "/lab", icon: FlaskConical },
       { label: "Backtester", href: "/lab/backtester", icon: Zap },
       { label: "Forecaster", href: "/lab/forecaster", icon: Activity, badge: "new" },
+      { label: "YT Scout", href: "/lab/scout", icon: Youtube, badge: "new" },
       { label: "Data Quality", href: "/lab/data", icon: Database },
       { label: "Signal Builder", href: "/lab/signals", icon: Layers },
       { label: "Notebooks", href: "/lab/notebooks", icon: BookOpen },
