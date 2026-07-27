@@ -73,8 +73,9 @@ logging.getLogger().setLevel(logging.WARNING)
 
 # ── Router + feed imports (after env + logging setup) ─────────────────────────
 from app.limiter import limiter  # noqa: E402
-from app.routers import signals, traders, analytics, agent, polymarket, backtest, audit, paper, forecast  # noqa: E402
+from app.routers import signals, traders, analytics, agent, polymarket, backtest, audit, paper, forecast, scout  # noqa: E402
 from app.forecast.service import forecast_service  # noqa: E402
+from app.scout.service import scout_service  # noqa: E402
 from app.feeds import signal_engine, price_cache  # noqa: E402
 
 
@@ -160,12 +161,19 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_auto_seed())
 
     forecast_task = asyncio.create_task(forecast_service.run())
+    scout_task = asyncio.create_task(scout_service.run())
 
     yield
     log.info("shutdown: stopping signal engine")
     signal_engine.stop()
     forecast_service.stop()
     forecast_task.cancel()
+    scout_service.stop()
+    scout_task.cancel()
+    try:
+        await scout_task
+    except asyncio.CancelledError:
+        pass
     try:
         await forecast_task
     except asyncio.CancelledError:
@@ -298,3 +306,4 @@ app.include_router(backtest.router, prefix="/api/v1/backtest", tags=["backtest"]
 app.include_router(audit.router, prefix="/api/v1/audit", tags=["audit"])
 app.include_router(paper.router, prefix="/api/v1/paper", tags=["paper"])
 app.include_router(forecast.router, prefix="/api/v1/forecast", tags=["forecast"])
+app.include_router(scout.router, prefix="/api/v1/scout", tags=["scout"])
