@@ -14,6 +14,7 @@ import {
   generateOrderBook,
   mockBacktestResult,
 } from "./mock-data";
+import type { Signal } from "@bitprivat/shared-types";
 
 const SIGNAL_BASE =
   process.env.NEXT_PUBLIC_SIGNAL_SERVICE_URL ?? "http://localhost:8001";
@@ -60,6 +61,17 @@ async function withFallback<T>(url: string, mock: T, init?: RequestInit): Promis
   }
 }
 
+// signal-service returns snake_case JSON; the shared Signal type is camelCase.
+function normalizeSignal(raw: any): Signal {
+  return {
+    ...raw,
+    rawText: raw.rawText ?? raw.raw_text,
+    createdAt: raw.createdAt ?? raw.created_at,
+    expiresAt: raw.expiresAt ?? raw.expires_at,
+    isActive: raw.isActive ?? raw.is_active,
+  };
+}
+
 export const api = {
   // ─── Traders ────────────────────────────────────────────────────────────────
   traders: {
@@ -77,20 +89,27 @@ export const api = {
   signals: {
     list: (params?: Record<string, string>) => {
       const q = params ? `?${new URLSearchParams(params)}` : "";
-      return withFallback(`${SIGNAL_BASE}/api/v1/signals${q}`, mockSignals);
+      return withFallback(`${SIGNAL_BASE}/api/v1/signals${q}`, mockSignals).then((s) =>
+        s.map(normalizeSignal)
+      );
     },
-    latest: () => withFallback(`${SIGNAL_BASE}/api/v1/signals/latest`, mockSignals.slice(0, 10)),
+    latest: () =>
+      withFallback(`${SIGNAL_BASE}/api/v1/signals/latest`, mockSignals.slice(0, 10)).then((s) =>
+        s.map(normalizeSignal)
+      ),
   },
 
   // ─── Markets ────────────────────────────────────────────────────────────────
   markets: {
     list: () => withFallback(`${GATEWAY_BASE}/api/v1/markets`, mockAssets),
     get: (symbol: string) => {
-      const m = mockAssets.find((a) => a.symbol === symbol) ?? mockAssets[0];
+      const base = symbol.split("-")[0];
+      const m = mockAssets.find((a) => a.symbol === symbol || a.symbol === base) ?? mockAssets[0];
       return withFallback(`${GATEWAY_BASE}/api/v1/markets/${symbol}`, m);
     },
     orderBook: (symbol: string) => {
-      const m = mockAssets.find((a) => a.symbol === symbol) ?? mockAssets[0];
+      const base = symbol.split("-")[0];
+      const m = mockAssets.find((a) => a.symbol === symbol || a.symbol === base) ?? mockAssets[0];
       return withFallback(`${GATEWAY_BASE}/api/v1/markets/${symbol}/orderbook`, generateOrderBook(m!.price));
     },
   },

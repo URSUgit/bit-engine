@@ -41,13 +41,19 @@ export default function UpgradePage() {
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [phase, setPhase] = useState<PayPhase>({ step: "idle" });
   const [manualTx, setManualTx] = useState("");
+  const [loadError, setLoadError] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
       const res = await fetch("/api/billing/onchain");
-      if (res.ok) setStatus(await res.json());
+      if (res.ok) {
+        setStatus(await res.json());
+        setLoadError(false);
+      } else {
+        setLoadError(true);
+      }
     } catch {
-      /* retried on next action */
+      setLoadError(true);
     }
   }, []);
 
@@ -151,9 +157,24 @@ export default function UpgradePage() {
 
       {/* Step 3: pay */}
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
+        {loadError && !status && (
+          <div className="mb-3 flex items-center gap-2 text-xs text-red-400">
+            <AlertTriangle size={13} />
+            Couldn't load pricing.
+            <button onClick={() => refresh()} className="underline hover:text-red-300">
+              Retry
+            </button>
+          </div>
+        )}
         <div className="mb-1 flex items-baseline gap-3">
           <span className="text-2xl font-semibold text-zinc-100">
-            {status ? `${status.proPriceUsdc} USDC` : "…"}
+            {status ? (
+              `${status.proPriceUsdc} USDC`
+            ) : loadError ? (
+              "—"
+            ) : (
+              <span className="inline-block h-7 w-24 animate-pulse rounded bg-zinc-800" />
+            )}
           </span>
           <span className="text-xs text-zinc-500">
             one-time · {status?.chainName ?? ""} · lifetime Pro

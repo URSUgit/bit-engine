@@ -10,6 +10,11 @@ type Entry<T> = { value: T; expiresAt: number };
 
 const store = new Map<string, Entry<unknown>>();
 
+// Negative cache: a downed upstream shouldn't make every request pay its
+// full timeout again — short-circuit repeat failures for a short window.
+const FAIL_TTL_MS = 20_000;
+const failStore = new Map<string, { error: string; expiresAt: number }>();
+
 export function cacheGet<T>(key: string): T | null {
   const entry = store.get(key) as Entry<T> | undefined;
   if (!entry) return null;
@@ -68,12 +73,19 @@ export async function withCache<T>(
   const cached = cacheGet<T>(key);
   if (cached !== null) return ok(cached, source, true);
 
+  const recentFailure = failStore.get(key);
+  if (recentFailure && Date.now() < recentFailure.expiresAt) {
+    return fail(source, recentFailure.error) as ApiResponse<T>;
+  }
+
   try {
     const data = await fetcher();
     cacheSet(key, data, ttlSeconds);
+    failStore.delete(key);
     return ok(data, source);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    failStore.set(key, { error: msg, expiresAt: Date.now() + FAIL_TTL_MS });
     return fail(source, msg) as ApiResponse<T>;
   }
 }

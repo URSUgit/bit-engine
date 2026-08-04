@@ -159,34 +159,13 @@ function hlEntriesToTraders(entries: HLLeaderboardEntry[]): TraderEntry[] {
 
 // ─── Fetchers ─────────────────────────────────────────────────────────────────
 
-async function fetchHyperliquidLeaderboard(): Promise<TraderEntry[]> {
+async function tryHlRequest(type: string): Promise<TraderEntry[] | null> {
   const HL_URL = "https://api.hyperliquid.xyz/info";
-  const headers = { "Content-Type": "application/json" };
-
-  // Attempt 1: leaderboard type
   try {
     const res = await fetch(HL_URL, {
       method: "POST",
-      headers,
-      body: JSON.stringify({ type: "leaderboard" }),
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (res.ok) {
-      const json = await res.json() as HLLeaderboardResponse;
-      if (json?.leaderboard && Array.isArray(json.leaderboard) && json.leaderboard.length > 0) {
-        return hlEntriesToTraders(json.leaderboard);
-      }
-    }
-  } catch {
-    // fall through to next attempt
-  }
-
-  // Attempt 2: topTraders type
-  try {
-    const res = await fetch(HL_URL, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ type: "topTraders" }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type }),
       signal: AbortSignal.timeout(8_000),
     });
     if (res.ok) {
@@ -198,7 +177,18 @@ async function fetchHyperliquidLeaderboard(): Promise<TraderEntry[]> {
   } catch {
     // fall through
   }
+  return null;
+}
 
+async function fetchHyperliquidLeaderboard(): Promise<TraderEntry[]> {
+  // Run both request shapes concurrently — sequential 8s-timeout attempts
+  // meant a cold/failed cache paid up to ~16s before falling back to demo data.
+  const [leaderboard, topTraders] = await Promise.all([
+    tryHlRequest("leaderboard"),
+    tryHlRequest("topTraders"),
+  ]);
+  const result = leaderboard ?? topTraders;
+  if (result) return result;
   throw new Error("Hyperliquid leaderboard unavailable");
 }
 

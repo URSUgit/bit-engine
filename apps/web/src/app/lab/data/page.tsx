@@ -82,10 +82,10 @@ function QualityOverview() {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setLoading(true); setError("");
     try {
-      const res = await backtestApi.dataQualityOverview();
+      const res = await backtestApi.dataQualityOverview(force);
       setRows(res.datasets);
     } catch {
       setError("Could not reach the data service. Is the signal service running?");
@@ -120,7 +120,11 @@ function QualityOverview() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <p className="text-sm text-slate-400">
-          {rows ? `${rows.length} cached dataset(s) · sorted worst-first` : "Scanning…"}
+          {rows
+            ? `${rows.length} cached dataset(s) · sorted worst-first`
+            : loading
+              ? "Scanning full bar history for every dataset — first load can take up to a minute…"
+              : "Scanning…"}
         </p>
         <div className="flex items-center gap-2">
           <button onClick={handleExportParquet} disabled={exporting || !rows || rows.length === 0}
@@ -128,7 +132,7 @@ function QualityOverview() {
             {exporting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
             Export Parquet
           </button>
-          <button onClick={load} disabled={loading}
+          <button onClick={() => load(true)} disabled={loading}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors">
             <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} /> Refresh
           </button>

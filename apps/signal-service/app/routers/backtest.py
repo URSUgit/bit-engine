@@ -1077,14 +1077,24 @@ async def data_quality(
     return assess(symbol, interval).to_dict()
 
 
+_QUALITY_OVERVIEW_CACHE_KEY = {"endpoint": "data_quality_overview"}
+
+
 @router.get("/data/quality/overview")
-async def data_quality_overview():
+async def data_quality_overview(force: bool = Query(False)):
     """Quality score for every cached (symbol, interval) in the warehouse.
 
     Assessment scans full bar history per dataset (10s+ for a warm cache), so
     the whole sweep runs in a worker thread to keep the event loop responsive.
+    Results are cached briefly since the underlying bar data changes rarely;
+    pass force=true (the UI's explicit Refresh button) to bypass the cache.
     """
     from app.backtest.quality import assess
+
+    if not force:
+        cached = backtest_cache.get(_QUALITY_OVERVIEW_CACHE_KEY)
+        if cached is not None:
+            return cached
 
     def _sweep() -> list[dict]:
         rows = []
@@ -1109,7 +1119,9 @@ async def data_quality_overview():
         return rows
 
     rows = await asyncio.to_thread(_sweep)
-    return {"count": len(rows), "datasets": rows}
+    result = {"count": len(rows), "datasets": rows}
+    backtest_cache.set(_QUALITY_OVERVIEW_CACHE_KEY, result)
+    return result
 
 
 class CrossValidateRequest(BaseModel):

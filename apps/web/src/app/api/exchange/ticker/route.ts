@@ -31,8 +31,13 @@ export async function GET(req: NextRequest) {
     if (!res.ok) throw new Error(`Binance HTTP ${res.status}`);
     const raw = await res.json();
     const arr: Array<Record<string, string>> = Array.isArray(raw) ? raw : [raw];
-    return arr.map<Ticker>((t, i) => ({
-      symbol: symbols[i] ?? t.symbol,
+    // Binance's bulk endpoint does not preserve request order, so match
+    // results back to requested symbols by binance_symbol, not array index.
+    const symbolByBinanceSymbol = new Map(
+      symbols.map((s, i) => [binanceSymbols[i], s]),
+    );
+    return arr.map<Ticker>((t) => ({
+      symbol: symbolByBinanceSymbol.get(t.symbol) ?? t.symbol,
       binance_symbol: t.symbol,
       price: parseFloat(t.lastPrice),
       price_change: parseFloat(t.priceChange),

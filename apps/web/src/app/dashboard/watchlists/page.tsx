@@ -124,6 +124,7 @@ export default function WatchlistsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [dbSyncing, setDbSyncing] = useState(false);
+  const [pricesLoaded, setPricesLoaded] = useState(false);
 
   // Main tab state
   const [mainTab, setMainTab] = useState<MainTab>("watchlist");
@@ -198,6 +199,7 @@ export default function WatchlistsPage() {
         setCoins(map);
       }
     } catch { /* silent */ }
+    finally { setPricesLoaded(true); }
   }, [lists]);
 
   useEffect(() => {
@@ -367,24 +369,38 @@ export default function WatchlistsPage() {
                                 </div>
                               </td>
                               <td className="px-4 py-3.5 text-right text-slate-100 number-font font-semibold">
-                                {price > 0 ? `$${price >= 1 ? price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : price.toFixed(6)}` : "—"}
+                                {!pricesLoaded ? (
+                                  <span className="inline-block h-4 w-16 rounded bg-slate-800 animate-pulse" />
+                                ) : price > 0 ? (
+                                  `$${price >= 1 ? price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : price.toFixed(6)}`
+                                ) : (
+                                  "—"
+                                )}
                               </td>
                               <td className="px-4 py-3.5 text-right">
-                                <span className={cn("number-font font-semibold inline-flex items-center gap-1", positive24 ? "text-emerald-400" : "text-red-400")}>
-                                  {positive24 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                                  {positive24 ? "+" : ""}{change24.toFixed(2)}%
-                                </span>
+                                {!pricesLoaded ? (
+                                  <span className="inline-block h-4 w-12 rounded bg-slate-800 animate-pulse" />
+                                ) : (
+                                  <span className={cn("number-font font-semibold inline-flex items-center gap-1", positive24 ? "text-emerald-400" : "text-red-400")}>
+                                    {positive24 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                                    {positive24 ? "+" : ""}{change24.toFixed(2)}%
+                                  </span>
+                                )}
                               </td>
                               <td className="px-4 py-3.5 text-right">
-                                <span className={cn("number-font text-sm", positive7d ? "text-emerald-400" : "text-red-400")}>
-                                  {positive7d ? "+" : ""}{change7d.toFixed(1)}%
-                                </span>
+                                {!pricesLoaded ? (
+                                  <span className="inline-block h-4 w-10 rounded bg-slate-800 animate-pulse" />
+                                ) : (
+                                  <span className={cn("number-font text-sm", positive7d ? "text-emerald-400" : "text-red-400")}>
+                                    {positive7d ? "+" : ""}{change7d.toFixed(1)}%
+                                  </span>
+                                )}
                               </td>
                               <td className="px-4 py-3.5 text-right text-slate-400 number-font">
-                                {c ? fmtCap(c.market_cap_usd) : "—"}
+                                {!pricesLoaded ? <span className="inline-block h-4 w-12 rounded bg-slate-800 animate-pulse" /> : c ? fmtCap(c.market_cap_usd) : "—"}
                               </td>
                               <td className="px-4 py-3.5 text-right text-slate-400 number-font">
-                                {c ? fmtCap(c.volume_24h_usd) : "—"}
+                                {!pricesLoaded ? <span className="inline-block h-4 w-12 rounded bg-slate-800 animate-pulse" /> : c ? fmtCap(c.volume_24h_usd) : "—"}
                               </td>
                               <td className="px-4 py-3.5 text-right">
                                 {isAuthed ? (

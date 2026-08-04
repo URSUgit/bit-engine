@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { ExternalLink, RefreshCw, TrendingUp, TrendingDown, Minus, Search, Filter } from "lucide-react";
+import { ExternalLink, RefreshCw, TrendingUp, TrendingDown, Minus, Search, Filter, WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NewsItem } from "@/app/api/market/crypto-news/route";
 
@@ -118,6 +118,7 @@ function SentimentSummary({ news }: { news: NewsItem[] }) {
 export default function NewsPage() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [category, setCategory] = useState("");
   const [sentimentFilter, setSentimentFilter] = useState<(typeof SENTIMENT_FILTER)[number]>("all");
   const [search, setSearch] = useState("");
@@ -129,9 +130,16 @@ export default function NewsPage() {
       if (cat) params.set("categories", cat);
       const res = await fetch(`/api/market/crypto-news?${params.toString()}`);
       const json = await res.json();
-      setNews(Array.isArray(json.data) ? json.data : []);
+      if (Array.isArray(json.data)) {
+        setNews(json.data);
+        setError(null);
+      } else {
+        setNews([]);
+        setError(json.error ?? "News feed unavailable");
+      }
     } catch {
       setNews([]);
+      setError("News feed unavailable");
     } finally {
       setLoading(false);
     }
@@ -224,6 +232,12 @@ export default function NewsPage() {
             {Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="h-24 rounded-xl bg-slate-900 animate-pulse" />
             ))}
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center gap-2 text-center py-20 text-slate-500">
+            <WifiOff className="w-6 h-6 text-slate-600" />
+            <p className="text-lg mb-1 text-slate-300">News feed unavailable</p>
+            <p className="text-sm max-w-md">{error}</p>
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-20 text-slate-500">

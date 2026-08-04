@@ -75,8 +75,10 @@ export function TopMovers() {
   }, [fetchCoins]);
 
   const sorted = [...coins].sort((a, b) => b.change_24h_pct - a.change_24h_pct);
-  const gainers = sorted.slice(0, 3);
-  const losers = sorted.slice(-3).reverse();
+  // Rank-based slicing alone can put a still-positive coin in "Losers" on a
+  // broadly green day (and vice versa) — gate on sign first.
+  const gainers = sorted.filter((c) => c.change_24h_pct >= 0).slice(0, 3);
+  const losers = sorted.filter((c) => c.change_24h_pct < 0).slice(-3).reverse();
 
   return (
     <div className="card-dark p-4">
@@ -87,7 +89,9 @@ export function TopMovers() {
           <p className="text-[10px] uppercase font-bold text-emerald-400 tracking-widest mb-1">Gainers</p>
           {loading
             ? Array.from({ length: 3 }).map((_, i) => <SkeletonRow key={i} />)
-            : gainers.map((c) => <CoinRow key={c.symbol} coin={c} />)
+            : gainers.length > 0
+            ? gainers.map((c) => <CoinRow key={c.symbol} coin={c} />)
+            : <p className="text-xs text-slate-600 py-1.5">No gainers right now</p>
           }
         </div>
         {/* Losers */}
@@ -95,7 +99,9 @@ export function TopMovers() {
           <p className="text-[10px] uppercase font-bold text-red-400 tracking-widest mb-1">Losers</p>
           {loading
             ? Array.from({ length: 3 }).map((_, i) => <SkeletonRow key={i} />)
-            : losers.map((c) => <CoinRow key={c.symbol} coin={c} />)
+            : losers.length > 0
+            ? losers.map((c) => <CoinRow key={c.symbol} coin={c} />)
+            : <p className="text-xs text-slate-600 py-1.5">No losers right now</p>
           }
         </div>
       </div>

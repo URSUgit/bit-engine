@@ -118,18 +118,24 @@ async function fromBinance(symbols: string[]): Promise<CryptoQuote[]> {
   if (!res.ok) throw new Error(`Binance HTTP ${res.status}`);
   const raw = await res.json();
   const arr: Array<Record<string, string>> = Array.isArray(raw) ? raw : [raw];
-  return arr.map((t, i) => ({
-    symbol: symbols[i] ?? t.symbol.replace("USDT", ""),
-    name: SYMBOL_NAMES[symbols[i]] ?? symbols[i],
-    price_usd: parseFloat(t.lastPrice),
-    change_24h_pct: parseFloat(t.priceChangePercent),
-    volume_24h_usd: parseFloat(t.quoteVolume),
-    market_cap_usd: 0,
-    change_7d_pct: 0,
-    image: "",
-    sparkline_7d: [],
-    rank: 0,
-  }));
+  // Binance's bulk endpoint does not preserve request order, so match
+  // results back to requested symbols by binance symbol, not array index.
+  const symbolByBinanceSym = new Map(symbols.map((s, i) => [binanceSyms[i], s]));
+  return arr.map((t) => {
+    const symbol = symbolByBinanceSym.get(t.symbol) ?? t.symbol.replace("USDT", "");
+    return {
+      symbol,
+      name: SYMBOL_NAMES[symbol] ?? symbol,
+      price_usd: parseFloat(t.lastPrice),
+      change_24h_pct: parseFloat(t.priceChangePercent),
+      volume_24h_usd: parseFloat(t.quoteVolume),
+      market_cap_usd: 0,
+      change_7d_pct: 0,
+      image: "",
+      sparkline_7d: [],
+      rank: 0,
+    };
+  });
 }
 
 async function fromKraken(symbols: string[]): Promise<CryptoQuote[]> {

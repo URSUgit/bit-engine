@@ -35,16 +35,21 @@ export default function MarketDetailPage() {
   const [chartType, setChartType] = useState<ChartType>("candlestick");
   const [flash, setFlash] = useState<"up" | "down" | null>(null);
 
-  const livePrices = useLivePrices(symbol);
-  const live = livePrices[symbol];
+  // Ticker feed keys are bare symbols (BTC); route params may carry a quote
+  // suffix (BTC-USD) depending on which page linked here.
+  const baseSymbol = symbol.split("-")[0];
+  const livePrices = useLivePrices(baseSymbol);
+  const live = livePrices[baseSymbol];
 
   const { data: asset } = useQuery({
     queryKey: ["market", symbol],
     queryFn: () => api.markets.get(symbol),
   });
 
-  const currentPrice = live?.price ?? asset?.price ?? 0;
-  const change24h = live?.change24hPct ?? asset?.priceChange24hPct ?? 0;
+  // live.price starts at a 0 placeholder until the first poll resolves —
+  // prefer the mock/gateway asset price during that gap so nothing flashes $0.
+  const currentPrice = live?.price || asset?.price || 0;
+  const change24h = (live?.price ? live.change24hPct : undefined) ?? asset?.priceChange24hPct ?? 0;
   const positive = change24h >= 0;
 
   // Flash price on direction change

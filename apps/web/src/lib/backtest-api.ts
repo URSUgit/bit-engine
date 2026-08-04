@@ -116,6 +116,7 @@ export type Metrics = {
   time_in_market_pct?: number;
   avg_bars_between_trades?: number;
   daily_returns?: number[];
+  unrealistic_compounding?: boolean;
 };
 
 export type FeatureStats = {
@@ -691,9 +692,9 @@ export const backtestApi = {
     const q = new URLSearchParams({ symbol, interval });
     return call<QualityReport>(`/api/v1/backtest/data/quality?${q}`);
   },
-  dataQualityOverview: () =>
+  dataQualityOverview: (force = false) =>
     call<{ count: number; datasets: QualityOverviewRow[] }>(
-      "/api/v1/backtest/data/quality/overview",
+      `/api/v1/backtest/data/quality/overview${force ? "?force=true" : ""}`,
     ),
   crossValidate: (req: { symbol: string; interval?: string; limit?: number; tolerance_pct?: number }) =>
     call<CrossValidationReport>("/api/v1/backtest/data/cross-validate", {
