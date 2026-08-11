@@ -46,6 +46,12 @@ export function GET(req: NextRequest, ctx: { params: { path: string[] } }) {
 export function POST(req: NextRequest, ctx: { params: { path: string[] } }) {
   return proxy(req, ctx.params.path);
 }
+export function PATCH(req: NextRequest, ctx: { params: { path: string[] } }) {
+  return proxy(req, ctx.params.path);
+}
+export function PUT(req: NextRequest, ctx: { params: { path: string[] } }) {
+  return proxy(req, ctx.params.path);
+}
 export function DELETE(req: NextRequest, ctx: { params: { path: string[] } }) {
   return proxy(req, ctx.params.path);
 }

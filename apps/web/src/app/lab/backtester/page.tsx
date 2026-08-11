@@ -60,6 +60,7 @@ import { ResultSnapshot } from "./components/result-snapshot";
 import { ParamTuner } from "./components/param-tuner";
 import { useAutoSaveResults } from "@/lib/use-auto-save-results";
 import { RecentHistory } from "./components/recent-history";
+import { ExtractedStrategies } from "./components/extracted-strategies";
 import { RegimeBadge } from "./components/regime-badge";
 import { RobustnessTest } from "./components/robustness-test";
 import { PositionSizer } from "./components/position-sizer";
@@ -1071,6 +1072,15 @@ export default function BacktesterPage() {
                 }}
                 onRemove={autoRemove}
                 onClear={autoClear}
+              />
+              <ExtractedStrategies
+                onLoad={({ symbol, strategy, positionPct, leverage }) => {
+                  setSingleSymbol(symbol);
+                  setStrategyName(strategy);
+                  if (positionPct != null) setPositionPct(positionPct);
+                  if (leverage != null) setLeverage(leverage);
+                  setMode("single");
+                }}
               />
               <Watchlist onSelectSymbol={(sym) => setSingleSymbol(sym)} />
             </aside>

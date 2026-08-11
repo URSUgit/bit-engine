@@ -59,11 +59,15 @@ function MarketSearch({ onSelect }: { onSelect: (m: Market) => void }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState<Market[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [error, setError] = useState(false);
 
   const search = async () => {
     setLoading(true);
     const data = await apiFetch<Market[]>(`/markets?keyword=${encodeURIComponent(q)}&limit=10`);
+    setError(data === null);
     setResults(data ?? []);
+    setSearched(true);
     setLoading(false);
   };
 
@@ -103,6 +107,18 @@ function MarketSearch({ onSelect }: { onSelect: (m: Market) => void }) {
               </div>
             </button>
           ))}
+        </div>
+      )}
+      {!loading && searched && results.length === 0 && (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-800/60 border border-slate-700/50 text-xs text-slate-400">
+          {error ? (
+            <>
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              Search failed — the signal service is unreachable. Try again.
+            </>
+          ) : (
+            <>No markets found for &ldquo;{q}&rdquo;.</>
+          )}
         </div>
       )}
     </div>

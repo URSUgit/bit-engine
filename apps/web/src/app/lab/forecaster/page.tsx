@@ -405,9 +405,11 @@ const KIND_ICON: Record<string, typeof Info> = {
 function NarratorPanel({ symbol }: { symbol: string }) {
   const [messages, setMessages] = useState<(NarratorMsg & { key: string })[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const keySeq = useRef(0);
 
   useEffect(() => {
     setMessages([]);
+    keySeq.current = 0;
     let cancelled = false;
     const poll = async () => {
       try {
@@ -415,9 +417,12 @@ function NarratorPanel({ symbol }: { symbol: string }) {
         if (cancelled) return;
         setMessages((prev) => {
           const seen = new Set(prev.slice(-40).map((m) => m.text));
-          const fresh = data.messages
-            .filter((m) => !seen.has(m.text))
-            .map((m) => ({ ...m, key: `${m.ts}-${m.kind}-${m.text.slice(0, 40)}` }));
+          const fresh: (NarratorMsg & { key: string })[] = [];
+          for (const m of data.messages) {
+            if (seen.has(m.text)) continue;
+            seen.add(m.text);
+            fresh.push({ ...m, key: `${m.ts}-${m.kind}-${keySeq.current++}` });
+          }
           if (!fresh.length) return prev;
           return [...prev, ...fresh].slice(-80);
         });

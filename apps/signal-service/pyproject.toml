@@ -26,6 +26,9 @@ dependencies = [
     "pydantic[email]>=2.7.0",
     "slowapi>=0.1.9",
     "python-json-logger>=2.0.7",
+    "yt-dlp>=2024.7.1",
+    "opencv-python-headless>=4.10.0",
+    "easyocr>=1.7.1",
 ]
 
 [project.optional-dependencies]

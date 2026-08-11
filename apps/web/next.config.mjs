@@ -6,6 +6,8 @@ const nextConfig = {
       { protocol: "https", hostname: "pbs.twimg.com" },
       { protocol: "https", hostname: "avatars.githubusercontent.com" },
       { protocol: "https", hostname: "cdn.bitprivat.io" },
+      { protocol: "https", hostname: "i.ytimg.com" },
+      { protocol: "https", hostname: "yt3.ggpht.com" },
     ],
   },
   // Wagmi + WalletConnect pull in a few optional peer dependencies that are

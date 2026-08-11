@@ -284,7 +284,16 @@ export function MetricsGrid({ result }: { result: BacktestResult }) {
       </div>
       {/* Primary metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <MetricCard label="Total return" value={fmtPct(m.total_return_pct)} positive={m.total_return_pct >= 0} />
+        <MetricCard
+          label="Total return"
+          value={fmtPct(m.total_return_pct)}
+          positive={m.total_return_pct >= 0}
+          tooltip={
+            m.unrealistic_compounding
+              ? "Extreme full-equity compounding over many trades — treat this figure as theoretical, not a realistic outcome"
+              : undefined
+          }
+        />
         <MetricCard label="CAGR" value={fmtPct(m.cagr_pct)} positive={m.cagr_pct >= 0} />
         <MetricCard label="Sharpe" value={m.sharpe_ratio.toFixed(2)} positive={m.sharpe_ratio >= 1} />
         <MetricCard label="Sortino" value={m.sortino_ratio.toFixed(2)} positive={m.sortino_ratio >= 1} />

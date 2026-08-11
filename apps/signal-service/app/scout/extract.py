@@ -6,6 +6,7 @@ and falls back to this when no API key is configured or the call fails.
 """
 from __future__ import annotations
 
+import bisect
 import re
 from collections import Counter
 
@@ -77,6 +78,156 @@ INDICATOR_STRATEGIES: list[tuple[re.Pattern[str], str, str]] = [
     (re.compile(r"\bhodl\b|\bhold\b.{0,20}\blong term\b|dollar.cost", re.S), "buy_and_hold", "Long-term holding discussed"),
 ]
 
+# Registry key -> human strategy label, used to build a named "strategy model"
+# per video (trader + label + pair).
+STRATEGY_LABELS: dict[str, str] = {
+    "rsi_divergence": "RSI Divergence",
+    "rsi": "RSI Reversal",
+    "macd": "MACD Crossover",
+    "bollinger": "Bollinger Band Squeeze",
+    "ichimoku": "Ichimoku Cloud",
+    "supertrend": "Supertrend Follow",
+    "stoch_rsi": "Stochastic RSI",
+    "vwap_reversion": "VWAP Reversion",
+    "heikin_ashi": "Heikin-Ashi Trend",
+    "williams_r": "Williams %R",
+    "aroon": "Aroon Trend",
+    "cci": "CCI Extremes",
+    "keltner_channel": "Keltner Channel Breakout",
+    "psar": "Parabolic SAR Trail",
+    "elder_impulse": "Elder Impulse System",
+    "donchian_channel": "Donchian Breakout",
+    "ma_cross": "Moving Average Cross",
+    "triple_ema": "Triple EMA Trend",
+    "dema_cross": "DEMA Cross",
+    "scalp_ema": "EMA Scalp",
+    "breakout_scalp": "Breakout Scalp",
+    "momentum": "Momentum Run",
+    "funding_arb": "Funding Rate Arb",
+    "buy_and_hold": "Long-Term Hold",
+}
+
+
+def strategy_label(key: str) -> str:
+    return STRATEGY_LABELS.get(key, key.replace("_", " ").title())
+
+
+# Position-sizing / risk-management language -> the "significant clues" a
+# trader drops about how they'd actually run the strategy.
+_CLUE_PATTERNS: dict[str, re.Pattern[str]] = {
+    "position_pct": re.compile(
+        r"(\d{1,3}(?:\.\d+)?)\s?%\s*(?:of\s+(?:my|your|the|their)?\s*"
+        r"(?:portfolio|account|capital|balance)|position\s*siz\w*|allocat\w*)"
+    ),
+    "risk_pct": re.compile(r"risk(?:ing)?\s*(?:only\s*)?(\d{1,3}(?:\.\d+)?)\s?%"),
+    "stop_loss_pct": re.compile(
+        r"stop[\s-]?loss\D{0,12}?(\d{1,3}(?:\.\d+)?)\s?%"
+        r"|(\d{1,3}(?:\.\d+)?)\s?%\D{0,12}?stop[\s-]?loss"
+    ),
+    "take_profit_pct": re.compile(
+        r"take[\s-]?profit\D{0,12}?(\d{1,3}(?:\.\d+)?)\s?%"
+        r"|(\d{1,3}(?:\.\d+)?)\s?%\D{0,12}?take[\s-]?profit"
+    ),
+    "leverage": re.compile(r"(\d{1,3}(?:\.\d+)?)\s?x\s*leverage"),
+}
+_CLUE_LABELS = {
+    "position_pct": ("position size", "%"),
+    "risk_pct": ("risk per trade", "%"),
+    "stop_loss_pct": ("stop loss", "%"),
+    "take_profit_pct": ("take profit", "%"),
+    "leverage": ("leverage", "x"),
+}
+
+
+_GUEST_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"\bft\.\s*\w"),
+    re.compile(r"\bfeat\.\s*\w"),
+    re.compile(r"\bw/\s*\w"),
+    re.compile(r"\binterview\b"),
+    re.compile(r"\bguest\b"),
+    re.compile(r"\bco-?host\b"),
+    re.compile(r"\bvs\b"),
+]
+
+
+def detect_guest(title: str, description: str = "") -> dict:
+    """Lightweight guest/co-host detection from title/description text only
+    (no audio diarization) — flags likely multi-speaker videos so a strategy
+    claim isn't blindly attributed to the channel owner."""
+    text = f"{title}\n{description}".lower()
+    for pattern in _GUEST_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            return {"multi_speaker": True, "note": m.group(0).strip()}
+    return {"multi_speaker": False, "note": None}
+
+
+def extract_frame_findings(ocr_text: str) -> dict:
+    """Assets/clues read off on-screen charts/tickers via OCR, reusing the
+    same text heuristics as spoken transcript analysis."""
+    return {
+        "assets": find_assets(ocr_text),
+        "clues": extract_clues(ocr_text),
+    }
+
+
+def join_transcript(segments: list[dict]) -> tuple[str, list[tuple[int, float]]]:
+    """Join timestamped transcript chunks ([{text, start}, ...]) into the
+    flat string every heuristic here operates on, plus a parallel
+    (char_offset, start_seconds) index so a later regex match's position
+    can be mapped back to the moment it was actually said — the anchor a
+    real backtest replays from."""
+    parts: list[str] = []
+    offset_index: list[tuple[int, float]] = []
+    pos = 0
+    for seg in segments:
+        chunk = (seg.get("text") or "").strip()
+        if not chunk:
+            continue
+        if parts:
+            pos += 1  # the join(" ") separator
+        offset_index.append((pos, float(seg.get("start") or 0.0)))
+        parts.append(chunk)
+        pos += len(chunk)
+    return " ".join(parts), offset_index
+
+
+def timestamp_at(offset_index: list[tuple[int, float]] | None, char_pos: int) -> float | None:
+    """Video second the transcript character at `char_pos` was spoken,
+    per an index built by `join_transcript`."""
+    if not offset_index or char_pos < 0:
+        return None
+    i = bisect.bisect_right(offset_index, (char_pos, float("inf"))) - 1
+    if i < 0:
+        return None
+    return offset_index[i][1]
+
+
+def extract_clues(text: str, offset_index: list[tuple[int, float]] | None = None, base_offset: int = 0) -> dict:
+    """Position-sizing / risk clues a trader lets slip: % of portfolio,
+    risk per trade, stop-loss/take-profit distance, leverage. When
+    `offset_index` (from `join_transcript`) is given, also records the
+    video timestamp each clue was said at."""
+    low = text.lower()
+    values: dict[str, float | None] = {}
+    notes: list[str] = []
+    timestamps: dict[str, float | None] = {}
+    for key, pattern in _CLUE_PATTERNS.items():
+        m = pattern.search(low)
+        val = None
+        if m:
+            group = next((g for g in m.groups() if g is not None), None)
+            val = float(group) if group is not None else None
+        values[key] = val
+        if val is not None:
+            label, unit = _CLUE_LABELS[key]
+            notes.append(f"{label} {val:g}{unit}")
+            timestamps[key] = timestamp_at(offset_index, m.start() + base_offset)
+    values["notes"] = notes
+    values["timestamps"] = timestamps
+    return values
+
+
 _WORD = re.compile(r"[a-z][a-z&%]+")
 
 
@@ -106,63 +257,129 @@ def sentiment_score(text: str) -> float:
     return (bull - bear) / total
 
 
-def asset_direction(text: str, alias_symbols: dict[str, str], symbol: str, window: int = 220) -> float:
-    """Sentiment in windows around each mention of `symbol`'s aliases."""
+def _asset_mentions(text: str, alias_symbols: dict[str, str], symbol: str, window: int = 220) -> list[tuple[float, int]]:
+    """(sentiment_score, match_start) for every mention window of
+    `symbol`'s aliases — the position lets a caller anchor the mention to
+    a video timestamp via `timestamp_at`."""
     low = text.lower()
-    scores: list[float] = []
+    hits: list[tuple[float, int]] = []
     for alias, sym in alias_symbols.items():
         if sym != symbol:
             continue
         for m in re.finditer(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", low):
             chunk = low[max(0, m.start() - window): m.end() + window]
-            s = sentiment_score(chunk)
-            if s != 0.0:
-                scores.append(s)
+            hits.append((sentiment_score(chunk), m.start()))
+    return hits
+
+
+def asset_direction(text: str, alias_symbols: dict[str, str], symbol: str, window: int = 220) -> float:
+    """Sentiment in windows around each mention of `symbol`'s aliases."""
+    scores = [s for s, _ in _asset_mentions(text, alias_symbols, symbol, window) if s != 0.0]
     if not scores:
         return 0.0
     return sum(scores) / len(scores)
 
 
-def suggest_strategies(text: str, max_n: int = 5) -> list[dict]:
+def suggest_strategies(
+    text: str,
+    offset_index: list[tuple[int, float]] | None = None,
+    base_offset: int = 0,
+    max_n: int = 5,
+) -> list[dict]:
     low = text.lower()
     out: list[dict] = []
     seen: set[str] = set()
     for pattern, strategy, why in INDICATOR_STRATEGIES:
         if strategy in seen:
             continue
-        if pattern.search(low):
+        m = pattern.search(low)
+        if m:
             seen.add(strategy)
-            out.append({"strategy": strategy, "why": why, "params": {}})
+            ts = timestamp_at(offset_index, m.start() + base_offset)
+            out.append({"strategy": strategy, "why": why, "params": {}, "timestamp_s": ts})
             if len(out) >= max_n:
                 break
     return out
 
 
-def extract(title: str, transcript: str) -> dict:
-    """Full heuristic analysis of one video."""
+def build_models(strategies: list[dict], assets: list[dict], clues: dict, trader: str) -> list[dict]:
+    """Turn raw strategy suggestions into named, presentable trading models:
+    "<Trader> · <Strategy Label>" with its traded pairs and sizing clues.
+    Each model carries the video timestamp (`timestamp_s`) it was said at —
+    the strategy's own mention if known, else the earliest sizing clue —
+    so a real backtest can be anchored to that exact moment."""
+    pairs = [a["symbol"] for a in assets[:3]]
+    clue_timestamps = [t for t in (clues.get("timestamps") or {}).values() if t is not None]
+    fallback_ts = min(clue_timestamps) if clue_timestamps else None
+    models = []
+    for s in strategies:
+        label = strategy_label(s["strategy"])
+        name = f"{trader} · {label}" if trader else label
+        models.append({
+            "name": name,
+            "trader": trader or "Unknown trader",
+            "strategy": s["strategy"],
+            "label": label,
+            "why": s["why"],
+            "params": s.get("params") or {},
+            "pairs": pairs,
+            "position_pct": clues.get("position_pct"),
+            "risk_pct": clues.get("risk_pct"),
+            "stop_loss_pct": clues.get("stop_loss_pct"),
+            "take_profit_pct": clues.get("take_profit_pct"),
+            "leverage": clues.get("leverage"),
+            "timestamp_s": s.get("timestamp_s") if s.get("timestamp_s") is not None else fallback_ts,
+        })
+    return models
+
+
+def extract(
+    title: str,
+    transcript: str,
+    channel: str = "",
+    segments: list[dict] | None = None,
+) -> dict:
+    """Full heuristic analysis of one video. `segments` (optional
+    timestamped transcript chunks from `join_transcript`/`_fetch_transcript`
+    — [{text, start}]) let every extracted signal/strategy/clue carry the
+    video timestamp it came from, so a real backtest can be anchored to the
+    trader's exact stated moment."""
     text = f"{title}\n{transcript}"
+    base_offset = len(title) + 1
+    offset_index = join_transcript(segments)[1] if segments else None
     assets = find_assets(text)
     overall = sentiment_score(text)
     signals: list[dict] = []
     for a in assets[:5]:
-        local = asset_direction(text, ASSET_ALIASES, a["symbol"])
+        hits = _asset_mentions(text, ASSET_ALIASES, a["symbol"])
+        nonzero = [s for s, _ in hits if s != 0.0]
+        local = sum(nonzero) / len(nonzero) if nonzero else 0.0
         score = local if local != 0.0 else overall
         if abs(score) < 0.15:
             continue
         direction = "buy" if score > 0 else "sell"
         confidence = round(min(0.9, 0.35 + 0.4 * abs(score) + 0.03 * min(a["mentions"], 8)), 2)
+        ts = None
+        if offset_index is not None and hits:
+            pos = max(hits, key=lambda h: abs(h[0]))[1]
+            ts = timestamp_at(offset_index, pos + base_offset)
         signals.append({
             "asset": a["symbol"],
             "direction": direction,
             "confidence": confidence,
             "reasoning": f"{a['mentions']} mentions; {'bullish' if score > 0 else 'bearish'} language near them (score {score:+.2f})",
+            "timestamp_s": ts,
         })
+    strategies = suggest_strategies(text, offset_index, base_offset)
+    clues = extract_clues(text, offset_index, base_offset)
     return {
         "engine": "heuristic",
         "assets": assets,
         "sentiment": round(overall, 3),
         "signals": signals,
-        "strategies": suggest_strategies(text),
+        "strategies": strategies,
+        "clues": clues,
+        "models": build_models(strategies, assets, clues, channel),
     }
 
 

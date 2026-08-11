@@ -1,10 +1,21 @@
 import asyncio
 import logging
 import os
+import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+# Windows' console defaults stdout/stderr to the active code page (cp1252),
+# not UTF-8. yt-dlp (used by app/scout/vision.py for frame OCR) writes
+# non-Latin-1 video titles/metadata straight to these streams and crashes
+# with UnicodeEncodeError on any such video. Reconfigure before anything else
+# runs so every thread inherits UTF-8 streams regardless of how uvicorn was
+# launched.
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import http_exception_handler
@@ -73,7 +84,7 @@ logging.getLogger().setLevel(logging.WARNING)
 
 # ── Router + feed imports (after env + logging setup) ─────────────────────────
 from app.limiter import limiter  # noqa: E402
-from app.routers import signals, traders, analytics, agent, polymarket, backtest, audit, paper, forecast, scout  # noqa: E402
+from app.routers import signals, traders, analytics, agent, polymarket, backtest, audit, paper, forecast, scout, youtube  # noqa: E402
 from app.forecast.service import forecast_service  # noqa: E402
 from app.scout.service import scout_service  # noqa: E402
 from app.feeds import signal_engine, price_cache  # noqa: E402
@@ -307,3 +318,4 @@ app.include_router(audit.router, prefix="/api/v1/audit", tags=["audit"])
 app.include_router(paper.router, prefix="/api/v1/paper", tags=["paper"])
 app.include_router(forecast.router, prefix="/api/v1/forecast", tags=["forecast"])
 app.include_router(scout.router, prefix="/api/v1/scout", tags=["scout"])
+app.include_router(youtube.router, prefix="/api/v1/youtube", tags=["youtube"])

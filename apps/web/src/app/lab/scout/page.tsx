@@ -1,55 +1,32 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  Youtube,
-  Plus,
-  Trash2,
-  RefreshCw,
-  Loader2,
-  TrendingUp,
-  TrendingDown,
-  FlaskConical,
-  ExternalLink,
-  Radar,
-  Bot,
-  Regex,
-} from "lucide-react";
+import Link from "next/link";
+import { Youtube, Plus, Trash2, RefreshCw, Loader2, Radar, Search, ListVideo } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { LiveAnalyzer } from "./live-analyzer";
+import { type Analysis, AnalysisCard, api, timeAgo } from "./analysis-card";
 
-// ─── Types (mirror /api/v1/scout payloads) ────────────────────────────────────
+// ─── Types (mirror /api/v1/scout payloads) ────────────────────────────────
 
 interface Channel {
   id: string;
   name: string;
+  auto?: boolean;
+  found_via?: string;
 }
 
-interface ScoutSignal {
-  asset: string;
-  direction: "buy" | "sell";
-  confidence: number;
-  reasoning: string;
+interface DiscoveredChannel {
+  id: string;
+  name: string;
+  query: string;
+  watching: boolean;
 }
 
-interface StrategySuggestion {
-  strategy: string;
-  why: string;
-  params: Record<string, number>;
-}
-
-interface Analysis {
-  id: number;
-  video_id: string;
-  url: string;
-  title: string;
-  channel: string;
-  analyzed_at: number;
-  transcript_chars: number;
-  transcript_error: string | null;
-  engine: "llm" | "heuristic";
-  assets: { symbol: string; mentions: number }[];
-  sentiment: number;
-  signals: ScoutSignal[];
-  strategies: StrategySuggestion[];
+interface DiscoveryLogEntry {
+  query: string;
+  found: number;
+  at: number;
 }
 
 interface BacktestResult {
@@ -71,173 +48,161 @@ interface ScoutStatus {
   last_poll: number | null;
   poll_interval_s: number;
   running: boolean;
+  auto_discover: boolean;
+  last_discover: number | null;
+  discover_interval_s: number;
+  discovery_log: DiscoveryLogEntry[];
+  discovered_count: number;
 }
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api/v1/scout${path}`, init);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail ?? `${res.status}`);
-  }
-  return res.json();
+function LivePulse({ active }: { active: boolean }) {
+  return (
+    <span className="relative flex h-2 w-2">
+      {active && (
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+      )}
+      <span
+        className={cn(
+          "relative inline-flex h-2 w-2 rounded-full",
+          active ? "bg-emerald-400" : "bg-zinc-600"
+        )}
+      />
+    </span>
+  );
 }
 
-const timeAgo = (ts: number) => {
-  const s = Math.max(1, Math.round(Date.now() / 1000 - ts));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.round(s / 60)}m ago`;
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
-  return `${Math.round(s / 86400)}d ago`;
-};
+// ─── Discovery panel ────────────────────────────────────────────────────────
 
-// ─── Feed card ────────────────────────────────────────────────────────────────
-
-function AnalysisCard({ a }: { a: Analysis }) {
-  const [bt, setBt] = useState<Record<number, BacktestResult | "loading" | string>>({});
-
-  const runBacktest = async (idx: number) => {
-    setBt((m) => ({ ...m, [idx]: "loading" }));
-    try {
-      const res = await api<BacktestResult>("/backtest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ analysis_id: a.id, strategy_index: idx }),
-      });
-      setBt((m) => ({ ...m, [idx]: res }));
-    } catch (e) {
-      setBt((m) => ({ ...m, [idx]: e instanceof Error ? e.message : String(e) }));
-    }
-  };
-
-  const sentimentColor =
-    a.sentiment > 0.15 ? "text-emerald-400" : a.sentiment < -0.15 ? "text-red-400" : "text-zinc-400";
-
+function DiscoveryPanel({
+  status,
+  discovered,
+  onSearch,
+  onWatch,
+  busy,
+  query,
+  setQuery,
+  autoWatch,
+  setAutoWatch,
+}: {
+  status: ScoutStatus | null;
+  discovered: DiscoveredChannel[];
+  onSearch: () => void;
+  onWatch: (c: DiscoveredChannel) => void;
+  busy: boolean;
+  query: string;
+  setQuery: (v: string) => void;
+  autoWatch: boolean;
+  setAutoWatch: (v: boolean) => void;
+}) {
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
-      <div className="flex flex-wrap items-start gap-2">
-        <a
-          href={a.url}
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100 hover:text-cyan-300"
+      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+        <Radar size={13} className="text-cyan-400" />
+        Autonomous channel discovery
+        <span className="ml-auto flex items-center gap-1.5 normal-case tracking-normal text-[11px] text-zinc-500">
+          <LivePulse active={!!status?.auto_discover} />
+          {status?.auto_discover ? "scanning YouTube live" : "auto-scan off"}
+        </span>
+      </div>
+
+      <div className="flex gap-2">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && onSearch()}
+          placeholder="e.g. crypto swing trading strategy"
+          className="flex-1 rounded border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-100"
+        />
+        <button
+          onClick={onSearch}
+          disabled={busy}
+          className="flex items-center gap-1 rounded bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-900 hover:bg-white disabled:opacity-50"
         >
-          <Youtube size={14} className="shrink-0 text-red-500" />
-          {a.title}
-          <ExternalLink size={11} className="text-zinc-600" />
-        </a>
-        <span className="text-xs text-zinc-500">{a.channel}</span>
-        <span className="ml-auto flex items-center gap-2 text-xs text-zinc-500">
-          <span
-            className="flex items-center gap-1 rounded bg-zinc-800 px-1.5 py-0.5"
-            title={a.engine === "llm" ? "Analyzed by LLM" : "Analyzed by heuristic extractor"}
-          >
-            {a.engine === "llm" ? <Bot size={11} /> : <Regex size={11} />}
-            {a.engine}
-          </span>
-          {timeAgo(a.analyzed_at)}
-        </span>
+          {busy ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+          Search
+        </button>
       </div>
+      <label className="mt-2 flex items-center gap-1.5 text-[11px] text-zinc-500">
+        <input
+          type="checkbox"
+          checked={autoWatch}
+          onChange={(e) => setAutoWatch(e.target.checked)}
+          className="accent-cyan-500"
+        />
+        watch every result immediately
+      </label>
 
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-        <span className={`font-medium ${sentimentColor}`}>
-          sentiment {a.sentiment > 0 ? "+" : ""}
-          {(a.sentiment * 100).toFixed(0)}%
-        </span>
-        {a.assets.map((as) => (
-          <span key={as.symbol} className="rounded-full border border-zinc-700 px-2 py-0.5 text-zinc-300">
-            {as.symbol} ×{as.mentions}
-          </span>
-        ))}
-        {a.transcript_error && (
-          <span className="text-amber-500/80" title={a.transcript_error}>
-            no transcript — title-only analysis
-          </span>
-        )}
-      </div>
-
-      {a.signals.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {a.signals.map((s, i) => (
-            <span
-              key={i}
-              title={s.reasoning}
-              className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${
-                s.direction === "buy"
-                  ? "bg-emerald-950/60 text-emerald-300"
-                  : "bg-red-950/60 text-red-300"
-              }`}
-            >
-              {s.direction === "buy" ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-              {s.direction.toUpperCase()} {s.asset}
-              <span className="opacity-70">{(s.confidence * 100).toFixed(0)}%</span>
-            </span>
+      {status && status.discovery_log.length > 0 && (
+        <div className="mt-3 max-h-28 space-y-1 overflow-y-auto border-t border-zinc-800/60 pt-2">
+          {status.discovery_log.map((e, i) => (
+            <div key={i} className="flex items-center gap-2 text-[11px] text-zinc-500">
+              <Radar size={10} className="shrink-0 text-zinc-600" />
+              <span className="truncate text-zinc-400">&ldquo;{e.query}&rdquo;</span>
+              <span className="ml-auto shrink-0">
+                {e.found} found · {timeAgo(e.at)}
+              </span>
+            </div>
           ))}
         </div>
       )}
 
-      {a.strategies.length > 0 && (
-        <div className="mt-3 space-y-1.5 border-t border-zinc-800/60 pt-2">
-          {a.strategies.map((s, i) => {
-            const r = bt[i];
-            return (
-              <div key={i} className="flex flex-wrap items-center gap-2 text-xs">
-                <FlaskConical size={12} className="shrink-0 text-zinc-500" />
-                <span className="font-mono text-zinc-200">{s.strategy}</span>
-                <span className="text-zinc-500">{s.why}</span>
-                <span className="ml-auto">
-                  {r === undefined && (
-                    <button
-                      onClick={() => runBacktest(i)}
-                      className="rounded border border-zinc-700 px-2 py-0.5 text-zinc-300 hover:bg-zinc-800"
-                    >
-                      Backtest now
-                    </button>
-                  )}
-                  {r === "loading" && <Loader2 size={12} className="animate-spin text-zinc-400" />}
-                  {typeof r === "string" && r !== "loading" && (
-                    <span className="text-red-400">{r}</span>
-                  )}
-                  {typeof r === "object" && (
-                    <span className="flex items-center gap-2 font-mono tabular-nums">
-                      <span className="text-zinc-500">{r.symbol} {r.interval}</span>
-                      <span className={r.total_return_pct >= 0 ? "text-emerald-400" : "text-red-400"}>
-                        {r.total_return_pct >= 0 ? "+" : ""}
-                        {r.total_return_pct}%
-                      </span>
-                      <span className="text-zinc-400">sharpe {r.sharpe_ratio}</span>
-                      <span className="text-zinc-500">dd {r.max_drawdown_pct}%</span>
-                      <span className="text-zinc-500">{r.total_trades} trades</span>
-                    </span>
-                  )}
-                </span>
+      {discovered.length > 0 && (
+        <div className="mt-3 flex gap-2 overflow-x-auto border-t border-zinc-800/60 pt-2">
+          {discovered.map((c) => (
+            <div
+              key={c.id}
+              className="flex w-40 shrink-0 flex-col gap-1 rounded-md border border-zinc-800 bg-zinc-950/60 p-2"
+            >
+              <div className="flex items-center gap-1 truncate text-[11px] font-medium text-zinc-200">
+                <Youtube size={11} className="shrink-0 text-red-500" />
+                <span className="truncate">{c.name}</span>
               </div>
-            );
-          })}
+              <span className="truncate text-[10px] text-zinc-600" title={c.query}>
+                via &ldquo;{c.query}&rdquo;
+              </span>
+              <button
+                onClick={() => onWatch(c)}
+                disabled={c.watching}
+                className="mt-auto flex items-center justify-center gap-1 rounded border border-zinc-700 py-1 text-[10px] text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+              >
+                {c.watching ? "Watching" : (
+                  <>
+                    <Plus size={10} /> Watch
+                  </>
+                )}
+              </button>
+            </div>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+// ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function ScoutPage() {
   const [status, setStatus] = useState<ScoutStatus | null>(null);
   const [feed, setFeed] = useState<Analysis[]>([]);
+  const [discovered, setDiscovered] = useState<DiscoveredChannel[]>([]);
   const [channelRef, setChannelRef] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
-  const [busy, setBusy] = useState<"" | "channel" | "video" | "poll">("");
+  const [discoverQuery, setDiscoverQuery] = useState("crypto trading strategy");
+  const [discoverAutoWatch, setDiscoverAutoWatch] = useState(false);
+  const [busy, setBusy] = useState<"" | "channel" | "video" | "poll" | "discover">("");
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
-      const [st, fd] = await Promise.all([
+      const [st, fd, dv] = await Promise.all([
         api<ScoutStatus>("/status"),
         api<Analysis[]>("/feed?limit=50"),
+        api<DiscoveredChannel[]>("/discovered?limit=20"),
       ]);
       setStatus(st);
       setFeed(fd);
+      setDiscovered(dv.map((c) => ({ ...c, watching: st.channels.some((ch) => ch.id === c.id) })));
       setOffline(false);
     } catch {
       setOffline(true);
@@ -306,18 +271,58 @@ export default function ScoutPage() {
     }
   };
 
+  const discoverNow = async () => {
+    if (!discoverQuery.trim()) return;
+    setBusy("discover");
+    setError(null);
+    try {
+      await api("/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: discoverQuery.trim(), auto_watch: discoverAutoWatch }),
+      });
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const watchDiscovered = async (c: DiscoveredChannel) => {
+    setDiscovered((ds) => ds.map((d) => (d.id === c.id ? { ...d, watching: true } : d)));
+    try {
+      await api("/channels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ref: c.id }),
+      });
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   return (
     <div className="space-y-4 p-6">
       <div className="flex min-h-9 flex-wrap items-center gap-3">
         <h1 className="flex items-center gap-2 text-lg font-semibold text-zinc-100">
           <Radar size={18} /> YouTube Scout
         </h1>
-        <span className="text-xs text-zinc-500">
-          watches trading channels → live signals, strategies, instant backtests
+        <span className="flex items-center gap-1.5 text-xs text-zinc-500">
+          <LivePulse active={!!status?.running} />
+          watches + discovers trading channels → named strategy models, signals, instant backtests
         </span>
+        <Link
+          href="/lab/scout/youtube"
+          className="flex items-center gap-1.5 rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+        >
+          <ListVideo size={12} /> Browse my YouTube
+        </Link>
         {status && (
           <span className="ml-auto flex items-center gap-3 text-xs text-zinc-500">
-            {status.channels.length} channels · {status.seen_videos} videos seen
+            {status.channels.length} channels ({status.channels.filter((c) => c.auto).length} auto) ·{" "}
+            {status.seen_videos} videos seen
             {status.last_poll && <> · polled {timeAgo(status.last_poll)}</>}
             <button
               onClick={pollNow}
@@ -340,8 +345,8 @@ export default function ScoutPage() {
         )}
       </div>
 
-      {/* Inputs: watch a channel / analyze one video */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      {/* Inputs: watch a channel / analyze one video / autonomous discovery */}
+      <div className="grid gap-4 lg:grid-cols-3">
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
           <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
             Watch a channel — new uploads auto-analyzed
@@ -368,15 +373,22 @@ export default function ScoutPage() {
             </button>
           </div>
           {status && status.channels.length > 0 && (
-            <ul className="mt-3 space-y-1">
+            <ul className="mt-3 max-h-40 space-y-1 overflow-y-auto">
               {status.channels.map((c) => (
                 <li key={c.id} className="flex items-center gap-2 text-xs text-zinc-300">
-                  <Youtube size={12} className="text-red-500" />
-                  {c.name}
-                  <span className="font-mono text-[10px] text-zinc-600">{c.id.slice(0, 12)}…</span>
+                  <Youtube size={12} className="shrink-0 text-red-500" />
+                  <span className="truncate">{c.name}</span>
+                  {c.auto && (
+                    <span
+                      className="flex shrink-0 items-center gap-0.5 rounded bg-cyan-950/60 px-1 py-0.5 text-[9px] text-cyan-300"
+                      title={c.found_via ? `auto-discovered via "${c.found_via}"` : "auto-discovered"}
+                    >
+                      <Radar size={8} /> auto
+                    </span>
+                  )}
                   <button
                     onClick={() => removeChannel(c.id)}
-                    className="ml-auto rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-red-400"
+                    className="ml-auto shrink-0 rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-red-400"
                     title="Stop watching"
                   >
                     <Trash2 size={11} />
@@ -409,12 +421,26 @@ export default function ScoutPage() {
             </button>
           </div>
           <p className="mt-2 text-[11px] text-zinc-600">
-            Transcript → assets, sentiment, signals, and strategy configs you can backtest with one
-            click. Uses the LLM when an API key is configured, a deterministic extractor otherwise.
+            Transcript → assets, sentiment, signals, and named strategy models you can backtest with
+            one click. Uses the LLM when an API key is configured, a deterministic extractor otherwise.
           </p>
           {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
         </div>
+
+        <DiscoveryPanel
+          status={status}
+          discovered={discovered}
+          onSearch={discoverNow}
+          onWatch={watchDiscovered}
+          busy={busy === "discover"}
+          query={discoverQuery}
+          setQuery={setDiscoverQuery}
+          autoWatch={discoverAutoWatch}
+          setAutoWatch={setDiscoverAutoWatch}
+        />
       </div>
+
+      <LiveAnalyzer onDone={(rec) => setFeed((f) => [rec, ...f])} />
 
       {/* Live feed */}
       <div className="space-y-3">
