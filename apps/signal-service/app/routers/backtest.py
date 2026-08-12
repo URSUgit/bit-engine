@@ -522,9 +522,13 @@ def _generate_gbm_bars(symbol: str, interval: str, days: int) -> list:
     wick_noise = np.abs(rng.normal(0.0, 0.008, n_bars))
     vol_noise  = np.abs(rng.normal(0.0, 0.6,   n_bars))
 
-    # Anchor at (now − days) so bars end at approximately today.
+    # Anchor at (now − days) so bars end at approximately today. Floored to
+    # the bar-interval grid (e.g. midnight UTC for "1d") so synthetic bars
+    # land on the exact same timestamps real fetchers use — if real data is
+    # cached later for the same period, INSERT OR REPLACE naturally evicts
+    # the synthetic row instead of the two series interleaving forever.
     anchor = datetime.now(timezone.utc) - timedelta(days=days)
-    anchor_ts = int(anchor.timestamp())
+    anchor_ts = (int(anchor.timestamp()) // bar_secs) * bar_secs
 
     bars = []
     for i in range(n_bars):
@@ -2202,9 +2206,13 @@ async def regime_analysis(req: RegimeAnalysisRequest):
         bars = []
 
     if len(bars) < 30:
-        # Auto-generate GBM bars
+        # Auto-generate GBM bars, tagged as synthetic so they never masquerade
+        # as (or block a future overwrite by) real data — mirrors /seed-demo's
+        # "demo data must never replace real data" invariant.
         gbm_bars = await asyncio.to_thread(_generate_gbm_bars, req.symbol, req.interval, req.period_days)
-        await asyncio.to_thread(bar_storage.upsert_bars, req.symbol, req.interval, gbm_bars)
+        await asyncio.to_thread(
+            bar_storage.upsert_bars, req.symbol, req.interval, gbm_bars, "synthetic_gbm"
+        )
         bars = await loader.load(req.symbol, start_date, None, req.interval)
 
     if len(bars) < 20:

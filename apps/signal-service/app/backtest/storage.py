@@ -246,6 +246,28 @@ class BarStorage:
             "volume":   np.array([b.volume for b in bars], dtype=np.float64),
         }
         with self._lock:
+            # If real data is arriving where only synthetic demo bars were
+            # cached, wipe the whole synthetic series first. Synthetic bars
+            # aren't guaranteed to share exact timestamps with real ones (old
+            # cache entries predate timestamp-grid alignment, or a provider's
+            # bar boundaries don't line up), so a plain ts-collision DELETE
+            # below isn't enough — leftover synthetic rows would otherwise
+            # sit alongside real ones forever and corrupt every backtest that
+            # reads this (symbol, interval).
+            existing_source = self._con.execute(
+                "SELECT source FROM meta WHERE symbol=? AND interval=?",
+                (symbol, interval),
+            ).fetchone()
+            wiped_synthetic = (
+                source is not None
+                and source != "synthetic_gbm"
+                and existing_source is not None
+                and existing_source[0] == "synthetic_gbm"
+            )
+            if wiped_synthetic:
+                self._con.execute(
+                    "DELETE FROM bars WHERE symbol=? AND interval=?", (symbol, interval)
+                )
             # Delete existing rows for these timestamps, then bulk-insert.
             # This is ~1000x faster than executemany INSERT OR REPLACE.
             self._con.register("_tmp_bars", data)
@@ -263,7 +285,7 @@ class BarStorage:
                 "SELECT earliest_ts, latest_ts, source FROM meta WHERE symbol=? AND interval=?",
                 (symbol, interval),
             ).fetchone()
-            if existing and existing[0] is not None:
+            if existing and existing[0] is not None and not wiped_synthetic:
                 earliest = min(existing[0], new_min)
                 latest = max(existing[1], new_max)
                 resolved_source = source if source is not None else existing[2]
