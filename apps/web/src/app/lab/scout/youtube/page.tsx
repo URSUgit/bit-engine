@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { ElementType } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -19,6 +19,7 @@ import {
   Radar,
   CheckCircle2,
   ListChecks,
+  Users,
   X,
 } from "lucide-react";
 import { LiveAnalyzer, type LiveAnalyzerHandle } from "../live-analyzer";
@@ -42,6 +43,18 @@ interface VideoPage {
 interface Status {
   connected: boolean;
   channel: { title: string; thumbnail: string | null } | null;
+}
+
+interface ScoutStatus {
+  channels: { id: string; name: string; auto?: boolean }[];
+  seen_videos: number;
+  analyses: number;
+  last_poll: number | null;
+  poll_interval_s: number;
+  running: boolean;
+  auto_discover: boolean;
+  last_discover: number | null;
+  discover_interval_s: number;
 }
 
 interface DiscoverCandidate {
@@ -137,6 +150,7 @@ export default function YoutubeBrowsePage() {
   const [error, setError] = useState<string | null>(null);
   const [analyzedIds, setAnalyzedIds] = useState<Set<string>>(new Set());
   const [filterText, setFilterText] = useState("");
+  const [scoutStatus, setScoutStatus] = useState<ScoutStatus | null>(null);
 
   // Tab selection survives a refresh/share (?tab=feed) instead of always
   // resetting to Discover.
@@ -178,6 +192,24 @@ export default function YoutubeBrowsePage() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadScoutStatus = () => {
+      fetch("/api/v1/scout/status")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((s: ScoutStatus | null) => {
+          if (!cancelled) setScoutStatus(s);
+        })
+        .catch(() => {});
+    };
+    loadScoutStatus();
+    const id = setInterval(loadScoutStatus, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
   const filteredVideos = useMemo(() => {
     const q = filterText.trim().toLowerCase();
     if (!q) return videos;
@@ -185,6 +217,15 @@ export default function YoutubeBrowsePage() {
       (v) => v.title.toLowerCase().includes(q) || v.channel.toLowerCase().includes(q)
     );
   }, [videos, filterText]);
+
+  const displayVideos = useMemo(() => {
+    if (tab !== "search") return filteredVideos;
+    return [...filteredVideos].sort((a, b) => {
+      const byChannel = a.channel.localeCompare(b.channel);
+      if (byChannel !== 0) return byChannel;
+      return (b.published_at ?? "").localeCompare(a.published_at ?? "");
+    });
+  }, [filteredVideos, tab]);
 
   const uniqueChannels = useMemo<ChannelSummary[]>(() => {
     const seen = new Map<string, ChannelSummary>();
@@ -423,13 +464,67 @@ export default function YoutubeBrowsePage() {
               active={tab === "discover"}
               onClick={() => setTab("discover")}
               icon={Radar}
-              label="Discover channels · no quota"
+              label="Discover channels"
+              title="Find new trading channels by keyword search — free, no YouTube API quota used"
             />
-            <TabButton active={tab === "feed"} onClick={() => setTab("feed")} icon={Rss} label="Subscriptions feed" />
-            <TabButton active={tab === "liked"} onClick={() => setTab("liked")} icon={Heart} label="Liked" />
-            <TabButton active={tab === "playlist"} onClick={() => setTab("playlist")} icon={ListMusic} label="Playlist" />
-            <TabButton active={tab === "search"} onClick={() => setTab("search")} icon={Search} label="Search videos" />
+            <TabButton
+              active={tab === "feed"}
+              onClick={() => setTab("feed")}
+              icon={Rss}
+              label="Subscriptions feed"
+              title="Recent uploads from channels you're subscribed to on YouTube"
+            />
+            <TabButton
+              active={tab === "liked"}
+              onClick={() => setTab("liked")}
+              icon={Heart}
+              label="Liked videos"
+              title={'Videos from your YouTube "Liked videos" playlist'}
+            />
+            <TabButton
+              active={tab === "playlist"}
+              onClick={() => setTab("playlist")}
+              icon={ListMusic}
+              label="A playlist"
+              title="Browse any playlist by pasting its URL or ID — yours or someone else's"
+            />
+            <TabButton
+              active={tab === "search"}
+              onClick={() => setTab("search")}
+              icon={Search}
+              label="Search videos"
+              title="Full YouTube keyword search — uses your daily API quota, unlike Discover channels"
+            />
           </div>
+          {(tab === "feed" || tab === "liked" || tab === "playlist") && (
+            <p className="text-[11px] text-zinc-600">
+              {tab === "feed" && "Newest uploads from the channels you already follow on YouTube, most recent first."}
+              {tab === "liked" && "Pulled straight from your YouTube \"Liked videos\" playlist."}
+              {tab === "playlist" && "Works with any playlist — your own, or one someone shared with you."}
+            </p>
+          )}
+
+          {scoutStatus && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-zinc-800 bg-zinc-900/30 px-3 py-2 text-[11px] text-zinc-500">
+              <span className="flex items-center gap-1.5 font-medium text-zinc-400">
+                <Radar size={12} className={scoutStatus.running ? "text-cyan-400" : "text-zinc-600"} />
+                Agent {scoutStatus.running ? "watching" : "idle"} · {scoutStatus.channels.length} channel
+                {scoutStatus.channels.length === 1 ? "" : "s"}
+              </span>
+              <span>{scoutStatus.analyses} analyzed</span>
+              <span>{scoutStatus.seen_videos} videos seen</span>
+              <span>
+                last checked {scoutStatus.last_poll ? timeAgo(scoutStatus.last_poll) : "never yet"}
+              </span>
+              <span>polls every {Math.round(scoutStatus.poll_interval_s / 60)}m</span>
+              {scoutStatus.auto_discover && (
+                <span>
+                  auto-discovery{" "}
+                  {scoutStatus.last_discover ? `· last ${timeAgo(scoutStatus.last_discover)}` : "· not run yet"}
+                </span>
+              )}
+            </div>
+          )}
 
           {tab === "discover" && (
             <div className="space-y-2 rounded-lg border border-zinc-800 bg-zinc-900/50 p-3">
@@ -545,7 +640,8 @@ export default function YoutubeBrowsePage() {
                 </button>
               </div>
               <p className="text-[11px] text-zinc-600">
-                Uses YouTube&apos;s API (~100 searches/day quota, cached by query). Prefer{" "}
+                Results below are grouped by channel. Uses YouTube&apos;s API (~100 searches/day quota, cached by
+                query). Prefer{" "}
                 <button onClick={() => setTab("discover")} className="underline hover:text-cyan-400">
                   Discover channels
                 </button>{" "}
@@ -663,18 +759,25 @@ export default function YoutubeBrowsePage() {
                   )}
                 </div>
 
-                {filteredVideos.length === 0 ? (
+                {displayVideos.length === 0 ? (
                   <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 text-center text-xs text-zinc-500">
                     No loaded videos match &ldquo;{filterText}&rdquo;.
                   </div>
                 ) : (
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    {filteredVideos.map((v) => {
+                    {displayVideos.map((v, i) => {
                       const watched = v.channel_id ? watchedChannels.has(v.channel_id) : false;
                       const analyzed = analyzedIds.has(v.video_id);
+                      const showChannelHeader =
+                        tab === "search" && (i === 0 || displayVideos[i - 1].channel !== v.channel);
                       return (
+                        <Fragment key={v.video_id}>
+                        {showChannelHeader && (
+                          <div className="col-span-full mt-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 first:mt-0">
+                            <Users size={11} /> {v.channel}
+                          </div>
+                        )}
                         <div
-                          key={v.video_id}
                           className="group flex flex-col overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/50 hover:border-cyan-700"
                         >
                           <button onClick={() => selectVideo(v)} className="flex flex-col text-left">
@@ -717,6 +820,7 @@ export default function YoutubeBrowsePage() {
                             </button>
                           )}
                         </div>
+                        </Fragment>
                       );
                     })}
                   </div>
@@ -755,15 +859,18 @@ function TabButton({
   onClick,
   icon: Icon,
   label,
+  title,
 }: {
   active: boolean;
   onClick: () => void;
   icon: ElementType;
   label: string;
+  title?: string;
 }) {
   return (
     <button
       onClick={onClick}
+      title={title}
       className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium ${
         active ? "bg-cyan-500 text-slate-950" : "border border-zinc-700 text-zinc-300 hover:bg-zinc-800"
       }`}
