@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Footer } from "@/components/layout/Footer";
 
-export const metadata: Metadata = { title: "Risk Disclosure | BitPrivat" };
+export const metadata: Metadata = { title: "Risk Disclosure" };
 
 export default function RiskPage() {
   return (

@@ -114,7 +114,7 @@ pnpm dev
 # In separate terminals:
 cd apps/api-gateway && go run main.go
 cd apps/trading-engine && cargo run
-cd apps/signal-service && uvicorn main:app --reload --port 8001
+cd apps/signal-service && uvicorn main:app --reload --reload-dir app --port 8001
 ```
 
 ### 5. Open
