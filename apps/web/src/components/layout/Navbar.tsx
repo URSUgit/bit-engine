@@ -3,12 +3,22 @@
 import { Search, ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
-import { WalletConnectButton } from "@/components/wallet/WalletConnectButton";
-import { SignInButton } from "@/components/wallet/SignInButton";
+import dynamic from "next/dynamic";
 import { NotificationsDropdown } from "@/components/NotificationsDropdown";
 import { useCommandPalette } from "@/components/CommandPalette";
 import { DataStatusIndicator } from "@/components/DataStatusIndicator";
 import { LogoMark } from "@/components/Logo";
+
+// wagmi/viem/WalletConnect is the single largest JS chunk in the app (~176kB) —
+// deferred so it doesn't block first paint of every dashboard/lab page.
+const SignInButton = dynamic(
+  () => import("@/components/wallet/SignInButton").then((m) => m.SignInButton),
+  { ssr: false, loading: () => <div className="w-20 h-8" /> },
+);
+const WalletConnectButton = dynamic(
+  () => import("@/components/wallet/WalletConnectButton").then((m) => m.WalletConnectButton),
+  { ssr: false, loading: () => <div className="w-32 h-8" /> },
+);
 
 export function Navbar() {
   const [userOpen, setUserOpen] = useState(false);
