@@ -1,10 +1,13 @@
 """Paper trading REST endpoints."""
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from dataclasses import asdict
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -19,14 +22,47 @@ _store = PaperStore()
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _latest_price(symbol: str) -> Optional[float]:
-    """Return the most recent close price from bar_storage, or None."""
+_BINANCE_PRICE_URL = "https://api.binance.com/api/v3/ticker/price"
+
+
+async def _fetch_live_prices(symbols: set[str]) -> dict[str, float]:
+    """Fetch current spot prices for one or more symbols from Binance.
+
+    Binance's bulk endpoint doesn't preserve request order, so results are
+    keyed by the response's own "symbol" field, not by request position.
+    """
+    if not symbols:
+        return {}
+    syms = sorted(symbols)
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            if len(syms) == 1:
+                r = await client.get(_BINANCE_PRICE_URL, params={"symbol": syms[0]})
+                r.raise_for_status()
+                data = r.json()
+                return {data["symbol"]: float(data["price"])}
+            r = await client.get(
+                _BINANCE_PRICE_URL,
+                params={"symbols": json.dumps(syms, separators=(",", ":"))},
+            )
+            r.raise_for_status()
+            return {item["symbol"]: float(item["price"]) for item in r.json()}
+    except Exception as exc:
+        log.debug("live price lookup failed for %s: %s", syms, exc)
+        return {}
+
+
+def _cached_backtest_price(symbol: str) -> Optional[float]:
+    """Fallback only: most recent close from the backtest bar cache.
+
+    This cache is populated by backtest data downloads and can hold bars
+    from arbitrary historical ranges — never treat it as a live price, only
+    as a last resort when the live Binance fetch fails.
+    """
     try:
         from app.backtest.storage import bar_storage
-        import time
 
         sym_upper = symbol.upper()
-        # Look for any interval's latest bar
         for interval in ("1h", "15m", "1d", "4h", "5m"):
             meta = bar_storage.get_meta(sym_upper, interval)
             if not meta or not meta.get("latest_ts"):
@@ -40,9 +76,13 @@ def _latest_price(symbol: str) -> Optional[float]:
     return None
 
 
-def _enrich_position(pos: PaperPosition) -> dict:
+def _enrich_position(pos: PaperPosition, live_prices: dict[str, float]) -> dict:
     d = asdict(pos)
-    cp = _latest_price(pos.symbol) or pos.entry_price
+    cp = (
+        live_prices.get(pos.symbol.upper())
+        or _cached_backtest_price(pos.symbol)
+        or pos.entry_price
+    )
     if pos.side == "long":
         pnl = (cp - pos.entry_price) * pos.size
     else:
@@ -80,14 +120,16 @@ class NoteRequest(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/positions")
-def list_positions():
-    positions = _store.list_positions()
-    return [_enrich_position(p) for p in positions]
+async def list_positions():
+    positions = await asyncio.to_thread(_store.list_positions)
+    live_prices = await _fetch_live_prices({p.symbol.upper() for p in positions})
+    return [_enrich_position(p, live_prices) for p in positions]
 
 
 @router.post("/positions", status_code=201)
-def open_position(req: OpenPositionRequest):
-    pos = _store.open_position(
+async def open_position(req: OpenPositionRequest):
+    pos = await asyncio.to_thread(
+        _store.open_position,
         symbol=req.symbol,
         side=req.side,
         entry_price=req.entry_price,
@@ -95,7 +137,8 @@ def open_position(req: OpenPositionRequest):
         strategy=req.strategy,
         notes=req.notes,
     )
-    return _enrich_position(pos)
+    live_prices = await _fetch_live_prices({pos.symbol.upper()})
+    return _enrich_position(pos, live_prices)
 
 
 @router.delete("/positions/{position_id}")
