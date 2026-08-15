@@ -402,8 +402,8 @@ class HistoricalDataLoader:
 
         # Check cache first
         if not force_refresh:
-            cached = self.storage.get_bars(symbol, interval, start_ts, end_ts)
-            meta = self.storage.get_meta(symbol, interval)
+            cached = await asyncio.to_thread(self.storage.get_bars, symbol, interval, start_ts, end_ts)
+            meta = await asyncio.to_thread(self.storage.get_meta, symbol, interval)
             if meta and len(cached) > 50:
                 # Check if cache is reasonably fresh (within a day for daily data)
                 stale_threshold = 86400 * 2 if interval == "1d" else 3600 * 2
@@ -451,16 +451,16 @@ class HistoricalDataLoader:
                     log.info("Trying GitHub real-data (Coin Metrics) for %s", symbol)
                     await asyncio.to_thread(load_real_daily, symbol, interval=interval)
                     # load_real_daily upserts directly; serve from cache below.
-                    return self.storage.get_bars(symbol, interval, start_ts, end_ts)
+                    return await asyncio.to_thread(self.storage.get_bars, symbol, interval, start_ts, end_ts)
                 except Exception as e:
                     log.warning("GitHub real-data fallback failed for %s: %s", symbol, e)
 
         if bars:
-            self.storage.upsert_bars(symbol, interval, bars, source=source)
+            await asyncio.to_thread(self.storage.upsert_bars, symbol, interval, bars, source=source)
             log.info("Cached %d bars for %s %s (source=%s)", len(bars), symbol, interval, source)
 
         # Return filtered to requested range from cache
-        return self.storage.get_bars(symbol, interval, start_ts, end_ts)
+        return await asyncio.to_thread(self.storage.get_bars, symbol, interval, start_ts, end_ts)
 
     async def prefetch_universe(
         self,
