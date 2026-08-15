@@ -425,8 +425,13 @@ async def delete_history_run(run_id: str):
 
 @router.get("/cache")
 async def cache_status():
-    """Show what historical OHLCV is cached locally."""
-    rows = bar_storage.list_symbols()
+    """Show what historical OHLCV is cached locally.
+
+    list_symbols() runs a correlated per-row subquery over the bars table
+    under BarStorage's global lock, so it's dispatched to a worker thread
+    to avoid blocking the event loop for every concurrent request.
+    """
+    rows = await asyncio.to_thread(bar_storage.list_symbols)
     return {
         "total_series": len(rows),
         "total_bars": sum(r["bar_count"] for r in rows),
@@ -437,7 +442,7 @@ async def cache_status():
 @router.delete("/cache/{symbol}")
 async def clear_cached_symbol(symbol: str, interval: Optional[str] = Query(None)):
     """Remove cached bars for a symbol (forces re-fetch next time)."""
-    bar_storage.delete_bars(symbol, interval)
+    await asyncio.to_thread(bar_storage.delete_bars, symbol, interval)
     return {"cleared": True, "symbol": symbol, "interval": interval}
 
 
