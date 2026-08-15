@@ -403,13 +403,14 @@ async def list_history(
     symbol: Optional[str] = Query(None),
 ):
     """Recent backtest runs with summary metrics."""
-    return {"runs": backtest_history.list(limit=limit, symbol=symbol)}
+    runs = await asyncio.to_thread(backtest_history.list, limit=limit, symbol=symbol)
+    return {"runs": runs}
 
 
 @router.get("/history/{run_id}", response_model=BacktestResult)
 async def get_history_run(run_id: str):
     """Re-open a saved backtest result by id."""
-    data = backtest_history.get(run_id)
+    data = await asyncio.to_thread(backtest_history.get, run_id)
     if not data:
         raise HTTPException(status_code=404, detail="Run not found")
     return data
@@ -417,7 +418,7 @@ async def get_history_run(run_id: str):
 
 @router.delete("/history/{run_id}")
 async def delete_history_run(run_id: str):
-    deleted = backtest_history.delete(run_id)
+    deleted = await asyncio.to_thread(backtest_history.delete, run_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Run not found")
     return {"deleted": True, "id": run_id}
@@ -715,7 +716,8 @@ async def scan_anomalies(req: AnomalyRequest):
 async def list_datasets():
     """Return a list of all alternative datasets cached locally (FRED, F&G, OI, funding)."""
     from app.backtest.datasources import data_registry
-    return {"datasets": data_registry.list_available()}
+    datasets = await asyncio.to_thread(data_registry.list_available)
+    return {"datasets": datasets}
 
 
 class FearGreedRequest(BaseModel):

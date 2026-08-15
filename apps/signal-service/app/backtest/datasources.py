@@ -4,6 +4,7 @@ and tick-level aggTrades. All backed by the same SQLite cache as BarStorage.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import sqlite3
@@ -167,12 +168,12 @@ async def fetch_fear_greed(days_back: int = 365) -> list[dict]:
     """Fetch crypto Fear & Greed index (0-100). Cached in SQLite."""
     key = "crypto"
     ds = "fear_greed"
-    meta = _alt_storage.get_meta(ds, key)
+    meta = await asyncio.to_thread(_alt_storage.get_meta, ds, key)
     cutoff = int(time.time()) - 3600 * 6  # refresh every 6h
 
     if meta and meta["updated_at"] and meta["updated_at"] > cutoff:
         start_ts = int(time.time()) - days_back * 86400
-        return _alt_storage.get(ds, key, start_ts=start_ts)
+        return await asyncio.to_thread(_alt_storage.get, ds, key, start_ts=start_ts)
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
@@ -181,7 +182,7 @@ async def fetch_fear_greed(days_back: int = 365) -> list[dict]:
             data = r.json().get("data", [])
     except Exception as e:
         log.warning("Fear & Greed fetch failed: %s", e)
-        return _alt_storage.get(ds, key)
+        return await asyncio.to_thread(_alt_storage.get, ds, key)
 
     rows = [
         {
@@ -193,10 +194,10 @@ async def fetch_fear_greed(days_back: int = 365) -> list[dict]:
         if "timestamp" in item and "value" in item
     ]
     if rows:
-        _alt_storage.upsert(ds, key, rows)
+        await asyncio.to_thread(_alt_storage.upsert, ds, key, rows)
 
     start_ts = int(time.time()) - days_back * 86400
-    return _alt_storage.get(ds, key, start_ts=start_ts)
+    return await asyncio.to_thread(_alt_storage.get, ds, key, start_ts=start_ts)
 
 
 # ── FRED macro ────────────────────────────────────────────────────────────────
@@ -215,12 +216,12 @@ async def fetch_fred_series(
 
     ds = "fred"
     key = series_id
-    meta = _alt_storage.get_meta(ds, key)
+    meta = await asyncio.to_thread(_alt_storage.get_meta, ds, key)
     cutoff = int(time.time()) - 3600 * 24  # refresh daily
 
     if meta and meta["updated_at"] and meta["updated_at"] > cutoff:
         start_ts = int(datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc).timestamp())
-        return _alt_storage.get(ds, key, start_ts=start_ts)
+        return await asyncio.to_thread(_alt_storage.get, ds, key, start_ts=start_ts)
 
     end_str = end_date or datetime.utcnow().date().isoformat()
     try:
@@ -237,7 +238,7 @@ async def fetch_fred_series(
     except Exception as e:
         log.warning("FRED fetch failed for %s: %s", series_id, e)
         start_ts = int(datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc).timestamp())
-        return _alt_storage.get(ds, key, start_ts=start_ts)
+        return await asyncio.to_thread(_alt_storage.get, ds, key, start_ts=start_ts)
 
     rows = []
     for o in obs:
@@ -250,10 +251,10 @@ async def fetch_fred_series(
             continue
 
     if rows:
-        _alt_storage.upsert(ds, key, rows)
+        await asyncio.to_thread(_alt_storage.upsert, ds, key, rows)
 
     start_ts = int(datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc).timestamp())
-    return _alt_storage.get(ds, key, start_ts=start_ts)
+    return await asyncio.to_thread(_alt_storage.get, ds, key, start_ts=start_ts)
 
 
 # ── Binance Futures funding rates ─────────────────────────────────────────────
@@ -270,10 +271,10 @@ async def fetch_funding_rates(
     end_ts = end_ts or int(time.time() * 1000)
     start_ts = start_ts or (end_ts - 90 * 24 * 3600 * 1000)
 
-    meta = _alt_storage.get_meta(ds, key)
+    meta = await asyncio.to_thread(_alt_storage.get_meta, ds, key)
     cutoff = int(time.time()) - 3600 * 8  # funding updates every 8h
 
-    cached = _alt_storage.get(ds, key, start_ts=start_ts // 1000, end_ts=end_ts // 1000)
+    cached = await asyncio.to_thread(_alt_storage.get, ds, key, start_ts=start_ts // 1000, end_ts=end_ts // 1000)
     if meta and meta["updated_at"] and meta["updated_at"] > cutoff and cached:
         return cached
 
@@ -303,9 +304,9 @@ async def fetch_funding_rates(
         log.warning("Binance funding rate fetch failed for %s: %s", symbol, e)
 
     if all_rows:
-        _alt_storage.upsert(ds, key, all_rows)
+        await asyncio.to_thread(_alt_storage.upsert, ds, key, all_rows)
 
-    return _alt_storage.get(ds, key, start_ts=start_ts // 1000, end_ts=end_ts // 1000)
+    return await asyncio.to_thread(_alt_storage.get, ds, key, start_ts=start_ts // 1000, end_ts=end_ts // 1000)
 
 
 # ── Binance Open Interest ─────────────────────────────────────────────────────
@@ -322,10 +323,10 @@ async def fetch_open_interest(
     end_ts = end_ts or int(time.time() * 1000)
     start_ts = start_ts or (end_ts - 30 * 24 * 3600 * 1000)
 
-    meta = _alt_storage.get_meta(ds, key)
+    meta = await asyncio.to_thread(_alt_storage.get_meta, ds, key)
     cutoff = int(time.time()) - 3600  # refresh hourly
 
-    cached = _alt_storage.get(ds, key, start_ts=start_ts // 1000, end_ts=end_ts // 1000)
+    cached = await asyncio.to_thread(_alt_storage.get, ds, key, start_ts=start_ts // 1000, end_ts=end_ts // 1000)
     if meta and meta["updated_at"] and meta["updated_at"] > cutoff and cached:
         return cached
 
@@ -361,9 +362,9 @@ async def fetch_open_interest(
         log.warning("Binance OI fetch failed for %s: %s", symbol, e)
 
     if all_rows:
-        _alt_storage.upsert(ds, key, all_rows)
+        await asyncio.to_thread(_alt_storage.upsert, ds, key, all_rows)
 
-    return _alt_storage.get(ds, key, start_ts=start_ts // 1000, end_ts=end_ts // 1000)
+    return await asyncio.to_thread(_alt_storage.get, ds, key, start_ts=start_ts // 1000, end_ts=end_ts // 1000)
 
 
 # ── Binance aggTrades (tick data) ─────────────────────────────────────────────
