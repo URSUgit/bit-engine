@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 import httpx
 
@@ -75,11 +76,23 @@ async def fetch_coingecko_markets() -> list[dict]:
             return []
 
 
+# Hourly candles only change once an hour, but the refresh loop runs every
+# 60s — refetching all 8 coins' klines every cycle was burning through
+# CoinGecko's free-tier rate limit and drawing constant 429s. Cache each
+# coin's closes for a few minutes so most cycles reuse the last fetch.
+_CLOSES_CACHE: dict[str, tuple[float, list[float]]] = {}
+_CLOSES_TTL_SECONDS = 300
+
+
 async def fetch_coingecko_hourly_closes(coin_id: str, hours: int = 20) -> list[float]:
     """
     Fetch hourly close prices from CoinGecko for RSI computation.
     Returns list of close prices (last `hours` hourly candles).
     """
+    cached = _CLOSES_CACHE.get(coin_id)
+    if cached and time.time() - cached[0] < _CLOSES_TTL_SECONDS:
+        return cached[1]
+
     async with httpx.AsyncClient(timeout=15) as client:
         try:
             r = await client.get(
@@ -91,10 +104,15 @@ async def fetch_coingecko_hourly_closes(coin_id: str, hours: int = 20) -> list[f
             prices = r.json().get("prices", [])
             # prices = [[timestamp_ms, price], ...]
             closes = [p[1] for p in prices]
-            return closes[-hours:] if len(closes) >= hours else closes
+            closes = closes[-hours:] if len(closes) >= hours else closes
+            _CLOSES_CACHE[coin_id] = (time.time(), closes)
+            return closes
         except Exception as e:
             log.warning("CoinGecko klines failed for %s: %s", coin_id, e)
-            return []
+            # Serve stale cache on failure rather than an empty list — a
+            # rate-limited cycle shouldn't blank out RSI for a coin we
+            # already have good (if slightly old) data for.
+            return cached[1] if cached else []
 
 
 async def fetch_binance_tickers(symbols: list[str]) -> list[dict]:
