@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Search, TrendingUp, TrendingDown, Download, RefreshCw,
@@ -280,9 +280,8 @@ function BacktestHistoryTab() {
                   const isPos = (row.total_return_pct ?? 0) >= 0;
                   const expanded = expandedId === row.id;
                   return (
-                    <>
+                    <Fragment key={row.id}>
                       <tr
-                        key={row.id}
                         onClick={() => setExpandedId(expanded ? null : row.id)}
                         className="hover:bg-slate-900/40 transition-colors cursor-pointer"
                       >
@@ -294,7 +293,13 @@ function BacktestHistoryTab() {
                         </td>
                         <td className="px-4 py-3.5 text-slate-400 font-mono text-xs">{row.interval}</td>
                         <td className="px-4 py-3.5 text-right">
-                          <span className={cn("font-semibold number-font", isPos ? "text-emerald-400" : "text-red-400")}>
+                          <span className={cn("inline-flex items-center gap-1 font-semibold number-font", isPos ? "text-emerald-400" : "text-red-400")}>
+                            {Math.abs(row.total_return_pct ?? 0) > 100_000 && (
+                              <AlertCircle
+                                className="w-3.5 h-3.5 text-amber-400"
+                                aria-label="Extreme full-equity compounding — verify inputs"
+                              />
+                            )}
                             {pct(row.total_return_pct, 2)}
                           </span>
                         </td>
@@ -366,7 +371,7 @@ function BacktestHistoryTab() {
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   );
                 })}
               </tbody>

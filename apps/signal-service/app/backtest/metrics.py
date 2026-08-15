@@ -18,6 +18,11 @@ _INTERVAL_SECONDS = {
 
 _STOCK_SESSION_SECONDS = 6.5 * 3_600  # NYSE/Nasdaq regular session
 
+# Full-equity compounding over enough winning trades can mathematically produce
+# absurd (if technically correct) return percentages. Flag rather than clamp,
+# so the number stays honest but the UI can warn instead of presenting it as normal.
+_UNREALISTIC_RETURN_THRESHOLD_PCT = 100_000.0
+
 
 def _annualization_factor(interval: str, asset_class: str = "stock") -> float:
     """Trading periods per year for annualization.
@@ -294,6 +299,7 @@ def compute_metrics(
         avg_bars_between_trades=round(avg_bars_between, 1),
         time_in_market_pct=round(time_in_market, 2),
         daily_returns=daily_ret_downsampled,
+        unrealistic_compounding=abs(total_return_pct) > _UNREALISTIC_RETURN_THRESHOLD_PCT,
     )
 
 

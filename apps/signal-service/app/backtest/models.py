@@ -140,6 +140,7 @@ class PerformanceMetrics(BaseModel):
     avg_bars_between_trades: float = 0.0
     time_in_market_pct: float = 0.0
     daily_returns: list[float] = Field(default_factory=list)  # downsampled to 100 points
+    unrealistic_compounding: bool = False  # total_return_pct compounded past a plausible threshold
 
 
 class FeatureStats(BaseModel):
