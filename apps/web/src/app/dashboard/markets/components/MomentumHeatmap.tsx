@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { Fragment, useState, useCallback, useEffect } from "react";
 import { RefreshCw, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -265,7 +265,7 @@ export default function MomentumHeatmap() {
 
             {/* Coin rows */}
             {COINS.map((coin) => (
-              <>
+              <Fragment key={coin}>
                 {/* Coin label */}
                 <div
                   key={`${coin}-label`}
@@ -282,7 +282,7 @@ export default function MomentumHeatmap() {
                     loading={loadingGrid[coin][tf] ?? true}
                   />
                 ))}
-              </>
+              </Fragment>
             ))}
           </div>
         </div>

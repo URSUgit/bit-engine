@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Bell, Check, Mail, MessageSquare, Plus, Smartphone, Trash2 } from "lucide-react";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { SettingsNav } from "@/components/settings/SettingsNav";
 import { cn } from "@/lib/utils";
 
@@ -126,15 +125,14 @@ export default function NotificationsSettingsPage() {
   }
 
   return (
-    <DashboardLayout>
-      <div className="flex flex-col gap-6 p-6 max-w-[1200px] mx-auto">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-50 tracking-tight">Settings</h1>
-          <p className="text-sm text-slate-400 mt-1">Manage your profile, security, and integrations</p>
-        </div>
+    <div className="flex flex-col gap-6 p-6 max-w-[1200px] mx-auto">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-50 tracking-tight">Settings</h1>
+        <p className="text-sm text-slate-400 mt-1">Manage your profile, security, and integrations</p>
+      </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-6">
-          <SettingsNav />
+      <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-6">
+        <SettingsNav />
 
           <div className="flex flex-col gap-5">
             {/* Channels */}
@@ -330,6 +328,5 @@ export default function NotificationsSettingsPage() {
           </div>
         </div>
       </div>
-    </DashboardLayout>
   );
 }

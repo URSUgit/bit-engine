@@ -64,7 +64,7 @@ export default function SignalsPage() {
   const { data: signals, isLoading, isError } = useQuery<Signal[]>({
     queryKey: ["signals"],
     queryFn: () => api.signals.list(),
-    initialData: [],
+    staleTime: 0,
     refetchInterval: 30_000,
   });
 
