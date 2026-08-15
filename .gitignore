@@ -37,6 +37,10 @@ apps/signal-service/*.egg-info/
 **/*.pyo
 .python-version
 
+# ─── Secrets ─────────────────────────────────────────────────────────────────
+# Live OAuth tokens, not just local dev state — never commit.
+apps/signal-service/data/youtube_oauth.json
+
 # ─── Environment ─────────────────────────────────────────────────────────────
 .env
 .env.local
