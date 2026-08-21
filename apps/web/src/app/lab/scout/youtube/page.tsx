@@ -21,6 +21,7 @@ import {
   ListChecks,
   Users,
   X,
+  AlertTriangle,
 } from "lucide-react";
 import { LiveAnalyzer, type LiveAnalyzerHandle } from "../live-analyzer";
 import { timeAgo } from "../analysis-card";
@@ -55,6 +56,8 @@ interface ScoutStatus {
   auto_discover: boolean;
   last_discover: number | null;
   discover_interval_s: number;
+  discovery_alert: string | null;
+  discovery_stale_cycles: number;
 }
 
 interface DiscoverCandidate {
@@ -523,6 +526,13 @@ export default function YoutubeBrowsePage() {
                   {scoutStatus.last_discover ? `· last ${timeAgo(scoutStatus.last_discover)}` : "· not run yet"}
                 </span>
               )}
+            </div>
+          )}
+
+          {scoutStatus?.discovery_alert && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs text-amber-300">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <span>{scoutStatus.discovery_alert}</span>
             </div>
           )}
 

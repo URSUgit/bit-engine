@@ -542,6 +542,44 @@ async def test_auto_discover_and_watch_respects_cap(monkeypatch):
     assert watched2 == []
 
 
+@pytest.mark.anyio
+async def test_auto_discover_and_watch_alerts_after_consecutive_empty_cycles(monkeypatch):
+    from app.scout import service as svc_mod
+
+    svc = svc_mod.ScoutService()
+    svc.channels = {}
+    monkeypatch.setattr(svc_mod, "DISCOVERY_ALERT_CYCLES", 3)
+
+    async def fake_discover_empty(query, limit=4):
+        return []
+
+    monkeypatch.setattr(svc, "discover_channels", fake_discover_empty)
+
+    for _ in range(2):
+        await svc.auto_discover_and_watch()
+    assert svc.discovery_alert is None
+    assert svc.status()["discovery_alert"] is None
+
+    await svc.auto_discover_and_watch()
+    assert svc.discovery_stale_cycles == 3
+    assert svc.discovery_alert is not None
+    assert "3 consecutive cycles" in svc.discovery_alert
+    assert svc.status()["discovery_alert"] == svc.discovery_alert
+
+    # a later cycle that finds candidates clears the alert
+    async def fake_discover_hit(query, limit=4):
+        return [{"id": "UC1234567890123456789012", "name": "Trader", "query": query}]
+
+    async def fake_watch(ref, auto=False, query=None):
+        return {"id": ref, "name": ref, "auto": auto, "found_via": query}
+
+    monkeypatch.setattr(svc, "discover_channels", fake_discover_hit)
+    monkeypatch.setattr(svc, "watch", fake_watch)
+    await svc.auto_discover_and_watch()
+    assert svc.discovery_stale_cycles == 0
+    assert svc.discovery_alert is None
+
+
 @pytest.mark.parametrize("title", [
     "Interview with a pro trader",
     "BTC talk ft. Jane",

@@ -59,6 +59,14 @@ AUTO_DISCOVER = os.getenv("SCOUT_AUTO_DISCOVER", "1") == "1"
 DISCOVER_INTERVAL_S = float(os.getenv("SCOUT_DISCOVER_INTERVAL_S", "900"))
 MAX_AUTO_CHANNELS = int(os.getenv("SCOUT_MAX_AUTO_CHANNELS", "12"))
 
+# The search-scrape in discover_channels() is the least durable of Scout's
+# no-API-key techniques (it regexes YouTube's internal ytInitialData blob,
+# which can be reshuffled by a redesign, or return a consent/CAPTCHA page
+# instead of results if the server IP gets flagged) — and either failure
+# mode returns 0 candidates without raising, so nothing else would notice.
+# This many consecutive empty auto-discovery cycles trips discovery_alert.
+DISCOVERY_ALERT_CYCLES = int(os.getenv("SCOUT_DISCOVERY_ALERT_CYCLES", "5"))
+
 # When a watched channel posts a video with no captions, the background
 # poll loop used to give up and analyze the title alone. That's now a last
 # resort: try chart/ticker OCR first (cheap), then audio transcription if
@@ -119,6 +127,8 @@ class ScoutService:
         self._running = False
         self.last_poll: float | None = None
         self.last_discover: float | None = None
+        self.discovery_stale_cycles = 0
+        self.discovery_alert: str | None = None
         self._seed_cycle = itertools.cycle(SEED_QUERIES)
         self._load()
 
@@ -243,6 +253,26 @@ class ScoutService:
             return []
         query = next(self._seed_cycle)
         candidates = await self.discover_channels(query, limit=4)
+
+        if candidates:
+            self.discovery_stale_cycles = 0
+            self.discovery_alert = None
+        else:
+            self.discovery_stale_cycles += 1
+            if self.discovery_stale_cycles >= DISCOVERY_ALERT_CYCLES:
+                stale_min = self.discovery_stale_cycles * DISCOVER_INTERVAL_S / 60
+                self.discovery_alert = (
+                    f"Autonomous channel discovery has found 0 candidates for "
+                    f"{self.discovery_stale_cycles} consecutive cycles (~{stale_min:.0f}m). "
+                    "The search-scrape likely broke (YouTube markup change) or the server IP "
+                    "is being blocked/CAPTCHA'd. Watching existing channels is unaffected — "
+                    "only finding new ones has stalled."
+                )
+                if self.discovery_stale_cycles == DISCOVERY_ALERT_CYCLES:
+                    log.error("scout discovery health: %s", self.discovery_alert)
+                else:
+                    log.warning("scout discovery health (still stale): %s", self.discovery_alert)
+
         watched: list[dict] = []
         for c in candidates:
             if auto_count >= MAX_AUTO_CHANNELS:
@@ -757,6 +787,8 @@ class ScoutService:
             "discover_interval_s": DISCOVER_INTERVAL_S,
             "discovery_log": list(self.discovery_log)[:15],
             "discovered_count": len(self.discovered),
+            "discovery_alert": self.discovery_alert,
+            "discovery_stale_cycles": self.discovery_stale_cycles,
         }
 
 
