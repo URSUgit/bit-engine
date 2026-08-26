@@ -62,6 +62,7 @@ export interface Analysis {
   url: string;
   title: string;
   channel: string;
+  video_thumbnail?: string | null;
   analyzed_at: number;
   published_at?: string | null;
   transcript_chars: number;
@@ -181,11 +182,13 @@ function ModelCard({
   idx,
   bt,
   onBacktest,
+  thumbnail,
 }: {
   model: StrategyModel;
   idx: number;
   bt: Record<number, BacktestResult | "loading" | string>;
   onBacktest: (idx: number) => void;
+  thumbnail?: string | null;
 }) {
   const r = bt[idx];
   const hasClues =
@@ -198,14 +201,24 @@ function ModelCard({
   return (
     <div className="rounded-lg border border-zinc-800 bg-gradient-to-b from-zinc-900/80 to-zinc-950/80 p-3">
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5 truncate text-sm font-semibold text-cyan-200">
-            <Wand2 size={13} className="shrink-0 text-cyan-400" />
-            <span className="truncate">{model.label}</span>
-          </div>
-          <div className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-zinc-500">
-            <User size={10} className="shrink-0" />
-            <span className="truncate">{model.trader}</span>
+        <div className="flex min-w-0 items-center gap-2">
+          {thumbnail ? (
+            <img
+              src={thumbnail}
+              alt={model.trader}
+              className="h-8 w-8 shrink-0 rounded-full border border-zinc-700 object-cover"
+            />
+          ) : (
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-zinc-700 bg-zinc-800">
+              <User size={14} className="text-zinc-500" />
+            </div>
+          )}
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 truncate text-sm font-semibold text-cyan-200">
+              <Wand2 size={13} className="shrink-0 text-cyan-400" />
+              <span className="truncate">{model.name}</span>
+            </div>
+            <div className="mt-0.5 truncate text-[11px] text-zinc-500">{model.label}</div>
           </div>
         </div>
         <span className="shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[9px] text-zinc-500">
@@ -468,7 +481,7 @@ export function AnalysisCard({ a }: { a: Analysis }) {
           </div>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {a.models.map((m, i) => (
-              <ModelCard key={i} model={m} idx={i} bt={bt} onBacktest={runBacktest} />
+              <ModelCard key={i} model={m} idx={i} bt={bt} onBacktest={runBacktest} thumbnail={a.video_thumbnail} />
             ))}
           </div>
         </div>

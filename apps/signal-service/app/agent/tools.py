@@ -79,8 +79,54 @@ TOOL_DESCRIPTIONS = [
     },
     {
         "name": "navigate_to",
-        "description": "Navigate the user to a page in the platform. Valid paths: /dashboard, /dashboard/positions, /dashboard/markets, /dashboard/history, /dashboard/markets/{SYMBOL} (e.g. /dashboard/markets/BTC-USD), /lab/backtester, /lab/agent, /dashboard/signals, /lab/polymarket",
+        "description": "Navigate the user to a page in the platform. Valid paths: /dashboard, /dashboard/positions, /dashboard/markets, /dashboard/history, /dashboard/markets/{SYMBOL} (e.g. /dashboard/markets/BTC-USD), /lab/backtester, /lab/agent, /dashboard/signals, /lab/polymarket, /lab/scout, /lab/scout/youtube",
         "parameters": {"path": "str — platform path to navigate to"},
+    },
+    {
+        "name": "scout_search_videos",
+        "description": "Search YouTube for trading videos by keyword (e.g. a trader's name or 'bitcoin scalping strategy'). Requires the user's YouTube account to be connected at /lab/scout/youtube.",
+        "parameters": {"query": "str — search keywords", "max_results": "int — max results (default 10)"},
+    },
+    {
+        "name": "scout_analyze_video",
+        "description": "Run Scout's full analysis pipeline on a YouTube video: transcript, sentiment, trading signals, and named strategy models you can backtest. Returns the trader/channel name, sentiment, signals found, and any strategy models extracted.",
+        "parameters": {"url": "str — YouTube video URL or 11-char video id"},
+    },
+    {
+        "name": "scout_list_strategies",
+        "description": "List named strategy models Scout has extracted from analyzed videos so far, newest first. Each has an analysis_id-independent id, a trader name, a strategy type, and the pairs it applies to.",
+        "parameters": {"limit": "int — max results (default 10)"},
+    },
+    {
+        "name": "scout_backtest_strategy",
+        "description": "Backtest a saved Scout strategy on real historical data. Use the strategy_id from scout_list_strategies's result (its 'id' field) — this works for any strategy in the saved list, not just ones analyzed earlier in this conversation.",
+        "parameters": {
+            "strategy_id": "int — id field from a scout_list_strategies entry",
+            "symbol": "str — override the symbol to backtest on (default: the strategy's saved pair)",
+        },
+    },
+    {
+        "name": "scout_watch_channel",
+        "description": "Start watching a YouTube channel — every new upload gets auto-analyzed by Scout going forward.",
+        "parameters": {"ref": "str — channel @handle, channel URL, or UC… id"},
+    },
+    {
+        "name": "scout_list_channels",
+        "description": "List the YouTube channels Scout is currently watching for new uploads.",
+        "parameters": {},
+    },
+    {
+        "name": "scout_discover_channels",
+        "description": "Search YouTube for candidate trading channels matching a topic (no API key / connected account needed), for Scout to potentially watch.",
+        "parameters": {
+            "query": "str — topic to search for, e.g. 'bitcoin scalping'",
+            "auto_watch": "bool — start watching every candidate found (default false)",
+        },
+    },
+    {
+        "name": "scout_status",
+        "description": "Get Scout's overall status: how many channels are watched, videos seen, and when it last polled.",
+        "parameters": {},
     },
     {
         "name": "run_audit",
@@ -266,9 +312,9 @@ async def run_backtest(asset: str = "BTC", strategy: str = "rsi", period_days: i
             end_date=end.isoformat(),
             interval="1d",
             initial_capital=10000,
-            commission_pct=0.1,
-            slippage_pct=0.05,
-            position_size_pct=95,
+            commission_pct=0.001,
+            slippage_pct=0.0005,
+            position_size_pct=0.95,
             strategy_params={},
         )
         result = await _run_backtest(params)
@@ -413,8 +459,125 @@ async def get_backtest_history(limit: int = 5) -> list[dict]:
 
 
 async def navigate_to(path: str) -> dict:
-    """Navigate the user to a page in the platform. Valid paths: /dashboard, /dashboard/positions, /dashboard/markets, /dashboard/history, /dashboard/markets/{SYMBOL} (e.g. /dashboard/markets/BTC-USD), /lab/backtester, /lab/agent, /dashboard/signals, /lab/polymarket"""
+    """Navigate the user to a page in the platform. Valid paths: /dashboard, /dashboard/positions, /dashboard/markets, /dashboard/history, /dashboard/markets/{SYMBOL} (e.g. /dashboard/markets/BTC-USD), /lab/backtester, /lab/agent, /dashboard/signals, /lab/polymarket, /lab/scout, /lab/scout/youtube"""
     return {"__navigate__": True, "path": path}
+
+
+# ─── Scout (YouTube trading video) tools ───────────────────────────────────────
+
+def _trim_analysis(rec: dict) -> dict[str, Any]:
+    """Strip an analysis record down to what's useful in a chat reply —
+    drops transcript/frame internals, keeps the trader-attributed strategy
+    models (already named "{trader} · {label}" by build_models) and signals."""
+    return {
+        "analysis_id": rec.get("id"),
+        "video_id": rec.get("video_id"),
+        "title": rec.get("title"),
+        "channel": rec.get("channel"),
+        "url": rec.get("url"),
+        "video_thumbnail": rec.get("video_thumbnail"),
+        "sentiment": rec.get("sentiment"),
+        "signals": rec.get("signals"),
+        "strategies": rec.get("strategies"),
+        "models": rec.get("models"),
+    }
+
+
+async def scout_search_videos(query: str, max_results: int = 10) -> dict[str, Any]:
+    from app.youtube import auth, client
+
+    if not auth.is_connected():
+        return {"error": "No YouTube account connected. Connect one at /lab/scout/youtube first."}
+    try:
+        result = await client.search_videos(query, max_results=max_results)
+        return {"query": query, "videos": result.get("videos", []), "next_page_token": result.get("next_page_token")}
+    except client.NotConnected as exc:
+        return {"error": str(exc)}
+    except client.QuotaExceeded as exc:
+        return {"error": str(exc)}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+async def scout_analyze_video(url: str) -> dict[str, Any]:
+    from app.scout.extract import parse_video_id
+    from app.scout.service import scout_service
+
+    vid = parse_video_id(url)
+    if not vid:
+        return {"error": "Not a recognizable YouTube video URL/id"}
+    try:
+        rec = await scout_service.analyze_video(vid)
+        return _trim_analysis(rec)
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+async def scout_list_strategies(limit: int = 10) -> list[dict[str, Any]]:
+    from app.scout.strategies_store import strategies_store
+
+    entries = strategies_store.list_entries()[:limit]
+    return [
+        {
+            "id": e.get("id"),
+            "name": e.get("name"),
+            "trader": e.get("trader"),
+            "strategy": e.get("strategy"),
+            "label": e.get("label"),
+            "pairs": e.get("pairs"),
+            "video_title": e.get("video_title"),
+            "video_url": e.get("video_url"),
+            "video_thumbnail": e.get("video_thumbnail"),
+        }
+        for e in entries
+    ]
+
+
+async def scout_backtest_strategy(strategy_id: int, symbol: str | None = None) -> dict[str, Any]:
+    from app.scout.service import scout_service
+
+    try:
+        return await scout_service.backtest_saved_strategy(strategy_id, symbol)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+async def scout_watch_channel(ref: str) -> dict[str, Any]:
+    from app.scout.service import scout_service
+
+    try:
+        return await scout_service.watch(ref)
+    except Exception as exc:
+        return {"error": f"Could not resolve channel: {exc!r}"}
+
+
+async def scout_list_channels() -> list[dict[str, Any]]:
+    from app.scout.service import scout_service
+
+    return list(scout_service.channels.values())
+
+
+async def scout_discover_channels(query: str, auto_watch: bool = False) -> dict[str, Any]:
+    from app.scout.service import scout_service
+
+    candidates = await scout_service.discover_channels(query)
+    if auto_watch:
+        for c in candidates:
+            try:
+                ch = await scout_service.watch(c["id"], auto=True, query=query)
+                c["watching"] = True
+                c["name"] = ch["name"]
+            except Exception:
+                pass
+    return {"query": query, "candidates": candidates}
+
+
+async def scout_status() -> dict[str, Any]:
+    from app.scout.service import scout_service
+
+    return scout_service.status()
 
 
 # ─── Audit tools ──────────────────────────────────────────────────────────────
@@ -633,6 +796,14 @@ TOOLS: dict[str, Any] = {
     "list_files": list_files,
     "write_file": write_file,
     "run_command": run_command,
+    "scout_search_videos": scout_search_videos,
+    "scout_analyze_video": scout_analyze_video,
+    "scout_list_strategies": scout_list_strategies,
+    "scout_backtest_strategy": scout_backtest_strategy,
+    "scout_watch_channel": scout_watch_channel,
+    "scout_list_channels": scout_list_channels,
+    "scout_discover_channels": scout_discover_channels,
+    "scout_status": scout_status,
 }
 
 

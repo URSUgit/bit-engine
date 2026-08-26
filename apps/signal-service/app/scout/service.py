@@ -305,7 +305,11 @@ class ScoutService:
             r = await client.get(OEMBED_URL.format(vid=video_id))
             r.raise_for_status()
             data = r.json()
-            return {"title": data.get("title", video_id), "channel": data.get("author_name", "")}
+            return {
+                "title": data.get("title", video_id),
+                "channel": data.get("author_name", ""),
+                "thumbnail": data.get("thumbnail_url"),
+            }
 
     async def _fetch_published_at(self, video_id: str) -> str | None:
         """Upload date, scraped off the watch page (no API key). Needed to
@@ -373,11 +377,13 @@ class ScoutService:
         channel: str | None = None,
         published_at: str | None = None,
     ) -> dict:
+        thumbnail: str | None = None
         if title is None or channel is None:
             try:
                 meta = await self._fetch_title(video_id)
                 title = title or meta["title"]
                 channel = channel or meta["channel"]
+                thumbnail = meta.get("thumbnail")
             except Exception:
                 title = title or video_id
                 channel = channel or ""
@@ -420,6 +426,7 @@ class ScoutService:
             "url": f"https://www.youtube.com/watch?v={video_id}",
             "title": title,
             "channel": channel,
+            "video_thumbnail": thumbnail,
             "analyzed_at": time.time(),
             "published_at": published_at,
             "transcript_chars": len(transcript),
@@ -430,7 +437,7 @@ class ScoutService:
         }
         self.analyses.appendleft(record)
         self.seen.add(video_id)
-        strategies_store.add_models(analysis.get("models", []), video_id, title, record["url"])
+        strategies_store.add_models(analysis.get("models", []), video_id, title, record["url"], thumbnail)
         return record
 
     def _merge_frame_findings(self, analysis: dict, frame_findings: dict, trader: str) -> None:
@@ -480,12 +487,14 @@ class ScoutService:
         try:
             yield {"stage": "resolving", "video_id": video_id}
 
+            thumbnail: str | None = None
             if title is None or channel is None:
                 yield {"stage": "fetching_title"}
                 try:
                     meta = await self._fetch_title(video_id)
                     title = title or meta["title"]
                     channel = channel or meta["channel"]
+                    thumbnail = meta.get("thumbnail")
                 except Exception:
                     title = title or video_id
                     channel = channel or ""
@@ -549,6 +558,7 @@ class ScoutService:
                 "url": f"https://www.youtube.com/watch?v={video_id}",
                 "title": title,
                 "channel": channel,
+                "video_thumbnail": thumbnail,
                 "analyzed_at": time.time(),
                 "published_at": published_at,
                 "transcript_chars": len(transcript),
@@ -562,7 +572,7 @@ class ScoutService:
             self.analyses.appendleft(record)
             self.seen.add(video_id)
             self._save()
-            strategies_store.add_models(analysis.get("models", []), video_id, title, record["url"])
+            strategies_store.add_models(analysis.get("models", []), video_id, title, record["url"], thumbnail)
             yield {"stage": "done", "record": record}
         except Exception as exc:
             log.warning("scout live analysis failed for %s: %r", video_id, exc)
@@ -610,6 +620,57 @@ class ScoutService:
         return {
             "analysis_id": analysis_id,
             "strategy": suggestion["strategy"],
+            "symbol": sym,
+            "interval": interval,
+            "bars": len(bars),
+            "total_return_pct": round(metrics.total_return_pct, 2),
+            "sharpe_ratio": round(metrics.sharpe_ratio, 2),
+            "max_drawdown_pct": round(metrics.max_drawdown_pct, 2),
+            "total_trades": metrics.total_trades,
+            "win_rate": round(metrics.win_rate_pct, 1),
+        }
+
+    async def backtest_saved_strategy(self, strategy_id: int, symbol: str | None = None) -> dict:
+        """Backtest a strategy from the persistent strategies_store list (survives
+        restarts and outlives the analyses that produced it, unlike quick_backtest's
+        analysis_id/strategy_index which only work while that analysis is still in
+        the capped in-memory `self.analyses`)."""
+        from datetime import datetime, timedelta, timezone
+
+        from app.backtest.data import HistoricalDataLoader
+        from app.backtest.engine import Backtest, _asset_class
+        from app.backtest.metrics import compute_metrics
+        from app.backtest.strategies import STRATEGIES
+
+        entry = next((e for e in strategies_store.entries if e["id"] == strategy_id), None)
+        if entry is None:
+            raise ValueError("Unknown strategy id")
+        sym = symbol or (entry.get("pairs") or ["BTC-USD"])[0]
+
+        loader = HistoricalDataLoader()
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=180)
+        bars = await loader.load(sym, start, end, "1h")
+        if len(bars) < 100:
+            bars = await loader.load(sym, end - timedelta(days=365 * 2), end, "1d")
+        if len(bars) < 60:
+            raise ValueError(f"Not enough history for {sym}")
+
+        engine = Backtest()
+        strat = STRATEGIES[entry["strategy"]](**(entry.get("params") or {}))
+        interval = "1h" if len(bars) >= 100 else "1d"
+        trades, equity = engine.run(bars, strat, symbol=sym, interval=interval)
+        metrics = compute_metrics(
+            initial_capital=engine.initial_capital,
+            equity=equity,
+            trades=trades,
+            interval=interval,
+            asset_class=_asset_class(sym),
+        )
+        return {
+            "strategy_id": strategy_id,
+            "name": entry.get("name"),
+            "strategy": entry["strategy"],
             "symbol": sym,
             "interval": interval,
             "bars": len(bars),
