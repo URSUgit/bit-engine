@@ -103,6 +103,7 @@ const CapitalEfficiency = dynamic(() => import("./components/capital-efficiency"
 const StopTargetOptimizer = dynamic(() => import("./components/stop-target-optimizer").then((m) => m.StopTargetOptimizer), { ssr: false, loading: () => <TabSkeleton /> });
 const BenfordAnalysis = dynamic(() => import("./components/benford-analysis").then((m) => m.BenfordAnalysis), { ssr: false, loading: () => <TabSkeleton /> });
 import { TabPalette } from "./components/tab-palette";
+import { DataProvenanceBanner } from "./components/data-source";
 
 function TabSkeleton() {
   return (
@@ -1666,6 +1667,12 @@ function SingleResultsView({
       )}
       {result && (
         <div className={autoRunPending ? "opacity-60 transition-opacity duration-300" : "transition-opacity duration-300"}>
+          <DataProvenanceBanner
+            source={result.data_source}
+            isSynthetic={result.data_is_synthetic}
+            symbol={result.symbol}
+            interval={result.interval}
+          />
           <div className={`rounded-lg ${autoRunPending ? "ring-1 ring-cyan-500/50 animate-pulse" : ""}`}>
             <MetricsGrid result={result} />
           </div>

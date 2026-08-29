@@ -492,6 +492,16 @@ async def run_backtest(params: BacktestParams, progress_cb=None) -> BacktestResu
     if progress_cb:
         progress_cb("loaded", len(bars), len(bars))
 
+    # Data provenance for the loaded series — surfaced on the result so the UI
+    # can flag backtests computed on synthetic demo bars.
+    data_source: str | None = None
+    try:
+        from .storage import bar_storage
+        meta = bar_storage.get_meta(params.symbol.upper(), params.interval)
+        data_source = meta.get("source") if meta else None
+    except Exception as e:
+        log.debug("Could not resolve data provenance: %s", e)
+
     # Optionally load funding rates for crypto perpetuals
     funding_rates: list[tuple[int, float]] = []
     spread_bps = getattr(params, "spread_bps", 2.0)
@@ -617,6 +627,8 @@ async def run_backtest(params: BacktestParams, progress_cb=None) -> BacktestResu
         friction_breakdown=friction,
         anomalies=anomaly_dicts,
         short_trades=sum(1 for t in trades if t.side == "short"),
+        data_source=data_source,
+        data_is_synthetic=data_source == "synthetic_gbm",
     )
 
     try:
