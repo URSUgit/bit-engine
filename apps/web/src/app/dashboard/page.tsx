@@ -6,6 +6,7 @@ import { DashboardSubtitle } from "@/components/dashboard/DashboardSubtitle";
 import { PositionsTable } from "@/components/dashboard/PositionsTable";
 import { CopyTradingPanel } from "@/components/dashboard/CopyTradingPanel";
 import { TopMovers } from "@/components/dashboard/TopMovers";
+import { AiChatWelcomeCard } from "@/components/dashboard/AiChatWelcomeCard";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -43,6 +44,8 @@ export default function DashboardPage() {
             </Link>
           </div>
         </div>
+
+        <AiChatWelcomeCard />
 
         {/* Live stats + chart + signals (client component) */}
         <DashboardLive />

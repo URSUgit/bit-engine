@@ -8,6 +8,8 @@ import {
 } from "lucide-react";
 import { usePaperTrading } from "@/hooks/usePaperTrading";
 import { cn } from "@/lib/utils";
+import { sharpeToWords, drawdownToWords } from "@/lib/plain-language";
+import { JargonTip } from "@/components/JargonTip";
 
 const SIGNAL_BASE =
   (typeof process !== "undefined" && process.env.NEXT_PUBLIC_SIGNAL_SERVICE_URL) ??
@@ -268,8 +270,8 @@ function BacktestHistoryTab() {
                   <th className="px-4 py-3 text-left">Strategy</th>
                   <th className="px-4 py-3 text-left">Interval</th>
                   <th className="px-4 py-3 text-right">Return</th>
-                  <th className="px-4 py-3 text-right">Sharpe</th>
-                  <th className="px-4 py-3 text-right">Drawdown</th>
+                  <th className="px-4 py-3 text-right"><JargonTip term="sharpe">Sharpe</JargonTip></th>
+                  <th className="px-4 py-3 text-right"><JargonTip term="drawdown">Drawdown</JargonTip></th>
                   <th className="px-4 py-3 text-right">Trades</th>
                   <th className="px-4 py-3 text-right">Date Run</th>
                   <th className="px-4 py-3 text-right"></th>
@@ -305,9 +307,19 @@ function BacktestHistoryTab() {
                         </td>
                         <td className="px-4 py-3.5 text-right text-slate-300 number-font">
                           {row.sharpe !== null ? row.sharpe.toFixed(2) : "—"}
+                          {row.sharpe !== null && (
+                            <div className="text-[10px] text-slate-600 font-sans normal-case tracking-normal">
+                              {sharpeToWords(row.sharpe).label}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3.5 text-right text-red-400 number-font">
                           {row.max_drawdown_pct !== null ? `${row.max_drawdown_pct.toFixed(1)}%` : "—"}
+                          {row.max_drawdown_pct !== null && (
+                            <div className="text-[10px] text-slate-600 font-sans normal-case tracking-normal">
+                              {drawdownToWords(row.max_drawdown_pct).label}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3.5 text-right text-slate-400 number-font">
                           {row.total_trades ?? "—"}
@@ -340,12 +352,22 @@ function BacktestHistoryTab() {
                                 </span>
                               </div>
                               <div className="flex flex-col gap-1 text-sm">
-                                <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Sharpe</span>
+                                <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">
+                                  <JargonTip term="sharpe">Sharpe</JargonTip>
+                                </span>
                                 <span className="text-slate-300 number-font">{row.sharpe?.toFixed(3) ?? "—"}</span>
+                                {row.sharpe != null && (
+                                  <span className="text-[10px] text-slate-600">{sharpeToWords(row.sharpe).label}</span>
+                                )}
                               </div>
                               <div className="flex flex-col gap-1 text-sm">
-                                <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Max Drawdown</span>
+                                <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">
+                                  <JargonTip term="drawdown">Max Drawdown</JargonTip>
+                                </span>
                                 <span className="text-red-400 number-font">{row.max_drawdown_pct?.toFixed(2) ?? "—"}%</span>
+                                {row.max_drawdown_pct != null && (
+                                  <span className="text-[10px] text-slate-600">{drawdownToWords(row.max_drawdown_pct).label}</span>
+                                )}
                               </div>
                               <div className="flex flex-col gap-1 text-sm">
                                 <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Trades</span>

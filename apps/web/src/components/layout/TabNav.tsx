@@ -9,13 +9,23 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { usePro } from "@/store";
+
+interface SubTab {
+  label: string;
+  href: string;
+  icon: LucideIcon;
+  badge?: string;
+  simple?: boolean;
+}
 
 interface Tab {
   label: string;
   href: string;
   icon: LucideIcon;
   badge?: string;
-  sub?: { label: string; href: string; icon: LucideIcon; badge?: string }[];
+  sub?: SubTab[];
+  simple?: boolean;
 }
 
 const TABS: Tab[] = [
@@ -23,22 +33,25 @@ const TABS: Tab[] = [
     label: "Home",
     href: "/dashboard",
     icon: LayoutDashboard,
+    simple: true,
   },
   {
     label: "Markets",
     href: "/dashboard/markets",
     icon: Globe,
+    simple: true,
     sub: [
-      { label: "All Markets",  href: "/dashboard/markets",    icon: Globe },
-      { label: "Watchlists",   href: "/dashboard/watchlists", icon: Star },
+      { label: "All Markets",  href: "/dashboard/markets",    icon: Globe, simple: true },
+      { label: "Watchlists",   href: "/dashboard/watchlists", icon: Star, simple: true },
     ],
   },
   {
     label: "Trade",
     href: "/dashboard/positions",
     icon: TrendingUp,
+    simple: true,
     sub: [
-      { label: "Positions",    href: "/dashboard/positions",  icon: TrendingUp },
+      { label: "Positions",    href: "/dashboard/positions",  icon: TrendingUp, simple: true },
       { label: "Copy Trading", href: "/dashboard/copy",       icon: Users,     badge: "3" },
       { label: "History",      href: "/dashboard/history",    icon: History },
     ],
@@ -47,9 +60,10 @@ const TABS: Tab[] = [
     label: "Signals",
     href: "/dashboard/signals",
     icon: Activity,
+    simple: true,
     sub: [
-      { label: "Live Feed",    href: "/dashboard/signals",    icon: Activity },
-      { label: "News",         href: "/dashboard/news",       icon: Newspaper },
+      { label: "Live Feed",    href: "/dashboard/signals",    icon: Activity, simple: true },
+      { label: "News",         href: "/dashboard/news",       icon: Newspaper, simple: true },
     ],
   },
   {
@@ -79,8 +93,10 @@ const TABS: Tab[] = [
     label: "Settings",
     href: "/dashboard/settings/profile",
     icon: Settings,
+    simple: true,
     sub: [
-      { label: "Profile",      href: "/dashboard/settings/profile",    icon: UserCircle },
+      { label: "General",      href: "/dashboard/settings/general",    icon: Settings, simple: true },
+      { label: "Profile",      href: "/dashboard/settings/profile",    icon: UserCircle, simple: true },
       { label: "API Keys",     href: "/dashboard/settings/api-keys",   icon: KeyRound },
       { label: "Billing",      href: "/dashboard/settings/billing",    icon: Receipt },
       { label: "Notifications",href: "/dashboard/settings/notifications", icon: Activity },
@@ -96,15 +112,22 @@ function isActive(pathname: string, href: string, tab: Tab): boolean {
 
 export function TabNav() {
   const pathname = usePathname();
+  const isPro = usePro();
 
-  const activeTab = TABS.find((t) => isActive(pathname, t.href, t));
+  const visibleTabs = isPro
+    ? TABS
+    : TABS.filter((t) => t.simple).map((t) =>
+        t.sub ? { ...t, sub: t.sub.filter((s) => s.simple) } : t
+      );
+
+  const activeTab = visibleTabs.find((t) => isActive(pathname, t.href, t));
   const subTabs = activeTab?.sub;
 
   return (
     <div className="shrink-0 bg-slate-950 border-b border-slate-800">
       {/* Primary tab bar */}
       <div className="flex items-end gap-0.5 px-4 overflow-x-auto scrollbar-none">
-        {TABS.map((tab) => {
+        {visibleTabs.map((tab) => {
           const active = isActive(pathname, tab.href, tab);
           const Icon = tab.icon;
           return (

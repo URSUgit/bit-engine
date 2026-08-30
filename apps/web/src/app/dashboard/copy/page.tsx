@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import { winRateToWords } from "@/lib/plain-language";
 import { TrendingUp, TrendingDown, Plus, Settings2, Loader2 } from "lucide-react";
 import type { TraderEntry } from "@/app/api/market/traders/route";
 import { usePaperTrading } from "@/hooks/usePaperTrading";
@@ -148,7 +149,7 @@ export default function CopyPage() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
                 <Metric label="ROI 30d"      value={`${activeTrader.roi_30d >= 0 ? "+" : ""}${activeTrader.roi_30d.toFixed(1)}%`} positive={activeTrader.roi_30d >= 0} />
                 <Metric label="ROI 7d"       value={`${activeTrader.roi_7d >= 0 ? "+" : ""}${activeTrader.roi_7d.toFixed(1)}%`} positive={activeTrader.roi_7d >= 0} />
-                <Metric label="Win Rate"     value={`${activeTrader.win_rate.toFixed(1)}%`} />
+                <Metric label="Win Rate"     value={`${activeTrader.win_rate.toFixed(1)}%`} sub={winRateToWords(activeTrader.win_rate).label} />
                 <Metric label="Account"      value={`$${activeTrader.account_value >= 1e6 ? (activeTrader.account_value / 1e6).toFixed(2) + "M" : activeTrader.account_value >= 1e3 ? (activeTrader.account_value / 1e3).toFixed(0) + "K" : activeTrader.account_value.toFixed(0)}`} />
               </div>
             </div>
@@ -244,7 +245,7 @@ export default function CopyPage() {
   );
 }
 
-function Metric({ label, value, positive }: { label: string; value: string; positive?: boolean }) {
+function Metric({ label, value, positive, sub }: { label: string; value: string; positive?: boolean; sub?: string }) {
   return (
     <div>
       <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">{label}</p>
@@ -252,6 +253,7 @@ function Metric({ label, value, positive }: { label: string; value: string; posi
         positive === true ? "text-emerald-400" : positive === false ? "text-red-400" : "text-slate-100")}>
         {value}
       </p>
+      {sub && <p className="text-[10px] text-slate-600 mt-0.5">{sub}</p>}
     </div>
   );
 }

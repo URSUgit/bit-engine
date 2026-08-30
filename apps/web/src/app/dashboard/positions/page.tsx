@@ -7,6 +7,7 @@ import {
   BookOpen, ChevronDown, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { winRateToWords } from "@/lib/plain-language";
 import {
   paperApi,
   type PaperPosition,
@@ -75,6 +76,9 @@ function SummaryBar({ summary }: { summary: PaperSummary }) {
         <p className={cn("text-lg font-bold number-font mt-1", summary.win_rate >= 50 ? "text-emerald-400" : "text-slate-100")}>
           {summary.total_trades > 0 ? `${summary.win_rate.toFixed(0)}%` : "—"}
         </p>
+        {summary.total_trades > 0 && (
+          <p className="text-[10px] text-slate-600 mt-0.5">{winRateToWords(summary.win_rate).label}</p>
+        )}
       </div>
       <div className="card-dark p-4">
         <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Open</p>

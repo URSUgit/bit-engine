@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { useChatWidgetStore, useUIModeStore } from "@/store";
 import {
   Bot,
   Send,
@@ -385,14 +386,19 @@ function MessageBubble({ msg }: { msg: Message }) {
 
 // ─── ChatWidget ───────────────────────────────────────────────────────────────
 
+const NUDGE_SEEN_KEY = "bitprivat-chat-nudge-seen";
+
 export function ChatWidget() {
   const router = useRouter();
-  const [isOpen, setIsOpen] = useState(false);
+  const pathname = usePathname();
+  const isSimpleMode = useUIModeStore((s) => s.mode === "simple");
+  const { isOpen, open, close, toggle } = useChatWidgetStore();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
+  const [nudgeActive, setNudgeActive] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -403,6 +409,42 @@ export function ChatWidget() {
   useEffect(() => {
     if (isOpen) setHasUnread(false);
   }, [isOpen]);
+
+  // First-visit discoverability: a pulsing ring on the floating button until
+  // it's been opened once, plus a one-time auto-open with a welcome message
+  // for Simple-mode users landing on the dashboard.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (localStorage.getItem(NUDGE_SEEN_KEY)) return;
+    setNudgeActive(true);
+
+    if (isSimpleMode && pathname === "/dashboard") {
+      const timer = setTimeout(() => {
+        setMessages((prev) =>
+          prev.length > 0
+            ? prev
+            : [
+                {
+                  role: "assistant",
+                  content:
+                    "Hi! I'm your AI trading assistant — ask me anything about markets, your positions, or signals.",
+                },
+              ]
+        );
+        open();
+        setNudgeActive(false);
+        localStorage.setItem(NUDGE_SEEN_KEY, "1");
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [isSimpleMode, pathname, open]);
+
+  useEffect(() => {
+    if (isOpen && nudgeActive) {
+      setNudgeActive(false);
+      localStorage.setItem(NUDGE_SEEN_KEY, "1");
+    }
+  }, [isOpen, nudgeActive]);
 
   const send = async (text: string) => {
     const trimmed = text.trim();
@@ -437,7 +479,7 @@ export function ChatWidget() {
         });
       } else if (event.type === "navigate" && event.path) {
         router.push(event.path);
-        setIsOpen(false);
+        close();
       } else if (event.type === "answer") {
         answer = event.content ?? "";
       } else if (event.type === "error") {
@@ -469,7 +511,7 @@ export function ChatWidget() {
     <>
       {/* Floating toggle button */}
       <button
-        onClick={() => setIsOpen((o) => !o)}
+        onClick={() => toggle()}
         aria-label="Toggle AI chat"
         className={cn(
           "fixed right-6 bottom-6 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-lg",
@@ -479,6 +521,9 @@ export function ChatWidget() {
           isOpen && "opacity-0 pointer-events-none"
         )}
       >
+        {nudgeActive && !isOpen && (
+          <span className="absolute inset-0 rounded-full bg-violet-500/60 animate-ping" />
+        )}
         <Sparkles className="w-6 h-6" />
         {hasUnread && (
           <span className="absolute top-1 right-1 w-3 h-3 rounded-full bg-cyan-400 border-2 border-slate-950" />
@@ -518,7 +563,7 @@ export function ChatWidget() {
               <Trash2 className="w-3.5 h-3.5" />
             </button>
             <button
-              onClick={() => setIsOpen(false)}
+              onClick={() => close()}
               title="Close"
               className="p-1.5 text-slate-500 hover:text-slate-300 transition-colors rounded-md hover:bg-slate-800"
             >
@@ -604,7 +649,7 @@ export function ChatWidget() {
       {isOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/40 sm:hidden"
-          onClick={() => setIsOpen(false)}
+          onClick={() => close()}
         />
       )}
     </>

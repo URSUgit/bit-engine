@@ -8,6 +8,7 @@ import { NotificationsDropdown } from "@/components/NotificationsDropdown";
 import { useCommandPalette } from "@/components/CommandPalette";
 import { DataStatusIndicator } from "@/components/DataStatusIndicator";
 import { LogoMark } from "@/components/Logo";
+import { useUIModeStore } from "@/store";
 
 // wagmi/viem/WalletConnect is the single largest JS chunk in the app (~176kB) —
 // deferred so it doesn't block first paint of every dashboard/lab page.
@@ -23,6 +24,8 @@ const WalletConnectButton = dynamic(
 export function Navbar() {
   const [userOpen, setUserOpen] = useState(false);
   const { openPalette, palette } = useCommandPalette();
+  const mode = useUIModeStore((s) => s.mode);
+  const toggleMode = useUIModeStore((s) => s.toggleMode);
 
   return (
     <>
@@ -51,6 +54,14 @@ export function Navbar() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={toggleMode}
+            title={mode === "pro" ? "Switch to Simple mode" : "Switch to Pro mode"}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold uppercase tracking-wide border border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200 hover:border-slate-700 transition-colors"
+          >
+            <span className={mode === "pro" ? "text-violet-400" : "text-cyan-400"}>{mode === "pro" ? "Pro" : "Simple"}</span>
+          </button>
+          <div className="w-px h-6 bg-slate-800" />
           <DataStatusIndicator />
           <div className="w-px h-6 bg-slate-800" />
           <NotificationsDropdown />

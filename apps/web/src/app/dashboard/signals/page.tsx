@@ -6,6 +6,7 @@ import { ArrowUpRight, ArrowDownRight, Pause, Search, WifiOff, Inbox } from "luc
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { confidenceToWords } from "@/lib/plain-language";
 import type { Signal } from "@bitprivat/shared-types";
 
 const dirFilters = ["all", "buy", "sell", "hold"] as const;
@@ -49,7 +50,9 @@ function ConfidenceBar({ value }: { value: number }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <p className="text-[10px] text-slate-600 uppercase tracking-widest mt-0.5">Confidence</p>
+      <p className="text-[10px] text-slate-600 uppercase tracking-widest mt-0.5">
+        {confidenceToWords(value).label}
+      </p>
     </div>
   );
 }

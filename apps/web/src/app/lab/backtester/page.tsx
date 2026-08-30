@@ -103,6 +103,7 @@ const CapitalEfficiency = dynamic(() => import("./components/capital-efficiency"
 const StopTargetOptimizer = dynamic(() => import("./components/stop-target-optimizer").then((m) => m.StopTargetOptimizer), { ssr: false, loading: () => <TabSkeleton /> });
 const BenfordAnalysis = dynamic(() => import("./components/benford-analysis").then((m) => m.BenfordAnalysis), { ssr: false, loading: () => <TabSkeleton /> });
 import { TabPalette } from "./components/tab-palette";
+import { usePro } from "@/store";
 
 function TabSkeleton() {
   return (
@@ -118,6 +119,7 @@ type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "ano
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
 export default function BacktesterPage() {
+  const isPro = usePro();
   const [mode, setMode] = useState<Mode>("single");
 
   // Shared state
@@ -900,12 +902,14 @@ export default function BacktesterPage() {
                 </div>
               )}
 
-              <CostInputs
-                capital={initialCapital} setCapital={setInitialCapital}
-                commissionPct={commissionPct} setCommissionPct={setCommissionPct}
-                slippagePct={slippagePct} setSlippagePct={setSlippagePct}
-                positionPct={positionPct} setPositionPct={setPositionPct}
-              />
+              {isPro && (
+                <CostInputs
+                  capital={initialCapital} setCapital={setInitialCapital}
+                  commissionPct={commissionPct} setCommissionPct={setCommissionPct}
+                  slippagePct={slippagePct} setSlippagePct={setSlippagePct}
+                  positionPct={positionPct} setPositionPct={setPositionPct}
+                />
+              )}
 
               {/* Realism config */}
               <div className="border-t border-zinc-800 pt-3 space-y-2">

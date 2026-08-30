@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { UserCircle, KeyRound, Receipt, Bell, Shield } from "lucide-react";
+import { UserCircle, KeyRound, Receipt, Bell, Shield, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
+  { label: "General",       href: "/dashboard/settings/general",       icon: SlidersHorizontal },
   { label: "Profile",       href: "/dashboard/settings/profile",       icon: UserCircle },
   { label: "API Keys",      href: "/dashboard/settings/api-keys",      icon: KeyRound },
   { label: "Notifications", href: "/dashboard/settings/notifications", icon: Bell },
