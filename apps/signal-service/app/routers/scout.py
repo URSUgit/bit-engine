@@ -186,6 +186,23 @@ async def delete_strategy(entry_id: int):
     return {"removed": entry_id}
 
 
+@router.get("/traders")
+async def list_traders():
+    """Every trader (channel) with at least one persisted technical strategy,
+    for the trader-index page."""
+    return scout_service.list_traders()
+
+
+@router.get("/traders/{trader}")
+async def trader_profile(trader: str):
+    """A trader's video/strategy history plus aggregate performance,
+    backtested over the max feasible period."""
+    try:
+        return await scout_service.trader_profile(trader)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
 @router.post("/poll")
 async def poll_now():
     """Force an immediate poll of all watched channels."""

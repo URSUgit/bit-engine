@@ -63,6 +63,10 @@ class StrategiesStore:
         existing_keys = {(e["video_id"], e["strategy"]) for e in self.entries}
         added: list[dict] = []
         for m in models:
+            if m.get("kind") == "sentiment":
+                # Stance-only ("HODL") models aren't real backtestable
+                # strategies — never queue them for the Backtester.
+                continue
             key = (video_id, m.get("strategy"))
             if key in existing_keys:
                 continue

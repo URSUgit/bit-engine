@@ -580,15 +580,73 @@ class ScoutService:
 
     # ── instant validation ────────────────────────────────────────────────
 
-    async def quick_backtest(self, analysis_id: int, strategy_index: int, symbol: str | None = None) -> dict:
-        """Backtest a suggested strategy on the video's top asset, now."""
+    # "10Y", the app-wide max-lookback convention (see
+    # apps/web/src/app/lab/backtester/components/shared.tsx PRESETS).
+    MAX_PERIOD_DAYS = 365 * 10
+
+    async def _load_recent_bars(self, symbol: str) -> tuple[list, str]:
+        """180d hourly bars, falling back to 2y daily if too few hourly bars
+        exist. Shared by quick_backtest and backtest_saved_strategy."""
         from datetime import datetime, timedelta, timezone
 
         from app.backtest.data import HistoricalDataLoader
+
+        loader = HistoricalDataLoader()
+        end = datetime.now(timezone.utc)
+        bars = await loader.load(symbol, end - timedelta(days=180), end, "1h")
+        interval = "1h"
+        if len(bars) < 100:
+            bars = await loader.load(symbol, end - timedelta(days=365 * 2), end, "1d")
+            interval = "1d"
+        if len(bars) < 60:
+            raise ValueError(f"Not enough history for {symbol}")
+        return bars, interval
+
+    async def _load_max_period_bars(self, symbol: str) -> tuple[list, str]:
+        """Daily bars over MAX_PERIOD_DAYS ("10Y") — used for trader-profile
+        aggregate backtests, matching the Backtester UI's own max preset."""
+        from datetime import datetime, timedelta, timezone
+
+        from app.backtest.data import HistoricalDataLoader
+
+        loader = HistoricalDataLoader()
+        end = datetime.now(timezone.utc)
+        bars = await loader.load(symbol, end - timedelta(days=self.MAX_PERIOD_DAYS), end, "1d")
+        if len(bars) < 60:
+            raise ValueError(f"Not enough history for {symbol}")
+        return bars, "1d"
+
+    def _run_strategy_backtest(self, symbol: str, strategy_key: str, params: dict | None, bars: list, interval: str) -> dict:
+        """Shared engine-run + metrics-compute step. Callers supply already
+        loaded bars so bar-loading strategy (recent-window vs. max-period)
+        stays their choice."""
         from app.backtest.engine import Backtest, _asset_class
         from app.backtest.metrics import compute_metrics
         from app.backtest.strategies import STRATEGIES
 
+        engine = Backtest()
+        strat = STRATEGIES[strategy_key](**(params or {}))
+        trades, equity = engine.run(bars, strat, symbol=symbol, interval=interval)
+        metrics = compute_metrics(
+            initial_capital=engine.initial_capital,
+            equity=equity,
+            trades=trades,
+            interval=interval,
+            asset_class=_asset_class(symbol),
+        )
+        return {
+            "symbol": symbol,
+            "interval": interval,
+            "bars": len(bars),
+            "total_return_pct": round(metrics.total_return_pct, 2),
+            "sharpe_ratio": round(metrics.sharpe_ratio, 2),
+            "max_drawdown_pct": round(metrics.max_drawdown_pct, 2),
+            "total_trades": metrics.total_trades,
+            "win_rate": round(metrics.win_rate_pct, 1),
+        }
+
+    async def quick_backtest(self, analysis_id: int, strategy_index: int, symbol: str | None = None) -> dict:
+        """Backtest a suggested strategy on the video's top asset, now."""
         rec = next((a for a in self.analyses if a["id"] == analysis_id), None)
         if rec is None:
             raise ValueError("Unknown analysis id")
@@ -597,89 +655,82 @@ class ScoutService:
         suggestion = rec["strategies"][strategy_index]
         sym = symbol or (rec["assets"][0]["symbol"] if rec["assets"] else "BTC-USD")
 
-        loader = HistoricalDataLoader()
-        end = datetime.now(timezone.utc)
-        start = end - timedelta(days=180)
-        bars = await loader.load(sym, start, end, "1h")
-        if len(bars) < 100:
-            bars = await loader.load(sym, end - timedelta(days=365 * 2), end, "1d")
-        if len(bars) < 60:
-            raise ValueError(f"Not enough history for {sym}")
-
-        engine = Backtest()
-        strat = STRATEGIES[suggestion["strategy"]](**(suggestion.get("params") or {}))
-        interval = "1h" if len(bars) >= 100 else "1d"
-        trades, equity = engine.run(bars, strat, symbol=sym, interval=interval)
-        metrics = compute_metrics(
-            initial_capital=engine.initial_capital,
-            equity=equity,
-            trades=trades,
-            interval=interval,
-            asset_class=_asset_class(sym),
-        )
-        return {
-            "analysis_id": analysis_id,
-            "strategy": suggestion["strategy"],
-            "symbol": sym,
-            "interval": interval,
-            "bars": len(bars),
-            "total_return_pct": round(metrics.total_return_pct, 2),
-            "sharpe_ratio": round(metrics.sharpe_ratio, 2),
-            "max_drawdown_pct": round(metrics.max_drawdown_pct, 2),
-            "total_trades": metrics.total_trades,
-            "win_rate": round(metrics.win_rate_pct, 1),
-        }
+        bars, interval = await self._load_recent_bars(sym)
+        result = self._run_strategy_backtest(sym, suggestion["strategy"], suggestion.get("params"), bars, interval)
+        return {"analysis_id": analysis_id, "strategy": suggestion["strategy"], **result}
 
     async def backtest_saved_strategy(self, strategy_id: int, symbol: str | None = None) -> dict:
         """Backtest a strategy from the persistent strategies_store list (survives
         restarts and outlives the analyses that produced it, unlike quick_backtest's
         analysis_id/strategy_index which only work while that analysis is still in
         the capped in-memory `self.analyses`)."""
-        from datetime import datetime, timedelta, timezone
-
-        from app.backtest.data import HistoricalDataLoader
-        from app.backtest.engine import Backtest, _asset_class
-        from app.backtest.metrics import compute_metrics
-        from app.backtest.strategies import STRATEGIES
-
         entry = next((e for e in strategies_store.entries if e["id"] == strategy_id), None)
         if entry is None:
             raise ValueError("Unknown strategy id")
         sym = symbol or (entry.get("pairs") or ["BTC-USD"])[0]
 
-        loader = HistoricalDataLoader()
-        end = datetime.now(timezone.utc)
-        start = end - timedelta(days=180)
-        bars = await loader.load(sym, start, end, "1h")
-        if len(bars) < 100:
-            bars = await loader.load(sym, end - timedelta(days=365 * 2), end, "1d")
-        if len(bars) < 60:
-            raise ValueError(f"Not enough history for {sym}")
+        bars, interval = await self._load_recent_bars(sym)
+        result = self._run_strategy_backtest(sym, entry["strategy"], entry.get("params"), bars, interval)
+        return {"strategy_id": strategy_id, "name": entry.get("name"), "strategy": entry["strategy"], **result}
 
-        engine = Backtest()
-        strat = STRATEGIES[entry["strategy"]](**(entry.get("params") or {}))
-        interval = "1h" if len(bars) >= 100 else "1d"
-        trades, equity = engine.run(bars, strat, symbol=sym, interval=interval)
-        metrics = compute_metrics(
-            initial_capital=engine.initial_capital,
-            equity=equity,
-            trades=trades,
-            interval=interval,
-            asset_class=_asset_class(sym),
-        )
-        return {
-            "strategy_id": strategy_id,
-            "name": entry.get("name"),
-            "strategy": entry["strategy"],
-            "symbol": sym,
-            "interval": interval,
-            "bars": len(bars),
-            "total_return_pct": round(metrics.total_return_pct, 2),
-            "sharpe_ratio": round(metrics.sharpe_ratio, 2),
-            "max_drawdown_pct": round(metrics.max_drawdown_pct, 2),
-            "total_trades": metrics.total_trades,
-            "win_rate": round(metrics.win_rate_pct, 1),
+    # ── trader profiles ─────────────────────────────────────────────────────
+
+    def list_traders(self) -> list[dict]:
+        """Every trader with at least one persisted (technical) strategy,
+        grouped from strategies_store, sorted by video count desc."""
+        grouped: dict[str, dict] = {}
+        for e in strategies_store.entries:
+            trader = e.get("trader")
+            if not trader:
+                continue
+            g = grouped.setdefault(trader, {"trader": trader, "video_ids": set(), "strategy_count": 0})
+            g["video_ids"].add(e.get("video_id"))
+            g["strategy_count"] += 1
+        out = [
+            {"trader": g["trader"], "video_count": len(g["video_ids"]), "strategy_count": g["strategy_count"]}
+            for g in grouped.values()
+        ]
+        out.sort(key=lambda x: x["video_count"], reverse=True)
+        return out
+
+    async def trader_profile(self, trader: str) -> dict:
+        """A trader's video/strategy history plus aggregate performance,
+        each strategy backtested over the max feasible period (10Y daily)."""
+        entries = [e for e in strategies_store.entries if e.get("trader") == trader]
+        if not entries:
+            raise ValueError("Unknown trader")
+
+        videos: list[dict] = []
+        returns: list[float] = []
+        win_rates: list[float] = []
+        for e in entries:
+            sym = (e.get("pairs") or ["BTC-USD"])[0]
+            try:
+                bars, interval = await self._load_max_period_bars(sym)
+                metrics = self._run_strategy_backtest(sym, e["strategy"], e.get("params"), bars, interval)
+                returns.append(metrics["total_return_pct"])
+                win_rates.append(metrics["win_rate"])
+            except Exception as exc:
+                metrics = {"symbol": sym, "error": str(exc)}
+            videos.append({
+                "video_id": e.get("video_id"),
+                "title": e.get("video_title"),
+                "url": e.get("video_url"),
+                "thumbnail": e.get("video_thumbnail"),
+                "strategy": e.get("strategy"),
+                "label": e.get("label"),
+                "metrics": metrics,
+            })
+
+        summary = {
+            "video_count": len({e.get("video_id") for e in entries}),
+            "strategy_count": len(entries),
+            "avg_return_pct": round(sum(returns) / len(returns), 2) if returns else None,
+            "best_return_pct": round(max(returns), 2) if returns else None,
+            "worst_return_pct": round(min(returns), 2) if returns else None,
+            "avg_win_rate": round(sum(win_rates) / len(win_rates), 1) if win_rates else None,
         }
+        return {"trader": trader, "videos": videos, "summary": summary}
 
     # ── anchored (timestamp-real) backtest ──────────────────────────────────
 

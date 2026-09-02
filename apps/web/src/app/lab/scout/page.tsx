@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Youtube, Plus, Trash2, RefreshCw, Loader2, Radar, Search, ListVideo, AlertTriangle } from "lucide-react";
+import { Youtube, Plus, Trash2, RefreshCw, Loader2, Radar, Search, ListVideo, AlertTriangle, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LiveAnalyzer } from "./live-analyzer";
 import { type Analysis, AnalysisCard, api, timeAgo } from "./analysis-card";
@@ -320,6 +320,12 @@ export default function ScoutPage() {
           className="flex items-center gap-1.5 rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
         >
           <ListVideo size={12} /> Browse my YouTube
+        </Link>
+        <Link
+          href="/lab/scout/traders"
+          className="flex items-center gap-1.5 rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+        >
+          <Users size={12} /> Traders
         </Link>
         {status && (
           <span className="ml-auto flex items-center gap-3 text-xs text-zinc-500">

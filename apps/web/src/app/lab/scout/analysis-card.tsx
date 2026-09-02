@@ -21,7 +21,9 @@ import {
   Clock,
   History,
 } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { traderAvatarUrl } from "@/lib/avatar";
 
 // ─── Types (mirror /api/v1/scout payloads) ────────────────────────────────
 
@@ -54,6 +56,7 @@ interface StrategyModel {
   take_profit_pct: number | null;
   leverage: number | null;
   timestamp_s?: number | null;
+  kind?: "technical" | "sentiment";
 }
 
 export interface Analysis {
@@ -177,18 +180,28 @@ function Clue({
 
 // ─── Strategy model card ────────────────────────────────────────────────────
 
+function TraderAvatarLink({ trader, size = "h-12 w-12" }: { trader: string; size?: string }) {
+  return (
+    <Link
+      href={`/lab/scout/traders/${encodeURIComponent(trader)}`}
+      className={cn(size, "shrink-0 overflow-hidden rounded-full border border-zinc-700 bg-zinc-800")}
+      title={`View ${trader}'s profile`}
+    >
+      <img src={traderAvatarUrl(trader)} alt={trader} className="h-full w-full object-cover" />
+    </Link>
+  );
+}
+
 function ModelCard({
   model,
   idx,
   bt,
   onBacktest,
-  thumbnail,
 }: {
   model: StrategyModel;
   idx: number;
   bt: Record<number, BacktestResult | "loading" | string>;
   onBacktest: (idx: number) => void;
-  thumbnail?: string | null;
 }) {
   const r = bt[idx];
   const hasClues =
@@ -202,17 +215,7 @@ function ModelCard({
     <div className="rounded-lg border border-zinc-800 bg-gradient-to-b from-zinc-900/80 to-zinc-950/80 p-3">
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          {thumbnail ? (
-            <img
-              src={thumbnail}
-              alt={model.trader}
-              className="h-8 w-8 shrink-0 rounded-full border border-zinc-700 object-cover"
-            />
-          ) : (
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-zinc-700 bg-zinc-800">
-              <User size={14} className="text-zinc-500" />
-            </div>
-          )}
+          <TraderAvatarLink trader={model.trader} />
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 truncate text-sm font-semibold text-cyan-200">
               <Wand2 size={13} className="shrink-0 text-cyan-400" />
@@ -286,6 +289,29 @@ function ModelCard({
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+// A stance-only mention ("I'm holding BTC long-term") — not a real,
+// mechanically backtestable strategy, so this deliberately has no
+// "Backtest now" button, unlike ModelCard.
+function SentimentCard({ model }: { model: StrategyModel }) {
+  return (
+    <div className="rounded-lg border border-zinc-800/60 bg-zinc-950/50 p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <TraderAvatarLink trader={model.trader} />
+          <div className="min-w-0">
+            <p className="truncate text-xs font-medium text-zinc-300">{model.name}</p>
+            <p className="text-[10px] text-zinc-500">{model.label}</p>
+          </div>
+        </div>
+        <span className="flex shrink-0 items-center gap-1 rounded-full border border-amber-800/50 bg-amber-950/40 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+          Sentiment stance
+        </span>
+      </div>
+      <p className="mt-2 text-[11px] text-zinc-500">{model.why}</p>
     </div>
   );
 }
@@ -480,9 +506,13 @@ export function AnalysisCard({ a }: { a: Analysis }) {
             <Sparkles size={11} /> Strategy models built from this video
           </div>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            {a.models.map((m, i) => (
-              <ModelCard key={i} model={m} idx={i} bt={bt} onBacktest={runBacktest} thumbnail={a.video_thumbnail} />
-            ))}
+            {a.models.map((m, i) =>
+              m.kind === "sentiment" ? (
+                <SentimentCard key={i} model={m} />
+              ) : (
+                <ModelCard key={i} model={m} idx={i} bt={bt} onBacktest={runBacktest} />
+              )
+            )}
           </div>
         </div>
       )}

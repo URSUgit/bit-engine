@@ -78,6 +78,13 @@ INDICATOR_STRATEGIES: list[tuple[re.Pattern[str], str, str]] = [
     (re.compile(r"\bhodl\b|\bhold\b.{0,20}\blong term\b|dollar.cost", re.S), "buy_and_hold", "Long-term holding discussed"),
 ]
 
+# Strategy keys that describe a stance/sentiment ("I'm holding long-term"),
+# not a real, mechanically backtestable technical strategy. Kept separate
+# from real indicator strategies everywhere a "strategy suggestion" flows
+# (Scout models, the persistent backtest queue) so HODL-type talk never
+# gets an identical "Backtest now" treatment.
+SENTIMENT_STRATEGY_KEYS: set[str] = {"buy_and_hold"}
+
 # Registry key -> human strategy label, used to build a named "strategy model"
 # per video (trader + label + pair).
 STRATEGY_LABELS: dict[str, str] = {
@@ -296,7 +303,8 @@ def suggest_strategies(
         if m:
             seen.add(strategy)
             ts = timestamp_at(offset_index, m.start() + base_offset)
-            out.append({"strategy": strategy, "why": why, "params": {}, "timestamp_s": ts})
+            kind = "sentiment" if strategy in SENTIMENT_STRATEGY_KEYS else "technical"
+            out.append({"strategy": strategy, "why": why, "params": {}, "timestamp_s": ts, "kind": kind})
             if len(out) >= max_n:
                 break
     return out
@@ -315,11 +323,16 @@ def build_models(strategies: list[dict], assets: list[dict], clues: dict, trader
     for s in strategies:
         label = strategy_label(s["strategy"])
         name = f"{trader} · {label}" if trader else label
+        # Computed from the strategy key itself (not trusted from the
+        # suggestion dict) so this holds for both the heuristic path and
+        # the LLM path, which doesn't set "kind" on its own output.
+        kind = "sentiment" if s["strategy"] in SENTIMENT_STRATEGY_KEYS else "technical"
         models.append({
             "name": name,
             "trader": trader or "Unknown trader",
             "strategy": s["strategy"],
             "label": label,
+            "kind": kind,
             "why": s["why"],
             "params": s.get("params") or {},
             "pairs": pairs,
