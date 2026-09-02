@@ -13,6 +13,8 @@ import os
 import time
 from pathlib import Path
 
+from app.scout.extract import SENTIMENT_STRATEGY_KEYS
+
 log = logging.getLogger(__name__)
 
 STORE_PATH = Path(os.getenv("SCOUT_STRATEGIES_PATH", "data/scout_strategies.json"))
@@ -39,9 +41,17 @@ class StrategiesStore:
     def _load(self) -> None:
         try:
             raw = json.loads(STORE_PATH.read_text())
-            self.entries = raw.get("entries", [])
+            entries = raw.get("entries", [])
+            # One-time cleanup of stray sentiment (e.g. "buy_and_hold") entries
+            # persisted before add_models() started filtering them out — these
+            # aren't real backtestable strategies and shouldn't surface in the
+            # Backtester queue or trader profiles.
+            kept = [e for e in entries if e.get("strategy") not in SENTIMENT_STRATEGY_KEYS]
+            self.entries = kept
             if self.entries:
                 self._ids = itertools.count(max(e["id"] for e in self.entries) + 1)
+            if len(kept) != len(entries):
+                self._save()
         except Exception:
             pass
 
