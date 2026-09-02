@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ArrowUpRight, ArrowDownRight, Loader2, ExternalLink } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, ArrowDownRight, Loader2, ExternalLink, Link2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { traderAvatarUrl } from "@/lib/avatar";
+import { resolveAvatarUrl } from "@/lib/avatar";
 
 interface VideoMetrics {
   symbol?: string;
@@ -29,8 +29,15 @@ interface TraderVideo {
   metrics: VideoMetrics;
 }
 
+interface ChannelLink {
+  title: string;
+  url: string;
+}
+
 interface TraderProfile {
   trader: string;
+  avatar?: string | null;
+  channel?: { description: string | null; links: ChannelLink[] };
   videos: TraderVideo[];
   summary: {
     video_count: number;
@@ -90,8 +97,9 @@ export default function TraderProfilePage() {
       <div className="card-dark p-6">
         <div className="flex items-start gap-5 flex-wrap">
           <img
-            src={traderAvatarUrl(profile.trader)}
+            src={resolveAvatarUrl(profile.trader, profile.avatar)}
             alt={profile.trader}
+            referrerPolicy="no-referrer"
             className="w-20 h-20 rounded-full border border-slate-700 object-cover shrink-0"
           />
           <div className="flex-1 min-w-0">
@@ -100,6 +108,26 @@ export default function TraderProfilePage() {
               {s.video_count} video{s.video_count === 1 ? "" : "s"} analyzed · {s.strategy_count} strategy model
               {s.strategy_count === 1 ? "" : "s"} · backtested over the max available history (10Y)
             </p>
+            {profile.channel?.description && (
+              <p className="text-xs text-slate-400 mt-3 whitespace-pre-line max-w-2xl">
+                {profile.channel.description}
+              </p>
+            )}
+            {profile.channel?.links && profile.channel.links.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {profile.channel.links.map((l, i) => (
+                  <a
+                    key={i}
+                    href={l.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900/60 px-2.5 py-1 text-[11px] text-slate-300 hover:text-cyan-400 hover:border-cyan-500/40 transition-colors"
+                  >
+                    <Link2 className="w-3 h-3" /> {l.title}
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

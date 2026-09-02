@@ -23,6 +23,11 @@ interface DiscoveredChannel {
   watching: boolean;
 }
 
+interface TraderSummary {
+  trader: string;
+  avatar?: string | null;
+}
+
 interface DiscoveryLogEntry {
   query: string;
   found: number;
@@ -186,6 +191,7 @@ function DiscoveryPanel({
 export default function ScoutPage() {
   const [status, setStatus] = useState<ScoutStatus | null>(null);
   const [feed, setFeed] = useState<Analysis[]>([]);
+  const [avatarMap, setAvatarMap] = useState<Record<string, string>>({});
   const [discovered, setDiscovered] = useState<DiscoveredChannel[]>([]);
   const [channelRef, setChannelRef] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
@@ -197,14 +203,16 @@ export default function ScoutPage() {
 
   const refresh = useCallback(async () => {
     try {
-      const [st, fd, dv] = await Promise.all([
+      const [st, fd, dv, tr] = await Promise.all([
         api<ScoutStatus>("/status"),
         api<Analysis[]>("/feed?limit=50"),
         api<DiscoveredChannel[]>("/discovered?limit=20"),
+        api<TraderSummary[]>("/traders").catch(() => [] as TraderSummary[]),
       ]);
       setStatus(st);
       setFeed(fd);
       setDiscovered(dv.map((c) => ({ ...c, watching: st.channels.some((ch) => ch.id === c.id) })));
+      setAvatarMap(Object.fromEntries(tr.filter((t) => t.avatar).map((t) => [t.trader, t.avatar as string])));
       setOffline(false);
     } catch {
       setOffline(true);
@@ -466,7 +474,7 @@ export default function ScoutPage() {
             {Math.round((status?.poll_interval_s ?? 180) / 60)} min).
           </div>
         ) : (
-          feed.map((a) => <AnalysisCard key={a.id} a={a} />)
+          feed.map((a) => <AnalysisCard key={a.id} a={a} avatarMap={avatarMap} />)
         )}
       </div>
     </div>

@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Loader2, Users } from "lucide-react";
-import { traderAvatarUrl } from "@/lib/avatar";
+import { resolveAvatarUrl } from "@/lib/avatar";
 
 interface TraderSummary {
   trader: string;
   video_count: number;
   strategy_count: number;
+  avatar?: string | null;
 }
 
 export default function ScoutTradersPage() {
@@ -51,8 +52,9 @@ export default function ScoutTradersPage() {
             className="card-dark p-4 flex flex-col items-center gap-2 text-center hover:border-cyan-500/40 transition-colors"
           >
             <img
-              src={traderAvatarUrl(t.trader)}
+              src={resolveAvatarUrl(t.trader, t.avatar)}
               alt={t.trader}
+              referrerPolicy="no-referrer"
               className="w-16 h-16 rounded-full border border-slate-700 object-cover"
             />
             <p className="text-sm font-semibold text-slate-100 truncate w-full">{t.trader}</p>

@@ -16,7 +16,7 @@ import time
 from collections import deque
 from pathlib import Path
 from typing import AsyncIterator
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import httpx
 
@@ -101,6 +101,15 @@ def _transcript_proxy_config():
 # id in YouTube's search-results JSON blob (`ytInitialData`).
 _OWNER_RE = re.compile(r'"text":"([^"]{2,80})".{0,400}?"browseId":"(UC[0-9A-Za-z_-]{22})"', re.S)
 
+# Channel "About" page scraping — self-published only (real avatar photo,
+# own description, own external/social links), no third-party lookups and
+# no attempt to identify individual people in multi-host videos.
+_CHANNEL_AVATAR_RE = re.compile(r'<meta property="og:image" content="([^"]+)"')
+_CHANNEL_DESC_RE = re.compile(r'"description":"((?:[^"\\]|\\.)*)"')
+_CHANNEL_LINK_RE = re.compile(
+    r'"channelExternalLinkViewModel":\{"title":\{"content":"([^"]*)".{0,600}?q=([^"\\]+)"', re.S
+)
+
 LLM_SYSTEM = (
     "You extract actionable trading content from a YouTube video transcript. The "
     "transcript is prefixed with [Ns] markers giving the video second each part "
@@ -122,6 +131,7 @@ class ScoutService:
         self.seen: set[str] = set()
         self.analyses: deque[dict] = deque(maxlen=200)
         self.discovered: deque[dict] = deque(maxlen=60)
+        self._channel_about_cache: dict[str, dict] = {}
         self.discovery_log: deque[dict] = deque(maxlen=40)
         self._ids = itertools.count(1)
         self._running = False
@@ -308,6 +318,7 @@ class ScoutService:
             return {
                 "title": data.get("title", video_id),
                 "channel": data.get("author_name", ""),
+                "channel_url": data.get("author_url"),
                 "thumbnail": data.get("thumbnail_url"),
             }
 
@@ -378,12 +389,14 @@ class ScoutService:
         published_at: str | None = None,
     ) -> dict:
         thumbnail: str | None = None
+        channel_url: str | None = None
         if title is None or channel is None:
             try:
                 meta = await self._fetch_title(video_id)
                 title = title or meta["title"]
                 channel = channel or meta["channel"]
                 thumbnail = meta.get("thumbnail")
+                channel_url = meta.get("channel_url")
             except Exception:
                 title = title or video_id
                 channel = channel or ""
@@ -437,7 +450,9 @@ class ScoutService:
         }
         self.analyses.appendleft(record)
         self.seen.add(video_id)
-        strategies_store.add_models(analysis.get("models", []), video_id, title, record["url"], thumbnail)
+        strategies_store.add_models(
+            analysis.get("models", []), video_id, title, record["url"], thumbnail, channel_url
+        )
         return record
 
     def _merge_frame_findings(self, analysis: dict, frame_findings: dict, trader: str) -> None:
@@ -488,6 +503,7 @@ class ScoutService:
             yield {"stage": "resolving", "video_id": video_id}
 
             thumbnail: str | None = None
+            channel_url: str | None = None
             if title is None or channel is None:
                 yield {"stage": "fetching_title"}
                 try:
@@ -495,6 +511,7 @@ class ScoutService:
                     title = title or meta["title"]
                     channel = channel or meta["channel"]
                     thumbnail = meta.get("thumbnail")
+                    channel_url = meta.get("channel_url")
                 except Exception:
                     title = title or video_id
                     channel = channel or ""
@@ -572,7 +589,9 @@ class ScoutService:
             self.analyses.appendleft(record)
             self.seen.add(video_id)
             self._save()
-            strategies_store.add_models(analysis.get("models", []), video_id, title, record["url"], thumbnail)
+            strategies_store.add_models(
+                analysis.get("models", []), video_id, title, record["url"], thumbnail, channel_url
+            )
             yield {"stage": "done", "record": record}
         except Exception as exc:
             log.warning("scout live analysis failed for %s: %r", video_id, exc)
@@ -675,7 +694,57 @@ class ScoutService:
 
     # ── trader profiles ─────────────────────────────────────────────────────
 
-    def list_traders(self) -> list[dict]:
+    def _channel_url_for_trader(self, trader: str) -> str | None:
+        """Best-known channel URL for a trader name: prefer a watched
+        channel (exact id, from resolve_channel), else fall back to
+        whatever channel_url got captured on any of their persisted
+        strategy entries (oEmbed author_url at analysis time)."""
+        for ch in self.channels.values():
+            if ch.get("name") == trader:
+                return f"https://www.youtube.com/channel/{ch['id']}"
+        for e in reversed(strategies_store.entries):
+            if e.get("trader") == trader and e.get("channel_url"):
+                return e["channel_url"]
+        return None
+
+    async def _fetch_channel_about(self, channel_url: str) -> dict:
+        """Real avatar photo plus self-published description/external links
+        straight off the channel's own YouTube "About" page — the channel's
+        own words, no third-party lookups, no identification of individual
+        people in multi-host videos."""
+        if channel_url in self._channel_about_cache:
+            return self._channel_about_cache[channel_url]
+        result: dict = {"avatar": None, "description": None, "links": []}
+        try:
+            about_url = channel_url.rstrip("/") + "/about"
+            async with httpx.AsyncClient(timeout=10, headers=_HEADERS, follow_redirects=True) as client:
+                r = await client.get(about_url)
+                r.raise_for_status()
+                html = r.text
+            m = _CHANNEL_AVATAR_RE.search(html)
+            if m:
+                result["avatar"] = m.group(1)
+            m = _CHANNEL_DESC_RE.search(html)
+            if m:
+                try:
+                    result["description"] = json.loads('"' + m.group(1) + '"')
+                except Exception:
+                    pass
+            links: list[dict] = []
+            seen_urls: set[str] = set()
+            for link_title, q in _CHANNEL_LINK_RE.findall(html):
+                target = unquote(q)
+                if target in seen_urls:
+                    continue
+                seen_urls.add(target)
+                links.append({"title": link_title, "url": target})
+            result["links"] = links
+        except Exception as exc:
+            log.warning("scout channel about fetch failed for %s: %r", channel_url, exc)
+        self._channel_about_cache[channel_url] = result
+        return result
+
+    async def list_traders(self) -> list[dict]:
         """Every trader with at least one persisted (technical) strategy,
         grouped from strategies_store, sorted by video count desc."""
         grouped: dict[str, dict] = {}
@@ -686,10 +755,19 @@ class ScoutService:
             g = grouped.setdefault(trader, {"trader": trader, "video_ids": set(), "strategy_count": 0})
             g["video_ids"].add(e.get("video_id"))
             g["strategy_count"] += 1
-        out = [
-            {"trader": g["trader"], "video_count": len(g["video_ids"]), "strategy_count": g["strategy_count"]}
-            for g in grouped.values()
-        ]
+        out: list[dict] = []
+        for g in grouped.values():
+            avatar = None
+            channel_url = self._channel_url_for_trader(g["trader"])
+            if channel_url:
+                about = await self._fetch_channel_about(channel_url)
+                avatar = about.get("avatar")
+            out.append({
+                "trader": g["trader"],
+                "video_count": len(g["video_ids"]),
+                "strategy_count": g["strategy_count"],
+                "avatar": avatar,
+            })
         out.sort(key=lambda x: x["video_count"], reverse=True)
         return out
 
@@ -699,6 +777,11 @@ class ScoutService:
         entries = [e for e in strategies_store.entries if e.get("trader") == trader]
         if not entries:
             raise ValueError("Unknown trader")
+
+        channel_url = self._channel_url_for_trader(trader)
+        about = await self._fetch_channel_about(channel_url) if channel_url else {
+            "avatar": None, "description": None, "links": [],
+        }
 
         videos: list[dict] = []
         returns: list[float] = []
@@ -730,7 +813,13 @@ class ScoutService:
             "worst_return_pct": round(min(returns), 2) if returns else None,
             "avg_win_rate": round(sum(win_rates) / len(win_rates), 1) if win_rates else None,
         }
-        return {"trader": trader, "videos": videos, "summary": summary}
+        return {
+            "trader": trader,
+            "avatar": about.get("avatar"),
+            "channel": {"description": about.get("description"), "links": about.get("links", [])},
+            "videos": videos,
+            "summary": summary,
+        }
 
     # ── anchored (timestamp-real) backtest ──────────────────────────────────
 

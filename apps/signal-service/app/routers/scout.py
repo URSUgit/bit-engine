@@ -190,7 +190,7 @@ async def delete_strategy(entry_id: int):
 async def list_traders():
     """Every trader (channel) with at least one persisted technical strategy,
     for the trader-index page."""
-    return scout_service.list_traders()
+    return await scout_service.list_traders()
 
 
 @router.get("/traders/{trader}")

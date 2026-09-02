@@ -63,7 +63,13 @@ class StrategiesStore:
             log.warning("scout strategies store save failed: %r", exc)
 
     def add_models(
-        self, models: list[dict], video_id: str, title: str, url: str, thumbnail: str | None = None
+        self,
+        models: list[dict],
+        video_id: str,
+        title: str,
+        url: str,
+        thumbnail: str | None = None,
+        channel_url: str | None = None,
     ) -> list[dict]:
         """Append every extracted model as a new list entry tagged with its
         source video. Deduped on (video_id, strategy) so re-analyzing the
@@ -86,6 +92,7 @@ class StrategiesStore:
                 "video_title": title,
                 "video_url": url,
                 "video_thumbnail": thumbnail,
+                "channel_url": channel_url,
                 "name": m.get("name"),
                 "added_at": time.time(),
                 "edited": False,

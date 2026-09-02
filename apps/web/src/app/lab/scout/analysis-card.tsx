@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { traderAvatarUrl } from "@/lib/avatar";
+import { resolveAvatarUrl } from "@/lib/avatar";
 
 // ─── Types (mirror /api/v1/scout payloads) ────────────────────────────────
 
@@ -180,14 +180,27 @@ function Clue({
 
 // ─── Strategy model card ────────────────────────────────────────────────────
 
-function TraderAvatarLink({ trader, size = "h-12 w-12" }: { trader: string; size?: string }) {
+function TraderAvatarLink({
+  trader,
+  avatarUrl,
+  size = "h-12 w-12",
+}: {
+  trader: string;
+  avatarUrl?: string | null;
+  size?: string;
+}) {
   return (
     <Link
       href={`/lab/scout/traders/${encodeURIComponent(trader)}`}
       className={cn(size, "shrink-0 overflow-hidden rounded-full border border-zinc-700 bg-zinc-800")}
       title={`View ${trader}'s profile`}
     >
-      <img src={traderAvatarUrl(trader)} alt={trader} className="h-full w-full object-cover" />
+      <img
+        src={resolveAvatarUrl(trader, avatarUrl)}
+        alt={trader}
+        referrerPolicy="no-referrer"
+        className="h-full w-full object-cover"
+      />
     </Link>
   );
 }
@@ -196,11 +209,13 @@ function ModelCard({
   model,
   idx,
   bt,
+  avatarUrl,
   onBacktest,
 }: {
   model: StrategyModel;
   idx: number;
   bt: Record<number, BacktestResult | "loading" | string>;
+  avatarUrl?: string | null;
   onBacktest: (idx: number) => void;
 }) {
   const r = bt[idx];
@@ -215,7 +230,7 @@ function ModelCard({
     <div className="rounded-lg border border-zinc-800 bg-gradient-to-b from-zinc-900/80 to-zinc-950/80 p-3">
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <TraderAvatarLink trader={model.trader} />
+          <TraderAvatarLink trader={model.trader} avatarUrl={avatarUrl} />
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 truncate text-sm font-semibold text-cyan-200">
               <Wand2 size={13} className="shrink-0 text-cyan-400" />
@@ -296,12 +311,12 @@ function ModelCard({
 // A stance-only mention ("I'm holding BTC long-term") — not a real,
 // mechanically backtestable strategy, so this deliberately has no
 // "Backtest now" button, unlike ModelCard.
-function SentimentCard({ model }: { model: StrategyModel }) {
+function SentimentCard({ model, avatarUrl }: { model: StrategyModel; avatarUrl?: string | null }) {
   return (
     <div className="rounded-lg border border-zinc-800/60 bg-zinc-950/50 p-3">
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <TraderAvatarLink trader={model.trader} />
+          <TraderAvatarLink trader={model.trader} avatarUrl={avatarUrl} />
           <div className="min-w-0">
             <p className="truncate text-xs font-medium text-zinc-300">{model.name}</p>
             <p className="text-[10px] text-zinc-500">{model.label}</p>
@@ -394,7 +409,7 @@ function SignalRow({
 
 // ─── Feed card ──────────────────────────────────────────────────────────────
 
-export function AnalysisCard({ a }: { a: Analysis }) {
+export function AnalysisCard({ a, avatarMap }: { a: Analysis; avatarMap?: Record<string, string> }) {
   const [bt, setBt] = useState<Record<number, BacktestResult | "loading" | string>>({});
   const [abt, setAbt] = useState<Record<number, AnchoredBacktestResult | "loading" | string>>({});
 
@@ -508,9 +523,16 @@ export function AnalysisCard({ a }: { a: Analysis }) {
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {a.models.map((m, i) =>
               m.kind === "sentiment" ? (
-                <SentimentCard key={i} model={m} />
+                <SentimentCard key={i} model={m} avatarUrl={avatarMap?.[m.trader]} />
               ) : (
-                <ModelCard key={i} model={m} idx={i} bt={bt} onBacktest={runBacktest} />
+                <ModelCard
+                  key={i}
+                  model={m}
+                  idx={i}
+                  bt={bt}
+                  avatarUrl={avatarMap?.[m.trader]}
+                  onBacktest={runBacktest}
+                />
               )
             )}
           </div>
