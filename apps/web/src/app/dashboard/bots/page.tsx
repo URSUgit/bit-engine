@@ -132,14 +132,22 @@ function BotCard({ bot, onStopped }: { bot: BotStatus; onStopped: () => void }) 
           <ArrowRight className={cn("w-3 h-3 transition-transform", expanded && "rotate-90")} />
           {bot.trades_count === 0 ? "No trades yet" : expanded ? "Hide trades" : "Show trades"}
         </button>
-        <button
-          onClick={stop}
-          disabled={stopping}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors disabled:opacity-50"
-        >
-          {stopping ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
-          Stop bot
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/dashboard/bots/${bot.bot_id}`}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 hover:bg-cyan-500/20 transition-colors"
+          >
+            Manage bot <ArrowRight className="w-3 h-3" />
+          </Link>
+          <button
+            onClick={stop}
+            disabled={stopping}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors disabled:opacity-50"
+          >
+            {stopping ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
+            Stop bot
+          </button>
+        </div>
       </div>
 
       {expanded && trades.length > 0 && (

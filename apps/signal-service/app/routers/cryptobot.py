@@ -16,20 +16,27 @@ from app.scout.strategies_store import strategies_store
 router = APIRouter()
 
 
-def _status_dict(status) -> dict:
+def _status_dict(bot) -> dict:
+    status = bot.status()
+    cfg = bot.config
     return {
         "bot_id": status.bot_id,
         "mode": status.mode,
         "trader": status.trader,
         "strategy": status.strategy,
+        "strategy_id": cfg.strategy_id,
+        "strategy_params": cfg.strategy_params,
         "symbol": status.symbol,
         "interval": status.interval,
+        "position_size_usd": cfg.position_size_usd,
+        "poll_seconds": cfg.poll_seconds,
         "bars_seen": status.bars_seen,
         "last_signal": status.last_signal,
         "last_price": status.last_price,
         "position": status.position,
         "trades_count": status.trades_count,
         "last_error": status.last_error,
+        "started_at": status.started_at,
         "uptime_seconds": round(status.uptime_seconds, 1),
         "server_live_trading_enabled": LIVE_TRADING,
     }
@@ -74,12 +81,12 @@ async def create_bot_endpoint(body: CreateBotRequest):
         mode="dry_run",
     )
     bot = await create_bot(config)
-    return _status_dict(bot.status())
+    return _status_dict(bot)
 
 
 @router.get("/bots")
 async def list_bots():
-    return [_status_dict(bot.status()) for bot in all_bots().values()]
+    return [_status_dict(bot) for bot in all_bots().values()]
 
 
 @router.get("/bots/{bot_id}")
@@ -87,7 +94,15 @@ async def bot_status(bot_id: str):
     bot = get_bot(bot_id)
     if not bot:
         raise HTTPException(status_code=404, detail="Bot not found")
-    return _status_dict(bot.status())
+    return _status_dict(bot)
+
+
+@router.get("/bots/{bot_id}/activity")
+async def bot_activity(bot_id: str):
+    bot = get_bot(bot_id)
+    if not bot:
+        raise HTTPException(status_code=404, detail="Bot not found")
+    return bot.activity()
 
 
 @router.post("/bots/{bot_id}/mode")
@@ -99,7 +114,7 @@ async def set_mode(bot_id: str, mode: Literal["dry_run", "live", "stopped"]):
         bot.set_mode(mode)  # type: ignore[arg-type]
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return _status_dict(bot.status())
+    return _status_dict(bot)
 
 
 @router.post("/bots/{bot_id}/stop")

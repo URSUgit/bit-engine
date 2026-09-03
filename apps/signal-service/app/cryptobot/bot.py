@@ -83,6 +83,7 @@ class CryptoBot:
         self._last_bar_ts: int | None = None
         self._task: asyncio.Task | None = None
         self._running = False
+        self._activity: list[dict] = []  # rolling poll log: bar ts, price, signal
         self._status = BotStatus(
             bot_id=config.bot_id,
             mode=config.mode,
@@ -131,6 +132,12 @@ class CryptoBot:
         )
         return self._status
 
+    def activity(self) -> list[dict]:
+        """Most-recent-first log of every poll cycle's bar/signal, not just
+        the ones that led to an executed trade — used to render a live
+        timeline of what the strategy has been evaluating."""
+        return list(reversed(self._activity))
+
     # ── Main loop ────────────────────────────────────────────────────────────
 
     async def _loop(self) -> None:
@@ -169,6 +176,13 @@ class CryptoBot:
         signal: Signal = self._strategy.on_bar(ctx)
         self._status.bars_seen += 1
         self._status.last_signal = signal
+        self._activity.append({
+            "at": time.time(),
+            "bar_ts": latest.ts,
+            "price": latest.close,
+            "signal": signal,
+        })
+        self._activity = self._activity[-40:]
 
         if self.config.mode == "stopped":
             return

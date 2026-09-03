@@ -14,5 +14,53 @@
     "reason": "signal=buy",
     "pnl_usd": null,
     "at": 1788435523.1984694
+  },
+  {
+    "id": "11ac2381-da30-4c3d-bf61-5564a7c24b69",
+    "bot_id": "6817a3d034",
+    "trader": "Crypto Lifer",
+    "strategy": "momentum",
+    "symbol": "BTC-USD",
+    "side": "BUY",
+    "price": 80566.78,
+    "qty": 0.0003103015908045475,
+    "quote_usd": 25.0,
+    "order_id": "dry-c18ad817ca80",
+    "dry_run": true,
+    "reason": "signal=buy",
+    "pnl_usd": null,
+    "at": 1788448827.0507224
+  },
+  {
+    "id": "dd22c947-2224-4125-aaed-2ac3f6760437",
+    "bot_id": "c3df10783c",
+    "trader": "Crypto Lifer",
+    "strategy": "momentum",
+    "symbol": "BTC-USD",
+    "side": "BUY",
+    "price": 80820.01,
+    "qty": 0.0003093293356434873,
+    "quote_usd": 25.0,
+    "order_id": "dry-7217e45adad8",
+    "dry_run": true,
+    "reason": "signal=buy",
+    "pnl_usd": null,
+    "at": 1788449672.7280757
+  },
+  {
+    "id": "6a6eb3ce-2ec7-454d-865f-4f7560faa03e",
+    "bot_id": "7a1d43cebb",
+    "trader": "Crypto Lifer",
+    "strategy": "momentum",
+    "symbol": "BTC-USD",
+    "side": "BUY",
+    "price": 80889.18,
+    "qty": 0.00030906482177220736,
+    "quote_usd": 25.0,
+    "order_id": "dry-85ab244fb2da",
+    "dry_run": true,
+    "reason": "signal=buy",
+    "pnl_usd": null,
+    "at": 1788450194.1543534
   }
 ]
