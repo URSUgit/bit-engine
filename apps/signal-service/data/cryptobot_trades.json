@@ -62,5 +62,21 @@
     "reason": "signal=buy",
     "pnl_usd": null,
     "at": 1788450194.1543534
+  },
+  {
+    "id": "4fe98e4d-eb2d-4657-9240-072d7d4c73df",
+    "bot_id": "24ea82e090",
+    "trader": "Crypto Lifer",
+    "strategy": "momentum",
+    "symbol": "BTC-USD",
+    "side": "BUY",
+    "price": 80890.0,
+    "qty": 0.0003090616887130671,
+    "quote_usd": 25.0,
+    "order_id": "dry-8932a314c6c4",
+    "dry_run": true,
+    "reason": "signal=buy",
+    "pnl_usd": null,
+    "at": 1788453231.5628755
   }
 ]
