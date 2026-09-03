@@ -364,7 +364,7 @@ export default function BotDetailPage() {
           ) : (
             <>
               <div className="grid grid-cols-2 gap-3">
-                <Metric label="Total Return" value={pct(m.total_return_pct)} positive={(m.total_return_pct ?? 0) >= 0} />
+                <Metric label="Total Return (10Y)" value={pct(m.total_return_pct)} positive={(m.total_return_pct ?? 0) >= 0} />
                 <Metric label="Sharpe" value={m.sharpe_ratio != null ? m.sharpe_ratio.toFixed(2) : "—"} />
                 <Metric label="Max Drawdown" value={m.max_drawdown_pct != null ? `${m.max_drawdown_pct.toFixed(1)}%` : "—"} />
                 <Metric label="Win Rate" value={m.win_rate != null ? `${m.win_rate.toFixed(1)}%` : "—"} />

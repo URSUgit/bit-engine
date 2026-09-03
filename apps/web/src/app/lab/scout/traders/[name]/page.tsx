@@ -373,10 +373,10 @@ export default function TraderProfilePage() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Metric label="Avg Return" value={pct(s.avg_return_pct)} positive={s.avg_return_pct != null && s.avg_return_pct >= 0} />
-        <Metric label="Best Return" value={pct(s.best_return_pct)} positive={s.best_return_pct != null && s.best_return_pct >= 0} />
-        <Metric label="Worst Return" value={pct(s.worst_return_pct)} positive={s.worst_return_pct != null && s.worst_return_pct >= 0} />
-        <Metric label="Avg Win Rate" value={s.avg_win_rate != null ? `${s.avg_win_rate.toFixed(1)}%` : "—"} />
+        <Metric label="Avg Return (10Y)" value={pct(s.avg_return_pct)} positive={s.avg_return_pct != null && s.avg_return_pct >= 0} />
+        <Metric label="Best Return (10Y)" value={pct(s.best_return_pct)} positive={s.best_return_pct != null && s.best_return_pct >= 0} />
+        <Metric label="Worst Return (10Y)" value={pct(s.worst_return_pct)} positive={s.worst_return_pct != null && s.worst_return_pct >= 0} />
+        <Metric label="Avg Win Rate (10Y)" value={s.avg_win_rate != null ? `${s.avg_win_rate.toFixed(1)}%` : "—"} />
       </div>
 
       {/* Trading bot */}
@@ -422,7 +422,7 @@ export default function TraderProfilePage() {
                       <>
                         <div className={cn("text-sm font-semibold number-font flex items-center gap-1 justify-end", positive ? "text-emerald-400" : "text-red-400")}>
                           {positive ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
-                          {pct(m.total_return_pct)}
+                          {pct(m.total_return_pct)} <span className="text-slate-600 font-normal">(10Y)</span>
                         </div>
                         <p className="text-[10px] text-slate-600 number-font">
                           {m.win_rate != null ? `${m.win_rate.toFixed(1)}% win rate` : ""} · {m.symbol}
