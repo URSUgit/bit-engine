@@ -1,6 +1,6 @@
 """Crypto trading bot — runs a Scout-extracted trader's backtested strategy
-against live Binance bars and, once explicitly promoted to "live", real
-Binance spot orders.
+against live Binance bars (the same public, keyless data feed the backtester
+uses) and, once explicitly promoted to "live", real Bitget spot orders.
 
 Reuses the exact same per-bar `Strategy.on_bar(StrategyContext)` interface
 the Backtester already drives (app/backtest/strategies/base.py) — the

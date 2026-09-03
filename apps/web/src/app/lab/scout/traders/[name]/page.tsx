@@ -179,9 +179,9 @@ function BotDeployPanel({ trader, videos }: { trader: string; videos: TraderVide
         {bot && <ModeBadge mode={bot.mode} />}
       </div>
       <p className="text-xs text-slate-500 mb-4 max-w-2xl">
-        Runs one of {trader}&rsquo;s own backtested strategies against live Binance prices and simulates
+        Runs one of {trader}&rsquo;s own backtested strategies against live prices and simulates
         fills in dry-run. No real order ever fires from this page — going live requires the operator to
-        set <code className="text-slate-400">BINANCE_LIVE_TRADING=true</code> on the signal-service and
+        set <code className="text-slate-400">BITGET_LIVE_TRADING=true</code> on the signal-service and
         promote the bot&rsquo;s mode directly via the API.
       </p>
 
