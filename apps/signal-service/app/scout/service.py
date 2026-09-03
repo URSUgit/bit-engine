@@ -796,12 +796,14 @@ class ScoutService:
             except Exception as exc:
                 metrics = {"symbol": sym, "error": str(exc)}
             videos.append({
+                "id": e.get("id"),
                 "video_id": e.get("video_id"),
                 "title": e.get("video_title"),
                 "url": e.get("video_url"),
                 "thumbnail": e.get("video_thumbnail"),
                 "strategy": e.get("strategy"),
                 "label": e.get("label"),
+                "symbol": sym,
                 "metrics": metrics,
             })
 
