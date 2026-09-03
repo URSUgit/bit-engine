@@ -83,8 +83,21 @@ interface TraderProfile {
   trader: string;
   avatar?: string | null;
   channel?: { description: string | null; links: ChannelLink[] };
+  period: PeriodKey;
   videos: TraderVideo[];
 }
+
+type PeriodKey = "1m" | "3m" | "6m" | "1y" | "all";
+
+const PERIODS: { key: PeriodKey; label: string }[] = [
+  { key: "1m", label: "1M" },
+  { key: "3m", label: "3M" },
+  { key: "6m", label: "6M" },
+  { key: "1y", label: "1Y" },
+  { key: "all", label: "All" },
+];
+
+const PERIOD_LABEL: Record<PeriodKey, string> = { "1m": "1M", "3m": "3M", "6m": "6M", "1y": "1Y", all: "10Y" };
 
 async function cbApi<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api/v1/cryptobot${path}`, {
@@ -176,6 +189,8 @@ export default function BotDetailPage() {
   const [profile, setProfile] = useState<TraderProfile | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [period, setPeriod] = useState<PeriodKey>("all");
+  const [periodLoading, setPeriodLoading] = useState(false);
 
   useEffect(() => {
     if (!botId) return;
@@ -206,11 +221,21 @@ export default function BotDetailPage() {
 
   useEffect(() => {
     if (!bot?.trader) return;
-    fetch(`/api/v1/scout/traders/${encodeURIComponent(bot.trader)}`)
+    let cancelled = false;
+    setPeriodLoading(true);
+    fetch(`/api/v1/scout/traders/${encodeURIComponent(bot.trader)}?period=${period}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: TraderProfile | null) => data && setProfile(data))
-      .catch(() => {});
-  }, [bot?.trader]);
+      .then((data: TraderProfile | null) => {
+        if (!cancelled && data) setProfile(data);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setPeriodLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bot?.trader, period]);
 
   const stop = async () => {
     if (!bot) return;
@@ -355,6 +380,23 @@ export default function BotDetailPage() {
 
         {/* Backtest performance */}
         <Section title="Backtest performance" icon={Trophy}>
+          <div className="flex items-center gap-1.5 mb-3 -mt-1">
+            {PERIODS.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => setPeriod(p.key)}
+                className={cn(
+                  "px-2.5 py-1 rounded-md text-xs font-semibold border transition-colors",
+                  period === p.key
+                    ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/30"
+                    : "text-slate-500 hover:text-slate-300 border-transparent hover:border-slate-700"
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+            {periodLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-500 ml-1" />}
+          </div>
           {!profile ? (
             <div className="flex items-center justify-center h-24">
               <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
@@ -362,9 +404,9 @@ export default function BotDetailPage() {
           ) : !m || m.error ? (
             <p className="text-sm text-slate-500 text-center py-4">No backtest metrics available for this strategy.</p>
           ) : (
-            <>
+            <div className={cn("transition-opacity", periodLoading && "opacity-60")}>
               <div className="grid grid-cols-2 gap-3">
-                <Metric label="Total Return (10Y)" value={pct(m.total_return_pct)} positive={(m.total_return_pct ?? 0) >= 0} />
+                <Metric label={`Total Return (${PERIOD_LABEL[profile.period]})`} value={pct(m.total_return_pct)} positive={(m.total_return_pct ?? 0) >= 0} />
                 <Metric label="Sharpe" value={m.sharpe_ratio != null ? m.sharpe_ratio.toFixed(2) : "—"} />
                 <Metric label="Max Drawdown" value={m.max_drawdown_pct != null ? `${m.max_drawdown_pct.toFixed(1)}%` : "—"} />
                 <Metric label="Win Rate" value={m.win_rate != null ? `${m.win_rate.toFixed(1)}%` : "—"} />
@@ -379,7 +421,7 @@ export default function BotDetailPage() {
                   {rankedVideos.length} strategies backtested from {bot.trader}&rsquo;s channel
                 </p>
               )}
-            </>
+            </div>
           )}
         </Section>
       </div>

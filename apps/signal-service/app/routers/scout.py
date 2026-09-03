@@ -194,11 +194,11 @@ async def list_traders():
 
 
 @router.get("/traders/{trader}")
-async def trader_profile(trader: str):
+async def trader_profile(trader: str, period: str = "all"):
     """A trader's video/strategy history plus aggregate performance,
-    backtested over the max feasible period."""
+    backtested over the requested window (1m/3m/6m/1y/all)."""
     try:
-        return await scout_service.trader_profile(trader)
+        return await scout_service.trader_profile(trader, period)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 

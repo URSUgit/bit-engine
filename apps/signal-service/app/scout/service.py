@@ -603,6 +603,10 @@ class ScoutService:
     # apps/web/src/app/lab/backtester/components/shared.tsx PRESETS).
     MAX_PERIOD_DAYS = 365 * 10
 
+    # Selectable windows for trader-profile backtests. "all" mirrors the
+    # app-wide 10Y max preset above.
+    PERIOD_DAYS = {"1m": 30, "3m": 90, "6m": 180, "1y": 365, "all": MAX_PERIOD_DAYS}
+
     async def _load_recent_bars(self, symbol: str) -> tuple[list, str]:
         """180d hourly bars, falling back to 2y daily if too few hourly bars
         exist. Shared by quick_backtest and backtest_saved_strategy."""
@@ -621,17 +625,24 @@ class ScoutService:
             raise ValueError(f"Not enough history for {symbol}")
         return bars, interval
 
-    async def _load_max_period_bars(self, symbol: str) -> tuple[list, str]:
-        """Daily bars over MAX_PERIOD_DAYS ("10Y") — used for trader-profile
-        aggregate backtests, matching the Backtester UI's own max preset."""
+    async def _load_period_bars(self, symbol: str, days: int) -> tuple[list, str]:
+        """Bars over the last `days` — used for trader-profile aggregate
+        backtests. Short windows (<=180d) use hourly bars so there's still
+        a meaningful bar count (daily bars would starve a 1-month window
+        down to ~30 candles); longer windows use daily bars, matching the
+        Backtester UI's own max preset for "all"."""
         from datetime import datetime, timedelta, timezone
 
         from app.backtest.data import HistoricalDataLoader
 
         loader = HistoricalDataLoader()
         end = datetime.now(timezone.utc)
-        bars = await loader.load(symbol, end - timedelta(days=self.MAX_PERIOD_DAYS), end, "1d")
-        if len(bars) < 60:
+        if days <= 180:
+            bars = await loader.load(symbol, end - timedelta(days=days), end, "1h")
+            if len(bars) >= 48:
+                return bars, "1h"
+        bars = await loader.load(symbol, end - timedelta(days=days), end, "1d")
+        if len(bars) < 20:
             raise ValueError(f"Not enough history for {symbol}")
         return bars, "1d"
 
@@ -771,12 +782,13 @@ class ScoutService:
         out.sort(key=lambda x: x["video_count"], reverse=True)
         return out
 
-    async def trader_profile(self, trader: str) -> dict:
+    async def trader_profile(self, trader: str, period: str = "all") -> dict:
         """A trader's video/strategy history plus aggregate performance,
-        each strategy backtested over the max feasible period (10Y daily)."""
+        each strategy backtested over the requested window (1m/3m/6m/1y/all)."""
         entries = [e for e in strategies_store.entries if e.get("trader") == trader]
         if not entries:
             raise ValueError("Unknown trader")
+        days = self.PERIOD_DAYS.get(period, self.PERIOD_DAYS["all"])
 
         channel_url = self._channel_url_for_trader(trader)
         about = await self._fetch_channel_about(channel_url) if channel_url else {
@@ -789,7 +801,7 @@ class ScoutService:
         for e in entries:
             sym = (e.get("pairs") or ["BTC-USD"])[0]
             try:
-                bars, interval = await self._load_max_period_bars(sym)
+                bars, interval = await self._load_period_bars(sym, days)
                 metrics = self._run_strategy_backtest(sym, e["strategy"], e.get("params"), bars, interval)
                 returns.append(metrics["total_return_pct"])
                 win_rates.append(metrics["win_rate"])
@@ -819,6 +831,7 @@ class ScoutService:
             "trader": trader,
             "avatar": about.get("avatar"),
             "channel": {"description": about.get("description"), "links": about.get("links", [])},
+            "period": period,
             "videos": videos,
             "summary": summary,
         }

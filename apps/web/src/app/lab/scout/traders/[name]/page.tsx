@@ -43,6 +43,7 @@ interface TraderProfile {
   trader: string;
   avatar?: string | null;
   channel?: { description: string | null; links: ChannelLink[] };
+  period: PeriodKey;
   videos: TraderVideo[];
   summary: {
     video_count: number;
@@ -53,6 +54,18 @@ interface TraderProfile {
     avg_win_rate: number | null;
   };
 }
+
+type PeriodKey = "1m" | "3m" | "6m" | "1y" | "all";
+
+const PERIODS: { key: PeriodKey; label: string }[] = [
+  { key: "1m", label: "1M" },
+  { key: "3m", label: "3M" },
+  { key: "6m", label: "6M" },
+  { key: "1y", label: "1Y" },
+  { key: "all", label: "All" },
+];
+
+const PERIOD_LABEL: Record<PeriodKey, string> = { "1m": "1M", "3m": "3M", "6m": "6M", "1y": "1Y", all: "10Y" };
 
 // ─── Trading bot ────────────────────────────────────────────────────────────
 
@@ -293,17 +306,31 @@ export default function TraderProfilePage() {
   const trader = decodeURIComponent(params?.name ?? "");
   const [profile, setProfile] = useState<TraderProfile | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [period, setPeriod] = useState<PeriodKey>("all");
+  const [periodLoading, setPeriodLoading] = useState(false);
 
   useEffect(() => {
     if (!trader) return;
-    fetch(`/api/v1/scout/traders/${encodeURIComponent(trader)}`)
+    let cancelled = false;
+    setPeriodLoading(true);
+    fetch(`/api/v1/scout/traders/${encodeURIComponent(trader)}?period=${period}`)
       .then((r) => {
         if (!r.ok) throw new Error("not found");
         return r.json();
       })
-      .then((data: TraderProfile) => setProfile(data))
-      .catch(() => setNotFound(true));
-  }, [trader]);
+      .then((data: TraderProfile) => {
+        if (!cancelled) setProfile(data);
+      })
+      .catch(() => {
+        if (!cancelled) setNotFound(true);
+      })
+      .finally(() => {
+        if (!cancelled) setPeriodLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [trader, period]);
 
   if (notFound) {
     return (
@@ -345,7 +372,8 @@ export default function TraderProfilePage() {
             <h1 className="text-2xl font-bold text-slate-50 tracking-tight">{profile.trader}</h1>
             <p className="text-xs text-slate-500 mt-1">
               {s.video_count} video{s.video_count === 1 ? "" : "s"} analyzed · {s.strategy_count} strategy model
-              {s.strategy_count === 1 ? "" : "s"} · backtested over the max available history (10Y)
+              {s.strategy_count === 1 ? "" : "s"} · backtested over{" "}
+              {profile.period === "all" ? "the max available history (10Y)" : `the trailing ${PERIOD_LABEL[profile.period]}`}
             </p>
             {profile.channel?.description && (
               <p className="text-xs text-slate-400 mt-3 whitespace-pre-line max-w-2xl">
@@ -371,12 +399,32 @@ export default function TraderProfilePage() {
         </div>
       </div>
 
+      {/* Period selector */}
+      <div className="flex items-center gap-1.5">
+        <span className="text-[11px] uppercase tracking-widest text-slate-500 font-bold mr-1">Window</span>
+        {PERIODS.map((p) => (
+          <button
+            key={p.key}
+            onClick={() => setPeriod(p.key)}
+            className={cn(
+              "px-2.5 py-1 rounded-md text-xs font-semibold border transition-colors",
+              period === p.key
+                ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/30"
+                : "text-slate-500 hover:text-slate-300 border-transparent hover:border-slate-700"
+            )}
+          >
+            {p.label}
+          </button>
+        ))}
+        {periodLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-500 ml-1" />}
+      </div>
+
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Metric label="Avg Return (10Y)" value={pct(s.avg_return_pct)} positive={s.avg_return_pct != null && s.avg_return_pct >= 0} />
-        <Metric label="Best Return (10Y)" value={pct(s.best_return_pct)} positive={s.best_return_pct != null && s.best_return_pct >= 0} />
-        <Metric label="Worst Return (10Y)" value={pct(s.worst_return_pct)} positive={s.worst_return_pct != null && s.worst_return_pct >= 0} />
-        <Metric label="Avg Win Rate (10Y)" value={s.avg_win_rate != null ? `${s.avg_win_rate.toFixed(1)}%` : "—"} />
+      <div className={cn("grid grid-cols-2 sm:grid-cols-4 gap-3 transition-opacity", periodLoading && "opacity-60")}>
+        <Metric label={`Avg Return (${PERIOD_LABEL[profile.period]})`} value={pct(s.avg_return_pct)} positive={s.avg_return_pct != null && s.avg_return_pct >= 0} />
+        <Metric label={`Best Return (${PERIOD_LABEL[profile.period]})`} value={pct(s.best_return_pct)} positive={s.best_return_pct != null && s.best_return_pct >= 0} />
+        <Metric label={`Worst Return (${PERIOD_LABEL[profile.period]})`} value={pct(s.worst_return_pct)} positive={s.worst_return_pct != null && s.worst_return_pct >= 0} />
+        <Metric label={`Avg Win Rate (${PERIOD_LABEL[profile.period]})`} value={s.avg_win_rate != null ? `${s.avg_win_rate.toFixed(1)}%` : "—"} />
       </div>
 
       {/* Trading bot */}
@@ -384,11 +432,11 @@ export default function TraderProfilePage() {
 
       {/* Video / strategy history */}
       <div className="card-dark p-5">
-        <h2 className="text-sm font-semibold text-slate-100 mb-4">Strategy history (max-period backtest)</h2>
+        <h2 className="text-sm font-semibold text-slate-100 mb-4">Strategy history ({PERIOD_LABEL[profile.period]} backtest)</h2>
         {profile.videos.length === 0 ? (
           <p className="text-sm text-slate-500 text-center py-4">No strategies found for this trader.</p>
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className={cn("flex flex-col gap-2 transition-opacity", periodLoading && "opacity-60")}>
             {profile.videos.map((v, i) => {
               const m = v.metrics;
               const positive = (m.total_return_pct ?? 0) >= 0;
@@ -422,7 +470,7 @@ export default function TraderProfilePage() {
                       <>
                         <div className={cn("text-sm font-semibold number-font flex items-center gap-1 justify-end", positive ? "text-emerald-400" : "text-red-400")}>
                           {positive ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
-                          {pct(m.total_return_pct)} <span className="text-slate-600 font-normal">(10Y)</span>
+                          {pct(m.total_return_pct)} <span className="text-slate-600 font-normal">({PERIOD_LABEL[profile.period]})</span>
                         </div>
                         <p className="text-[10px] text-slate-600 number-font">
                           {m.win_rate != null ? `${m.win_rate.toFixed(1)}% win rate` : ""} · {m.symbol}
