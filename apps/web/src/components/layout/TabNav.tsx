@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Globe, TrendingUp, Activity, FlaskConical,
   Wallet, Settings, Users, Newspaper, Zap, Layers, BookOpen,
-  Sparkles, Target, Star, History, UserCircle, KeyRound, Receipt, LineChart, Youtube,
+  Sparkles, Target, Star, History, UserCircle, KeyRound, Receipt, LineChart, Youtube, Bot,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -53,6 +53,7 @@ const TABS: Tab[] = [
     sub: [
       { label: "Positions",    href: "/dashboard/positions",  icon: TrendingUp, simple: true },
       { label: "Copy Trading", href: "/dashboard/copy",       icon: Users,     badge: "3" },
+      { label: "Bots",         href: "/dashboard/bots",       icon: Bot,       badge: "new" },
       { label: "History",      href: "/dashboard/history",    icon: History },
     ],
   },

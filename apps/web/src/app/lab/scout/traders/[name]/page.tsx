@@ -119,31 +119,37 @@ function BotDeployPanel({ trader, videos }: { trader: string; videos: TraderVide
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Recover an already-running bot for this trader (e.g. after a page reload).
+  // Keep looking for this trader's bot even if none exists yet (e.g. it was
+  // deployed via the API in another tab/session), and keep polling its status
+  // once found — not just a single check on mount.
   useEffect(() => {
-    cbApi<BotStatus[]>("/bots")
-      .then((all) => setBot(all.find((b) => b.trader === trader) ?? null))
-      .catch(() => {});
-  }, [trader]);
-
-  useEffect(() => {
-    if (!bot) return;
-    const refresh = async () => {
+    let cancelled = false;
+    const poll = async () => {
       try {
-        const [s, t] = await Promise.all([
-          cbApi<BotStatus>(`/bots/${bot.bot_id}`),
-          cbApi<BotTrade[]>(`/bots/${bot.bot_id}/trades`),
-        ]);
-        setBot(s);
-        setTrades(t);
+        if (bot) {
+          const [s, t] = await Promise.all([
+            cbApi<BotStatus>(`/bots/${bot.bot_id}`),
+            cbApi<BotTrade[]>(`/bots/${bot.bot_id}/trades`),
+          ]);
+          if (!cancelled) {
+            setBot(s);
+            setTrades(t);
+          }
+        } else {
+          const all = await cbApi<BotStatus[]>("/bots");
+          if (!cancelled) setBot(all.find((b) => b.trader === trader) ?? null);
+        }
       } catch {
-        setBot(null);
+        if (!cancelled) setBot(null);
       }
     };
-    refresh();
-    const id = setInterval(refresh, 4000);
-    return () => clearInterval(id);
-  }, [bot?.bot_id]);
+    poll();
+    const id = setInterval(poll, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [trader, bot?.bot_id]);
 
   const deploy = async () => {
     if (selectedId == null) return;

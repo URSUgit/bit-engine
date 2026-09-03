@@ -41,6 +41,7 @@ class CreateBotRequest(BaseModel):
     symbol: str | None = None  # defaults to the strategy's own backtested pair
     position_size_usd: float = 25.0
     poll_seconds: float = 300.0
+    interval: str = "1d"      # bar timeframe; "1d" matches how strategies are backtested
 
 
 @router.post("/bots")
@@ -67,6 +68,7 @@ async def create_bot_endpoint(body: CreateBotRequest):
         strategy_key=entry["strategy"],
         strategy_params=entry.get("params") or {},
         symbol=symbol,
+        interval=body.interval,
         position_size_usd=body.position_size_usd,
         poll_seconds=body.poll_seconds,
         mode="dry_run",
