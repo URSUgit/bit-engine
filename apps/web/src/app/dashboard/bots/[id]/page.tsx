@@ -5,10 +5,11 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft, Loader2, Square, Shield, Activity, Trophy, Settings2,
-  TrendingUp, TrendingDown, Minus, Link2, Radio, PenLine, Check,
+  TrendingUp, TrendingDown, Minus, Link2, Radio, PenLine, Check, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { resolveAvatarUrl } from "@/lib/avatar";
+import { CopilotPanel } from "./copilot-panel";
 
 interface BotStatus {
   bot_id: string;
@@ -547,6 +548,11 @@ export default function BotDetailPage() {
 
       {/* Thesis */}
       <ThesisSection bot={bot} onSaved={(note) => setBot((prev) => (prev ? { ...prev, note } : prev))} />
+
+      {/* Config copilot */}
+      <Section title="Ask AI" icon={Sparkles}>
+        <CopilotPanel botId={bot.bot_id} mode={bot.mode} />
+      </Section>
 
       {/* Influencer */}
       {profile && (

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import uuid
+from dataclasses import asdict
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from app.copilot import BitEngineBotStore, CopilotUnavailable, ask_copilot
 from app.cryptobot.bot import (
     NOT_LIVE_DEPLOYABLE, BotConfig, all_bots, create_bot, get_bot, remove_bot,
 )
@@ -13,6 +17,8 @@ from app.cryptobot.exchange import LIVE_TRADING
 from app.cryptobot.hyperliquid_exchange import TESTNET_TRADING as HYPERLIQUID_TESTNET_TRADING
 from app.cryptobot.ledger import get_ledger
 from app.scout.strategies_store import strategies_store
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -212,3 +218,82 @@ async def stop_bot(bot_id: str):
 @router.get("/bots/{bot_id}/trades")
 async def bot_trades(bot_id: str, n: int = 50):
     return get_ledger().for_bot(bot_id, n)
+
+
+# ── Config copilot ────────────────────────────────────────────────────────────
+# The model only ever *proposes* a change. /copilot/ask runs the agent and
+# returns a structured turn; /copilot/apply writes a single parameter and is
+# called only after the human confirms the card in the UI.
+
+class CopilotAskIn(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+
+
+class CopilotApplyIn(BaseModel):
+    parameter_key: str = Field(min_length=1, max_length=100)
+    new_value: float | int | bool | str
+
+
+def _proposal_dict(p) -> dict | None:
+    return None if p is None else asdict(p)
+
+
+@router.post("/bots/{bot_id}/copilot/ask")
+async def copilot_ask(bot_id: str, body: CopilotAskIn):
+    """Ask the config copilot about this bot. Never mutates anything."""
+    if not get_bot(bot_id):
+        raise HTTPException(status_code=404, detail="Bot not found")
+    try:
+        turn = await asyncio.to_thread(
+            ask_copilot,
+            bot_id=bot_id,
+            user_message=body.message.strip(),
+            store=BitEngineBotStore(),
+        )
+    except CopilotUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        log.exception("copilot ask failed for bot %s", bot_id)
+        raise HTTPException(status_code=502, detail=f"Copilot failed: {exc}")
+    return {
+        "thought": turn.thought,
+        "analysis": turn.analysis,
+        "proposal": _proposal_dict(turn.proposal),
+        "tool_calls": turn.tool_calls,
+    }
+
+
+@router.post("/bots/{bot_id}/copilot/apply")
+async def copilot_apply(bot_id: str, body: CopilotApplyIn):
+    """Apply one human-confirmed parameter change. The model never calls this."""
+    if not get_bot(bot_id):
+        raise HTTPException(status_code=404, detail="Bot not found")
+    try:
+        updated = BitEngineBotStore().apply_config_change(
+            bot_id, body.parameter_key, body.new_value,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except (TypeError, ValueError) as exc:
+        # e.g. a value the strategy constructor rejects — the bot keeps running
+        # on its previous params (see CryptoBot.set_strategy_params).
+        raise HTTPException(status_code=400, detail=f"Invalid value: {exc}")
+    return {"applied": True, "parameter": asdict(updated)}
+
+
+@router.get("/bots/{bot_id}/copilot/config")
+async def copilot_config(bot_id: str):
+    """The bot's tunable parameters, as the copilot sees them — lets the UI
+    render the panel without duplicating the schema-to-control mapping."""
+    try:
+        snapshot = BitEngineBotStore().get_bot_snapshot(bot_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Bot not found")
+    return {
+        "bot_id": snapshot.bot_id,
+        "name": snapshot.name,
+        "mode": snapshot.mode.value,
+        "symbol": snapshot.symbol,
+        "strategy_key": snapshot.strategy_key,
+        "config": [asdict(p) for p in snapshot.config],
+    }
