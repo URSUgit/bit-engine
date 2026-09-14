@@ -33,6 +33,19 @@ const SUGGESTIONS = [
   "Loosen the entry filters",
 ];
 
+/** Turn a failed response into something the trader can act on.
+ *  The service's 429 body is `{error, retry_after}` with no `detail`, so
+ *  without this a rate-limited ask would surface as a bare "Request failed". */
+async function errorMessage(res: Response): Promise<string> {
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (res.status === 429) {
+    const retry = typeof body.retry_after === "number" ? body.retry_after : 60;
+    return `Rate limit reached — each question costs a model call. Try again in ${retry}s.`;
+  }
+  if (typeof body.detail === "string") return body.detail;
+  return `Request failed (${res.status})`;
+}
+
 /** The proposal card. The value stays editable before confirming — the model's
  *  suggestion is a starting point, not something the trader has to accept as-is. */
 function ProposalCard({
@@ -153,9 +166,8 @@ export function CopilotPanel({ botId, mode }: { botId: string; mode: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),
       });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.detail ?? `Request failed (${res.status})`);
-      setTurn(body as CopilotTurn);
+      if (!res.ok) throw new Error(await errorMessage(res));
+      setTurn((await res.json()) as CopilotTurn);
       setQuestion("");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -174,8 +186,7 @@ export function CopilotPanel({ botId, mode }: { botId: string; mode: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ parameter_key: turn.proposal.parameter_key, new_value: value }),
       });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.detail ?? `Apply failed (${res.status})`);
+      if (!res.ok) throw new Error(await errorMessage(res));
       setApplied(`${turn.proposal.display_name} set to ${value}`);
       setTurn({ ...turn, proposal: null });
     } catch (e) {
