@@ -1871,6 +1871,7 @@ class CustomStrategyRequest(BaseModel):
 ALLOWED_IMPORTS = {
     "math", "statistics", "itertools", "collections", "typing",
     "dataclasses", "enum", "functools", "operator", "decimal",
+    "numpy",
 }
 
 BLOCKED_IMPORTS = {

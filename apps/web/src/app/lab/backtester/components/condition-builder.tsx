@@ -2,7 +2,7 @@
 
 import { useState, useId, useMemo } from "react";
 import { backtestApi, type BacktestResult } from "@/lib/backtest-api";
-import { MetricsGrid, EquityChart } from "./results";
+import { MetricsGrid, PriceChart, EquityChart } from "./results";
 import { isoDaysAgo } from "./shared";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -294,28 +294,33 @@ function generateStrategyCode(ruleset: RuleSet, strategyName: string): string {
     const lines: string[] = [];
     if (ruleset.stop_loss_pct > 0) {
       lines.push(`        # Stop loss: ${ruleset.stop_loss_pct}%`);
-      lines.push(`        if has_pos and hasattr(pos, 'entry_price') and pos.entry_price:`);
-      lines.push(`            sl_price = pos.entry_price * (1 - ${ruleset.stop_loss_pct / 100})`);
-      lines.push(`            if bar.close <= sl_price:`);
+      lines.push(`        if has_pos:`);
+      lines.push(`            sl_price = (`);
+      lines.push(`                pos.entry_price * (1 - ${ruleset.stop_loss_pct / 100}) if pos.side == "long"`);
+      lines.push(`                else pos.entry_price * (1 + ${ruleset.stop_loss_pct / 100})`);
+      lines.push(`            )`);
+      lines.push(`            if (pos.side == "long" and ctx.current_bar.close <= sl_price) or (pos.side == "short" and ctx.current_bar.close >= sl_price):`);
       lines.push(`                exit_triggered = True`);
     }
     if (ruleset.take_profit_pct > 0) {
       lines.push(`        # Take profit: ${ruleset.take_profit_pct}%`);
-      lines.push(`        if has_pos and hasattr(pos, 'entry_price') and pos.entry_price:`);
-      lines.push(`            tp_price = pos.entry_price * (1 + ${ruleset.take_profit_pct / 100})`);
-      lines.push(`            if bar.close >= tp_price:`);
+      lines.push(`        if has_pos:`);
+      lines.push(`            tp_price = (`);
+      lines.push(`                pos.entry_price * (1 + ${ruleset.take_profit_pct / 100}) if pos.side == "long"`);
+      lines.push(`                else pos.entry_price * (1 - ${ruleset.take_profit_pct / 100})`);
+      lines.push(`            )`);
+      lines.push(`            if (pos.side == "long" and ctx.current_bar.close >= tp_price) or (pos.side == "short" and ctx.current_bar.close <= tp_price):`);
       lines.push(`                exit_triggered = True`);
     }
     slTpCode = lines.join("\n");
   }
 
   const directionSignal =
-    ruleset.direction === "short" ? "SELL_SHORT" : "BUY";
+    ruleset.direction === "short" ? "short" : "buy";
 
   const safeName = strategyName.replace(/[^a-zA-Z0-9_\s]/g, "").trim() || "BuiltStrategy";
 
   return `import numpy as np
-from app.backtest.strategies.base import Signal, SignalType
 
 def _compute_rsi(closes, period=14):
     deltas = np.diff(closes)
@@ -367,19 +372,19 @@ def _compute_atr(highs, lows, closes, period=14):
         atr[i] = (atr[i-1]*(period-1) + tr[i]) / period
     return atr
 
-class BuiltStrategy:
+class BuiltStrategy(Strategy):
     name = "${safeName}"
     description = "Built with Condition Builder"
-    params = {}
+    params_schema = {}
 
-    def on_bar(self, bar, context):
-        closes = context.closes
-        highs = context.highs
-        lows = context.lows
-        volumes = context.volumes
+    def on_bar(self, ctx):
+        closes = np.array(ctx.closes)
+        highs = np.array([b.high for b in ctx.history])
+        lows = np.array([b.low for b in ctx.history])
+        volumes = np.array([b.volume for b in ctx.history])
         n = len(closes)
         if n < 30:
-            return None
+            return "hold"
 
         # Compute indicators
 ${indicatorComputations}
@@ -392,19 +397,19 @@ ${entryChecks}
         exit_triggered = False
 ${exitChecks}
 
+        pos = ctx.position
+        has_pos = pos is not None
+
         # Stop loss / take profit
 ${slTpCode}
 
-        pos = getattr(context, 'position', None) or getattr(bar, 'position', None)
-        has_pos = pos is not None and getattr(pos, 'size', 0) != 0
-
         if not has_pos:
             if entry:
-                return Signal(signal_type=SignalType.${directionSignal}, price=bar.close)
+                return "${directionSignal}"
         else:
             if exit_triggered:
-                return Signal(signal_type=SignalType.EXIT, price=bar.close)
-        return None
+                return "close"
+        return "hold"
 `;
 }
 
@@ -858,6 +863,7 @@ export function ConditionBuilder({
       {result && (
         <div className="space-y-4">
           <MetricsGrid result={result} />
+          <PriceChart result={result} />
           <EquityChart result={result} />
         </div>
       )}
