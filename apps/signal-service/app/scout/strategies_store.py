@@ -11,13 +11,13 @@ import json
 import logging
 import os
 import time
-from pathlib import Path
 
+from app.data_paths import data_path
 from app.scout.extract import SENTIMENT_STRATEGY_KEYS
 
 log = logging.getLogger(__name__)
 
-STORE_PATH = Path(os.getenv("SCOUT_STRATEGIES_PATH", "data/scout_strategies.json"))
+STORE_PATH = data_path("SCOUT_STRATEGIES_PATH", "scout_strategies.json")
 
 # Fields copied verbatim from a `build_models()` model dict onto each entry.
 _MODEL_FIELDS = (

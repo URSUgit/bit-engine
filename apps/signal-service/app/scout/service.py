@@ -14,11 +14,12 @@ import os
 import re
 import time
 from collections import deque
-from pathlib import Path
 from typing import AsyncIterator
 from urllib.parse import quote, unquote
 
 import httpx
+
+from app.data_paths import data_path
 
 from . import audio, vision
 from .extract import (
@@ -35,7 +36,7 @@ from .strategies_store import strategies_store
 log = logging.getLogger(__name__)
 
 POLL_INTERVAL_S = float(os.getenv("SCOUT_POLL_S", "180"))
-STATE_PATH = Path(os.getenv("SCOUT_STATE_PATH", "data/scout_state.json"))
+STATE_PATH = data_path("SCOUT_STATE_PATH", "scout_state.json")
 FEED_URL = "https://www.youtube.com/feeds/videos.xml?channel_id={cid}"
 OEMBED_URL = "https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={vid}&format=json"
 SEARCH_URL = "https://www.youtube.com/results?search_query={q}"
@@ -140,24 +141,72 @@ class ScoutService:
         self.discovery_stale_cycles = 0
         self.discovery_alert: str | None = None
         self._seed_cycle = itertools.cycle(SEED_QUERIES)
+        # Set by _load when the state file exists but can't be read; blocks
+        # saves so a read hiccup can't cascade into erasing the file.
+        self.load_failed = False
         self._load()
 
     # ── persistence (channels + seen ids survive restarts) ────────────────
 
     def _load(self) -> None:
+        """Read persisted state. A missing file is a normal first run; a file
+        that exists but can't be read is an error we must not paper over —
+        starting empty and then saving would erase the real channel list."""
+        if not STATE_PATH.exists():
+            log.info("scout state %s not found — starting fresh", STATE_PATH)
+            return
         try:
             raw = json.loads(STATE_PATH.read_text())
-            self.channels = raw.get("channels", {})
-            self.seen = set(raw.get("seen", []))
-        except Exception:
-            pass
+        except Exception as exc:
+            # Leave load_failed set so _save refuses to overwrite the file.
+            self.load_failed = True
+            log.error(
+                "scout state %s exists but could not be read (%r) — "
+                "starting with no channels; saves are disabled to protect the file",
+                STATE_PATH, exc,
+            )
+            return
+        self.channels = raw.get("channels", {})
+        self.seen = set(raw.get("seen", []))
+        self.load_failed = False
 
-    def _save(self) -> None:
+    def _persisted_channel_count(self) -> int:
+        """How many channels the file on disk currently holds (0 if unreadable)."""
+        try:
+            return len(json.loads(STATE_PATH.read_text()).get("channels", {}))
+        except Exception:
+            return 0
+
+    def _save(self, allow_empty: bool = False) -> None:
+        """Persist state, refusing to replace a populated channel list with an
+        empty one. Channels are only ever added deliberately (auto-discovery or
+        a human watching one), so an empty in-memory set almost always means we
+        failed to load rather than that the user unwatched everything.
+
+        ``allow_empty`` is for the one caller that legitimately empties the
+        list — unwatching the last channel.
+        """
+        if self.load_failed:
+            log.warning("scout state save skipped: last load failed, refusing to overwrite %s", STATE_PATH)
+            return
+        if not self.channels and not allow_empty:
+            persisted = self._persisted_channel_count()
+            if persisted:
+                log.error(
+                    "scout state save skipped: in-memory channel list is empty but %s holds %d "
+                    "channel(s) — refusing to erase them",
+                    STATE_PATH, persisted,
+                )
+                return
         try:
             STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            STATE_PATH.write_text(
-                json.dumps({"channels": self.channels, "seen": sorted(self.seen)[-3000:]})
-            )
+            payload = json.dumps({"channels": self.channels, "seen": sorted(self.seen)[-3000:]})
+            # Write via a temp file in the same directory and swap it in, so an
+            # interrupted write can't leave a truncated file that then fails to
+            # parse on the next boot (which is what disables saving above).
+            tmp = STATE_PATH.with_name(f"{STATE_PATH.name}.tmp")
+            tmp.write_text(payload)
+            os.replace(tmp, STATE_PATH)
         except Exception as exc:
             log.warning("scout state save failed: %r", exc)
 
@@ -197,7 +246,8 @@ class ScoutService:
     def unwatch(self, cid: str) -> bool:
         removed = self.channels.pop(cid, None) is not None
         if removed:
-            self._save()
+            # Deliberate removal, so this may legitimately empty the list.
+            self._save(allow_empty=True)
         return removed
 
     async def latest_video(self, cid: str) -> dict | None:
