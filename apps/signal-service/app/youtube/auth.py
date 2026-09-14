@@ -14,7 +14,8 @@ import json
 import logging
 import os
 import time
-from pathlib import Path
+
+from app.data_paths import data_path
 from urllib.parse import urlencode
 
 import httpx
@@ -24,7 +25,7 @@ log = logging.getLogger(__name__)
 CLIENT_ID = os.getenv("YOUTUBE_CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("YOUTUBE_CLIENT_SECRET", "")
 REDIRECT_URI = os.getenv("YOUTUBE_REDIRECT_URI", "http://localhost:8001/api/v1/youtube/callback")
-TOKEN_PATH = Path(os.getenv("YOUTUBE_TOKEN_PATH", "data/youtube_oauth.json"))
+TOKEN_PATH = data_path("YOUTUBE_TOKEN_PATH", "youtube_oauth.json")
 
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"

@@ -7,9 +7,10 @@ import json
 import os
 import time
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
 
-LEDGER_PATH = Path(os.getenv("CRYPTOBOT_LEDGER_PATH", "data/cryptobot_trades.json"))
+from app.data_paths import data_path
+
+LEDGER_PATH = data_path("CRYPTOBOT_LEDGER_PATH", "cryptobot_trades.json")
 
 
 @dataclass
