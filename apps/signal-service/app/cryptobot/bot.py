@@ -135,6 +135,26 @@ class CryptoBot:
     def set_note(self, note: str) -> None:
         self.config.note = note
 
+    def set_strategy_params(self, params: dict) -> None:
+        """Retune the running strategy.
+
+        The strategy instance is built once from `strategy_params` in __init__,
+        so updating the config alone would leave the bot trading on the old
+        values — it has to be rebuilt. Rebuild first and only commit the new
+        config if construction succeeds, so an invalid value leaves the bot
+        running on its previous (working) strategy rather than none at all.
+        An open position is deliberately left untouched: retuning entry logic
+        must not silently close a live trade.
+        """
+        strategy_cls = STRATEGIES[self.config.strategy_key]
+        rebuilt = strategy_cls(**params)
+        self._strategy = rebuilt
+        self.config.strategy_params = params
+        log.info(
+            "CryptoBot strategy params updated | bot_id=%s params=%s",
+            self.config.bot_id, params,
+        )
+
     def status(self) -> BotStatus:
         self._status.uptime_seconds = time.time() - self._status.started_at
         self._status.position = (
