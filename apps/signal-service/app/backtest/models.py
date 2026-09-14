@@ -191,6 +191,10 @@ class BacktestResult(BaseModel):
     anomalies: Optional[list[dict]] = None     # detected market anomalies
     short_trades: int = 0                      # number of short trades executed
     benchmark: Optional[BacktestResult] = None  # buy-and-hold benchmark comparison
+    # Data provenance — which source produced the bars this result was computed
+    # on, so the UI can clearly flag results built on synthetic demo data.
+    data_source: Optional[str] = None          # "coinmetrics", "binance", "synthetic_gbm", ...
+    data_is_synthetic: bool = False
 
 
 class StrategyInfo(BaseModel):

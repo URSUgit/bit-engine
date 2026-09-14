@@ -305,6 +305,9 @@ export type BacktestResult = {
   friction_breakdown: FrictionBreakdown | null;
   anomalies: Anomaly[] | null;
   short_trades: number;
+  // Data provenance for the series this result was computed on
+  data_source?: string | null;
+  data_is_synthetic?: boolean;
   benchmark?: BacktestResult | null;
 };
 
