@@ -76,6 +76,7 @@ interface BotStatus {
   strategy: string;
   symbol: string;
   interval: string;
+  exchange: "bitget" | "hyperliquid_testnet";
   bars_seen: number;
   last_signal: string | null;
   last_price: number | null;
@@ -122,10 +123,27 @@ function ModeBadge({ mode }: { mode: string }) {
   );
 }
 
+function ExchangeBadge({ exchange }: { exchange: string }) {
+  const isTestnet = exchange === "hyperliquid_testnet";
+  return (
+    <span
+      className={cn(
+        "text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border",
+        isTestnet
+          ? "bg-violet-500/15 text-violet-300 border-violet-500/30"
+          : "bg-slate-800 text-slate-400 border-slate-700"
+      )}
+    >
+      {isTestnet ? "Hyperliquid Testnet" : "Bitget"}
+    </span>
+  );
+}
+
 function BotDeployPanel({ trader, videos }: { trader: string; videos: TraderVideo[] }) {
   const deployable = videos.filter((v) => v.id != null);
   const [selectedId, setSelectedId] = useState<number | null>(deployable[0]?.id ?? null);
   const [positionSize, setPositionSize] = useState(25);
+  const [exchange, setExchange] = useState<"bitget" | "hyperliquid_testnet">("bitget");
   const [bot, setBot] = useState<BotStatus | null>(null);
   const [trades, setTrades] = useState<BotTrade[]>([]);
   const [deploying, setDeploying] = useState(false);
@@ -171,7 +189,7 @@ function BotDeployPanel({ trader, videos }: { trader: string; videos: TraderVide
     try {
       const s = await cbApi<BotStatus>("/bots", {
         method: "POST",
-        body: JSON.stringify({ trader, strategy_id: selectedId, position_size_usd: positionSize }),
+        body: JSON.stringify({ trader, strategy_id: selectedId, position_size_usd: positionSize, exchange }),
       });
       setBot(s);
     } catch (e) {
@@ -195,13 +213,23 @@ function BotDeployPanel({ trader, videos }: { trader: string; videos: TraderVide
     <div className="card-dark p-5 border-l-2 border-cyan-500/30">
       <div className="flex items-center justify-between mb-1">
         <h2 className="text-sm font-semibold text-slate-100">Deploy as trading bot</h2>
-        {bot && <ModeBadge mode={bot.mode} />}
+        {bot && (
+          <div className="flex items-center gap-2">
+            <ExchangeBadge exchange={bot.exchange} />
+            <ModeBadge mode={bot.mode} />
+          </div>
+        )}
       </div>
       <p className="text-xs text-slate-500 mb-4 max-w-2xl">
         Runs one of {trader}&rsquo;s own backtested strategies against live prices and simulates
         fills in dry-run. No real order ever fires from this page — going live requires the operator to
-        set <code className="text-slate-400">BITGET_LIVE_TRADING=true</code> on the signal-service and
-        promote the bot&rsquo;s mode directly via the API.
+        set{" "}
+        <code className="text-slate-400">
+          {exchange === "hyperliquid_testnet" ? "HYPERLIQUID_TESTNET_TRADING=true" : "BITGET_LIVE_TRADING=true"}
+        </code>{" "}
+        on the signal-service and promote the bot&rsquo;s mode directly via the API.
+        {exchange === "hyperliquid_testnet" &&
+          " Hyperliquid testnet uses free demo funds only — it can never touch a real account."}
       </p>
 
       {!bot ? (
@@ -217,6 +245,16 @@ function BotDeployPanel({ trader, videos }: { trader: string; videos: TraderVide
                   {v.label} · {v.symbol ?? v.metrics.symbol} ({pct(v.metrics.total_return_pct)})
                 </option>
               ))}
+            </select>
+          </Field>
+          <Field label="Venue">
+            <select
+              value={exchange}
+              onChange={(e) => setExchange(e.target.value as "bitget" | "hyperliquid_testnet")}
+              className="bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-sm text-slate-200 outline-none focus:border-cyan-500 min-w-[220px]"
+            >
+              <option value="bitget">Bitget (spot)</option>
+              <option value="hyperliquid_testnet">Hyperliquid Testnet (demo, fake funds)</option>
             </select>
           </Field>
           <Field label="Position size (USD)">

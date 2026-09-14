@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft, Loader2, Square, Shield, Activity, Trophy, Settings2,
-  TrendingUp, TrendingDown, Minus, Link2, Radio,
+  TrendingUp, TrendingDown, Minus, Link2, Radio, PenLine, Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { resolveAvatarUrl } from "@/lib/avatar";
@@ -19,8 +19,10 @@ interface BotStatus {
   strategy_params: Record<string, unknown>;
   symbol: string;
   interval: string;
+  exchange: "bitget" | "hyperliquid_testnet";
   position_size_usd: number;
   poll_seconds: number;
+  note: string;
   bars_seen: number;
   last_signal: string | null;
   last_price: number | null;
@@ -30,6 +32,12 @@ interface BotStatus {
   started_at: number;
   uptime_seconds: number;
   server_live_trading_enabled: boolean;
+  total_pnl: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  roi_pct: number;
+  win_rate: number;
+  deployed_usd: number;
 }
 
 interface BotTrade {
@@ -124,6 +132,22 @@ function ModeBadge({ mode }: { mode: string }) {
   );
 }
 
+function ExchangeBadge({ exchange }: { exchange: string }) {
+  const isTestnet = exchange === "hyperliquid_testnet";
+  return (
+    <span
+      className={cn(
+        "text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border",
+        isTestnet
+          ? "bg-violet-500/15 text-violet-300 border-violet-500/30"
+          : "bg-slate-800 text-slate-400 border-slate-700"
+      )}
+    >
+      {isTestnet ? "Hyperliquid Testnet (demo funds)" : "Bitget"}
+    </span>
+  );
+}
+
 function SignalBadge({ signal }: { signal: string | null }) {
   if (!signal) return <span className="text-slate-600">—</span>;
   const cfg: Record<string, { cls: string; icon: typeof TrendingUp }> = {
@@ -172,6 +196,80 @@ function Section({ title, icon: Icon, children }: { title: string; icon: typeof 
       </h2>
       {children}
     </div>
+  );
+}
+
+function ThesisSection({ bot, onSaved }: { bot: BotStatus; onSaved: (note: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(bot.note);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const updated = await cbApi<BotStatus>(`/bots/${bot.bot_id}/note`, {
+        method: "PATCH",
+        body: JSON.stringify({ note: draft }),
+      });
+      onSaved(updated.note);
+      setEditing(false);
+    } catch {
+      // leave editor open on failure
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Section title="Thesis" icon={PenLine}>
+      {editing ? (
+        <div className="flex flex-col gap-2">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value.slice(0, 500))}
+            placeholder="Why this trader's strategy? What's the rationale for deploying it..."
+            rows={3}
+            className="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/50 resize-none"
+          />
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-slate-600">{draft.length}/500</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setDraft(bot.note); setEditing(false); }}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={save}
+                disabled={saving}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 hover:bg-cyan-500/20 transition-colors disabled:opacity-50"
+              >
+                {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : bot.note ? (
+        <div className="flex items-start justify-between gap-3">
+          <p className="text-sm text-slate-300 whitespace-pre-wrap">{bot.note}</p>
+          <button
+            onClick={() => { setDraft(bot.note); setEditing(true); }}
+            className="text-xs text-slate-500 hover:text-cyan-300 shrink-0 transition-colors"
+          >
+            Edit
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => { setDraft(""); setEditing(true); }}
+          className="text-sm text-slate-500 hover:text-cyan-300 transition-colors"
+        >
+          + Add a rationale for this deployment
+        </button>
+      )}
+    </Section>
   );
 }
 
@@ -320,6 +418,7 @@ export default function BotDetailPage() {
                 <Radio className="w-3 h-3 animate-pulse" /> Live-polling
               </span>
             )}
+            <ExchangeBadge exchange={bot.exchange} />
             <ModeBadge mode={bot.mode} />
             <button
               onClick={stop}
@@ -346,6 +445,26 @@ export default function BotDetailPage() {
         <Metric label="Last Price" value={bot.last_price != null ? `$${bot.last_price.toFixed(2)}` : "—"} />
         <Metric label="Bars Seen" value={String(bot.bars_seen)} />
         <Metric label="Trades" value={String(bot.trades_count)} />
+      </div>
+
+      {/* Position PnL */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Metric
+          label="Total P&L"
+          value={`${bot.total_pnl >= 0 ? "+" : ""}$${Math.abs(bot.total_pnl).toFixed(2)}`}
+          positive={bot.total_pnl >= 0}
+        />
+        <Metric
+          label="Realized"
+          value={`${bot.realized_pnl >= 0 ? "+" : ""}$${Math.abs(bot.realized_pnl).toFixed(2)}`}
+          positive={bot.realized_pnl >= 0}
+        />
+        <Metric
+          label="Unrealized"
+          value={`${bot.unrealized_pnl >= 0 ? "+" : ""}$${Math.abs(bot.unrealized_pnl).toFixed(2)}`}
+          positive={bot.unrealized_pnl >= 0}
+        />
+        <Metric label="ROI" value={`${bot.roi_pct >= 0 ? "+" : ""}${bot.roi_pct.toFixed(1)}%`} positive={bot.roi_pct >= 0} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -425,6 +544,9 @@ export default function BotDetailPage() {
           )}
         </Section>
       </div>
+
+      {/* Thesis */}
+      <ThesisSection bot={bot} onSaved={(note) => setBot((prev) => (prev ? { ...prev, note } : prev))} />
 
       {/* Influencer */}
       {profile && (

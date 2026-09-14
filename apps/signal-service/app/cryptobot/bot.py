@@ -25,12 +25,14 @@ from app.backtest.data import BINANCE_INTERVAL_MS, binance_symbol, fetch_binance
 from app.backtest.models import Position, Signal
 from app.backtest.strategies import STRATEGIES
 from app.backtest.strategies.base import StrategyContext
-from app.cryptobot.exchange import place_market_order
+from app.cryptobot import exchange as bitget_exchange
+from app.cryptobot import hyperliquid_exchange
 from app.cryptobot.ledger import BotTrade, get_ledger
 
 log = logging.getLogger(__name__)
 
 BotMode = Literal["stopped", "dry_run", "live"]
+Exchange = Literal["bitget", "hyperliquid_testnet"]
 
 _HISTORY_WINDOW = 500  # bars of lookback handed to the strategy, matches Backtest.run
 
@@ -53,6 +55,8 @@ class BotConfig:
     position_size_usd: float = 25.0
     poll_seconds: float = 300.0
     mode: BotMode = "dry_run"  # NEVER defaults to live
+    note: str = ""              # freeform rationale for this deployment ("thesis")
+    exchange: Exchange = "bitget"  # execution venue; hyperliquid_testnet never touches real funds
 
 
 @dataclass
@@ -63,6 +67,7 @@ class BotStatus:
     strategy: str
     symbol: str
     interval: str
+    exchange: Exchange = "bitget"
     bars_seen: int = 0
     last_signal: str | None = None
     last_price: float | None = None
@@ -78,7 +83,15 @@ class CryptoBot:
         self.config = config
         strategy_cls = STRATEGIES[config.strategy_key]
         self._strategy = strategy_cls(**(config.strategy_params or {}))
+        # Historical bars (for the strategy's own signal) always come from
+        # Binance regardless of execution venue — same data the strategy was
+        # backtested against. Only the order itself routes to a different pair.
         self._pair = binance_symbol(config.symbol) or config.symbol.replace("-", "").upper()
+        self._exec_symbol = (
+            hyperliquid_exchange.hyperliquid_coin(config.symbol)
+            if config.exchange == "hyperliquid_testnet"
+            else self._pair
+        )
         self._position: Position | None = None
         self._last_bar_ts: int | None = None
         self._task: asyncio.Task | None = None
@@ -91,6 +104,7 @@ class CryptoBot:
             strategy=config.strategy_key,
             symbol=config.symbol,
             interval=config.interval,
+            exchange=config.exchange,
         )
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
@@ -117,6 +131,9 @@ class CryptoBot:
         self.config.mode = mode
         self._status.mode = mode
         log.info("CryptoBot mode -> %s | bot_id=%s", mode, self.config.bot_id)
+
+    def set_note(self, note: str) -> None:
+        self.config.note = note
 
     def status(self) -> BotStatus:
         self._status.uptime_seconds = time.time() - self._status.started_at
@@ -190,11 +207,19 @@ class CryptoBot:
 
     # ── Execution ────────────────────────────────────────────────────────────
 
+    @property
+    def _place_market_order(self):
+        return (
+            hyperliquid_exchange.place_market_order
+            if self.config.exchange == "hyperliquid_testnet"
+            else bitget_exchange.place_market_order
+        )
+
     async def _handle_signal(self, signal: Signal, price: float) -> None:
         is_live = self.config.mode == "live"
         if signal == "buy" and self._position is None:
-            order = await place_market_order(
-                self._pair, "BUY", live=is_live, quote_usd=self.config.position_size_usd,
+            order = await self._place_market_order(
+                self._exec_symbol, "BUY", live=is_live, quote_usd=self.config.position_size_usd,
             )
             self._position = Position(
                 symbol=self.config.symbol,
@@ -207,7 +232,7 @@ class CryptoBot:
             self._record_trade(order, reason="signal=buy")
         elif signal in ("sell", "close") and self._position is not None:
             pos = self._position
-            order = await place_market_order(self._pair, "SELL", live=is_live, quantity=pos.size)
+            order = await self._place_market_order(self._exec_symbol, "SELL", live=is_live, quantity=pos.size)
             pnl = order["quote_usd"] - pos.cost
             self._position = None
             self._record_trade(order, reason=f"signal={signal}", pnl_usd=pnl)

@@ -79,3 +79,6 @@ infra/data/
 *.tsbuildinfo
 .eslintcache
 .claude/
+
+.unlazy/
+.unlazy-hook-state.json

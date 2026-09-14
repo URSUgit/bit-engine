@@ -13,6 +13,7 @@ interface BotStatus {
   strategy: string;
   symbol: string;
   interval: string;
+  exchange: "bitget" | "hyperliquid_testnet";
   bars_seen: number;
   last_signal: string | null;
   last_price: number | null;
@@ -21,6 +22,8 @@ interface BotStatus {
   last_error: string | null;
   uptime_seconds: number;
   server_live_trading_enabled: boolean;
+  note: string;
+  total_pnl: number;
 }
 
 interface BotTrade {
@@ -55,6 +58,22 @@ function ModeBadge({ mode }: { mode: string }) {
   return (
     <span className={cn("text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border", cfg.cls)}>
       {cfg.label}
+    </span>
+  );
+}
+
+function ExchangeBadge({ exchange }: { exchange: string }) {
+  const isTestnet = exchange === "hyperliquid_testnet";
+  return (
+    <span
+      className={cn(
+        "text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border",
+        isTestnet
+          ? "bg-violet-500/15 text-violet-300 border-violet-500/30"
+          : "bg-slate-800 text-slate-400 border-slate-700"
+      )}
+    >
+      {isTestnet ? "Hyperliquid Testnet (demo funds)" : "Bitget"}
     </span>
   );
 }
@@ -101,10 +120,18 @@ function BotCard({ bot, onStopped }: { bot: BotStatus; onStopped: () => void }) 
             <p className="text-[11px] text-slate-500">{bot.strategy} · {bot.symbol} · {bot.interval}</p>
           </div>
         </Link>
-        <ModeBadge mode={bot.mode} />
+        <div className="flex items-center gap-2">
+          <ExchangeBadge exchange={bot.exchange} />
+          <ModeBadge mode={bot.mode} />
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-3">
+        <Stat
+          label="P&L"
+          value={`${bot.total_pnl >= 0 ? "+" : ""}$${Math.abs(bot.total_pnl).toFixed(2)}`}
+          positive={bot.total_pnl >= 0}
+        />
         <Stat label="Last Signal" value={bot.last_signal ?? "—"} />
         <Stat label="Last Price" value={bot.last_price != null ? `$${bot.last_price.toFixed(2)}` : "—"} />
         <Stat label="Bars Seen" value={String(bot.bars_seen)} />
@@ -115,6 +142,10 @@ function BotCard({ bot, onStopped }: { bot: BotStatus; onStopped: () => void }) 
         <p className="text-xs text-slate-400 mt-2">
           Open position: {bot.position.side} {bot.position.size.toFixed(6)} @ ${bot.position.entry_price.toFixed(2)}
         </p>
+      )}
+
+      {bot.note && (
+        <p className="text-xs text-slate-500 italic mt-2 line-clamp-2">&ldquo;{bot.note}&rdquo;</p>
       )}
       {bot.last_error && <p className="text-xs text-red-400 mt-2">Error: {bot.last_error}</p>}
       {!bot.server_live_trading_enabled && (
@@ -172,11 +203,18 @@ function BotCard({ bot, onStopped }: { bot: BotStatus; onStopped: () => void }) 
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, positive }: { label: string; value: string; positive?: boolean }) {
   return (
     <div>
       <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">{label}</p>
-      <p className="text-sm font-semibold text-slate-100 number-font mt-0.5">{value}</p>
+      <p
+        className={cn(
+          "text-sm font-semibold number-font mt-0.5",
+          positive === undefined ? "text-slate-100" : positive ? "text-emerald-400" : "text-red-400"
+        )}
+      >
+        {value}
+      </p>
     </div>
   );
 }

@@ -2,14 +2,15 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { TrendingUp, TrendingDown, Search, ArrowUpDown, Check, FlaskConical } from "lucide-react";
+import { TrendingUp, TrendingDown, Search, ArrowUpDown, Check, FlaskConical, Bot } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { TraderEntry } from "@/app/api/market/traders/route";
 
 type SortKey = "roi_30d" | "roi_7d" | "win_rate" | "volume_30d" | "account_value";
 type PaperSortKey = "roi_pct" | "total_pnl" | "win_rate" | "total_trades" | "current_balance";
-type Tab = "live" | "paper";
+type BotSortKey = "total_pnl" | "roi_pct" | "win_rate" | "total_trades" | "deployed_usd";
+type Tab = "live" | "paper" | "bots";
 
 const periodFilters = ["7d", "30d", "90d", "all"] as const;
 
@@ -32,6 +33,23 @@ interface PaperLeaderboardResponse {
   leaderboard?: PaperTraderEntry[];
 }
 
+interface BotLeaderboardEntry {
+  rank: number;
+  bot_id: string;
+  trader: string;
+  strategy: string;
+  symbol: string;
+  mode: string;
+  total_pnl: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  roi_pct: number;
+  win_rate: number;
+  total_trades: number;
+  deployed_usd: number;
+  position_open: boolean;
+}
+
 export default function LeaderboardPage() {
   const [activeTab, setActiveTab] = useState<Tab>("live");
   const [search, setSearch] = useState("");
@@ -40,6 +58,8 @@ export default function LeaderboardPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [paperSortKey, setPaperSortKey] = useState<PaperSortKey>("roi_pct");
   const [paperSortDir, setPaperSortDir] = useState<"asc" | "desc">("desc");
+  const [botSortKey, setBotSortKey] = useState<BotSortKey>("total_pnl");
+  const [botSortDir, setBotSortDir] = useState<"asc" | "desc">("desc");
   const [following, setFollowing] = useState<Set<string>>(new Set());
 
   const { data: response } = useQuery<TradersResponse>({
@@ -61,8 +81,20 @@ export default function LeaderboardPage() {
     enabled: activeTab === "paper",
   });
 
+  const { data: botRows } = useQuery<BotLeaderboardEntry[]>({
+    queryKey: ["bots", "leaderboard"],
+    queryFn: () =>
+      fetch("/api/v1/cryptobot/bots/leaderboard")
+        .then((r) => r.json())
+        .then((d: BotLeaderboardEntry[]) => d),
+    staleTime: 15_000,
+    refetchInterval: activeTab === "bots" ? 15_000 : false,
+    enabled: activeTab === "bots",
+  });
+
   const traders: TraderEntry[] = response?.data ?? [];
   const paperTraders: PaperTraderEntry[] = paperResponse?.leaderboard ?? [];
+  const bots: BotLeaderboardEntry[] = botRows ?? [];
   const isDemo = response?.source === "demo" || traders[0]?.source === "demo";
 
   const filtered = useMemo(() => {
@@ -91,6 +123,19 @@ export default function LeaderboardPage() {
       });
   }, [paperTraders, search, paperSortKey, paperSortDir]);
 
+  const filteredBots = useMemo(() => {
+    return bots
+      .filter((b) => {
+        if (search && !b.trader?.toLowerCase().includes(search.toLowerCase()) && !b.symbol?.toLowerCase().includes(search.toLowerCase())) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const av = a[botSortKey] ?? 0;
+        const bv = b[botSortKey] ?? 0;
+        return botSortDir === "desc" ? bv - av : av - bv;
+      });
+  }, [bots, search, botSortKey, botSortDir]);
+
   const toggleFollow = (addr: string) =>
     setFollowing((s) => {
       const n = new Set(s);
@@ -106,6 +151,11 @@ export default function LeaderboardPage() {
   const setPaperSort = (k: PaperSortKey) => {
     if (paperSortKey === k) setPaperSortDir((d) => (d === "desc" ? "asc" : "desc"));
     else { setPaperSortKey(k); setPaperSortDir("desc"); }
+  };
+
+  const setBotSort = (k: BotSortKey) => {
+    if (botSortKey === k) setBotSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    else { setBotSortKey(k); setBotSortDir("desc"); }
   };
 
   return (
@@ -130,6 +180,12 @@ export default function LeaderboardPage() {
                 Paper Trading
               </span>
             )}
+            {activeTab === "bots" && (
+              <span className="flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-400 uppercase tracking-wide">
+                <Bot className="w-3 h-3" />
+                Live Bots
+              </span>
+            )}
           </div>
           <p className="text-sm text-slate-400 mt-1">
             {activeTab === "live" ? (
@@ -137,10 +193,15 @@ export default function LeaderboardPage() {
                 <span className="text-slate-200 font-semibold number-font">{filtered.length}</span> on-chain
                 traders · sorted by {sortKey} ({sortDir})
               </>
-            ) : (
+            ) : activeTab === "paper" ? (
               <>
                 <span className="text-slate-200 font-semibold number-font">{filteredPaper.length}</span> paper
                 traders · sorted by {paperSortKey} ({paperSortDir})
+              </>
+            ) : (
+              <>
+                <span className="text-slate-200 font-semibold number-font">{filteredBots.length}</span> deployed
+                bots · sorted by {botSortKey} ({botSortDir})
               </>
             )}
           </p>
@@ -182,6 +243,16 @@ export default function LeaderboardPage() {
             >
               <FlaskConical className="w-3 h-3" />
               Paper Traders
+            </button>
+            <button
+              onClick={() => setActiveTab("bots")}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded transition-colors",
+                activeTab === "bots" ? "bg-slate-800 text-cyan-300" : "text-slate-500 hover:text-slate-300"
+              )}
+            >
+              <Bot className="w-3 h-3" />
+              Bots
             </button>
           </div>
         </div>
@@ -379,6 +450,105 @@ export default function LeaderboardPage() {
           </div>
         </div>
       )}
+
+      {/* Bots Table */}
+      {activeTab === "bots" && (
+        <div className="card-dark overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[860px]">
+              <thead>
+                <tr className="border-b border-slate-800 bg-slate-900/40 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                  <th className="px-4 py-3 text-left w-12">#</th>
+                  <th className="px-4 py-3 text-left">Bot</th>
+                  <BotSortHeader label="ROI"       k="roi_pct"      active={botSortKey} dir={botSortDir} onClick={setBotSort} />
+                  <BotSortHeader label="Total P&L" k="total_pnl"    active={botSortKey} dir={botSortDir} onClick={setBotSort} />
+                  <BotSortHeader label="Win Rate"  k="win_rate"     active={botSortKey} dir={botSortDir} onClick={setBotSort} />
+                  <BotSortHeader label="Trades"    k="total_trades" active={botSortKey} dir={botSortDir} onClick={setBotSort} />
+                  <BotSortHeader label="Deployed"  k="deployed_usd" active={botSortKey} dir={botSortDir} onClick={setBotSort} />
+                  <th className="px-4 py-3 text-right">Mode</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {filteredBots.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-16 text-center text-sm text-slate-500">
+                      No bots deployed yet · deploy a trader's backtested strategy to see it here
+                    </td>
+                  </tr>
+                ) : (
+                  filteredBots.map((b) => {
+                    const isPositive = b.total_pnl >= 0;
+                    return (
+                      <tr key={b.bot_id} className="hover:bg-slate-900/40 transition-colors">
+                        <td className="px-4 py-3.5 text-slate-500 number-font">{b.rank}</td>
+                        <td className="px-4 py-3.5">
+                          <Link
+                            href={`/dashboard/bots/${b.bot_id}`}
+                            className="flex items-center gap-3 min-w-0 group"
+                          >
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-xs font-bold text-white shrink-0">
+                              <Bot className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-slate-100 group-hover:text-cyan-300 transition-colors truncate">
+                                {b.trader}
+                              </p>
+                              <p className="text-[11px] text-slate-500 truncate">
+                                {b.strategy} · {b.symbol}
+                              </p>
+                            </div>
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3.5 text-right">
+                          <span
+                            className={cn(
+                              "number-font font-semibold inline-flex items-center gap-1",
+                              isPositive ? "text-emerald-400" : "text-red-400"
+                            )}
+                          >
+                            {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                            {isPositive ? "+" : ""}{b.roi_pct.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5 text-right">
+                          <span className={cn("number-font font-semibold", isPositive ? "text-emerald-400" : "text-red-400")}>
+                            {isPositive ? "+" : ""}${Math.abs(b.total_pnl).toFixed(2)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5 text-right">
+                          <div className="text-slate-200 number-font">{b.win_rate.toFixed(1)}%</div>
+                          <div className="w-20 h-1 bg-slate-800 rounded-full mt-1 overflow-hidden ml-auto">
+                            <div
+                              className="h-full bg-gradient-to-r from-cyan-500 to-blue-500"
+                              style={{ width: `${b.win_rate}%` }}
+                            />
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5 text-right text-slate-300 number-font">{b.total_trades}</td>
+                        <td className="px-4 py-3.5 text-right text-slate-300 number-font">
+                          ${b.deployed_usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-4 py-3.5 text-right">
+                          <span
+                            className={cn(
+                              "text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide",
+                              b.mode === "live"
+                                ? "bg-emerald-500/15 text-emerald-400"
+                                : "bg-amber-500/15 text-amber-400"
+                            )}
+                          >
+                            {b.mode === "live" ? "Live" : b.mode === "dry_run" ? "Dry Run" : "Stopped"}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -427,6 +597,33 @@ function PaperSortHeader({
         className={cn(
           "inline-flex items-center gap-1 hover:text-slate-300 transition-colors",
           isActive && "text-violet-400"
+        )}
+      >
+        {label}
+        <ArrowUpDown className={cn("w-3 h-3", isActive ? "opacity-100" : "opacity-30")} />
+        {isActive && <span className="text-[8px]">{dir === "desc" ? "↓" : "↑"}</span>}
+      </button>
+    </th>
+  );
+}
+
+function BotSortHeader({
+  label, k, active, dir, onClick,
+}: {
+  label: string;
+  k: BotSortKey;
+  active: BotSortKey;
+  dir: "asc" | "desc";
+  onClick: (k: BotSortKey) => void;
+}) {
+  const isActive = active === k;
+  return (
+    <th className="px-4 py-3 text-right">
+      <button
+        onClick={() => onClick(k)}
+        className={cn(
+          "inline-flex items-center gap-1 hover:text-slate-300 transition-colors",
+          isActive && "text-cyan-400"
         )}
       >
         {label}
