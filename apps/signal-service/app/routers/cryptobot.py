@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import uuid
 from dataclasses import asdict
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.copilot import BitEngineBotStore, CopilotUnavailable, ask_copilot
+from app.limiter import limiter
 from app.cryptobot.bot import (
     NOT_LIVE_DEPLOYABLE, BotConfig, all_bots, create_bot, get_bot, remove_bot,
 )
@@ -225,6 +227,16 @@ async def bot_trades(bot_id: str, n: int = 50):
 # returns a structured turn; /copilot/apply writes a single parameter and is
 # called only after the human confirms the card in the UI.
 
+# /copilot/ask is the only endpoint in this service that spends money per call:
+# one question is up to MAX_TOOL_ROUNDS (6) model round-trips. Interactive use
+# sits well under this, so the limit exists to bound a runaway client or a
+# retry loop rather than to ration normal use. Env-tunable so an operator can
+# tighten it without a code change.
+COPILOT_ASK_RATE_LIMIT = os.getenv("COPILOT_ASK_RATE_LIMIT", "10/minute")
+# Cheap, but it mutates a live trading bot's parameters — bounded so a stuck
+# client can't rewrite config in a tight loop.
+COPILOT_APPLY_RATE_LIMIT = os.getenv("COPILOT_APPLY_RATE_LIMIT", "30/minute")
+
 class CopilotAskIn(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
 
@@ -239,7 +251,8 @@ def _proposal_dict(p) -> dict | None:
 
 
 @router.post("/bots/{bot_id}/copilot/ask")
-async def copilot_ask(bot_id: str, body: CopilotAskIn):
+@limiter.limit(COPILOT_ASK_RATE_LIMIT)
+async def copilot_ask(request: Request, bot_id: str, body: CopilotAskIn):
     """Ask the config copilot about this bot. Never mutates anything."""
     if not get_bot(bot_id):
         raise HTTPException(status_code=404, detail="Bot not found")
@@ -264,7 +277,8 @@ async def copilot_ask(bot_id: str, body: CopilotAskIn):
 
 
 @router.post("/bots/{bot_id}/copilot/apply")
-async def copilot_apply(bot_id: str, body: CopilotApplyIn):
+@limiter.limit(COPILOT_APPLY_RATE_LIMIT)
+async def copilot_apply(request: Request, bot_id: str, body: CopilotApplyIn):
     """Apply one human-confirmed parameter change. The model never calls this."""
     if not get_bot(bot_id):
         raise HTTPException(status_code=404, detail="Bot not found")
