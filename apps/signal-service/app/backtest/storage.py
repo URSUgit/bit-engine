@@ -222,6 +222,44 @@ class BarStorage:
                 self._con.execute("DELETE FROM bars WHERE symbol = ?", (symbol,))
                 self._con.execute("DELETE FROM meta WHERE symbol = ?", (symbol,))
 
+    def trim_bars_outside(
+        self, symbol: str, interval: str, start_ts: int, end_ts: int, source: str,
+    ) -> int:
+        """Drop cached bars for this series that fall outside [start_ts, end_ts].
+
+        For a loader that imports a source's *complete* history in one go,
+        anything left beyond that range is a leftover from an earlier import
+        rather than data the source still stands behind — `upsert_bars` only
+        ever writes, so a shrunken or corrected range would otherwise leave
+        orphans behind forever.
+
+        Guarded by `source`: only trims a series this source already owns, so
+        it can never delete bars another provider supplied. Returns the number
+        of rows removed.
+        """
+        with self._lock:
+            owner = self._con.execute(
+                "SELECT source FROM meta WHERE symbol=? AND interval=?",
+                (symbol, interval),
+            ).fetchone()
+            if owner is None or owner[0] != source:
+                return 0
+            removed = self._con.execute(
+                "SELECT COUNT(*) FROM bars WHERE symbol=? AND interval=? "
+                "AND (ts < ? OR ts > ?)",
+                (symbol, interval, start_ts, end_ts),
+            ).fetchone()[0]
+            if removed:
+                self._con.execute(
+                    "DELETE FROM bars WHERE symbol=? AND interval=? AND (ts < ? OR ts > ?)",
+                    (symbol, interval, start_ts, end_ts),
+                )
+                self._con.execute(
+                    "UPDATE meta SET earliest_ts=?, latest_ts=? WHERE symbol=? AND interval=?",
+                    (start_ts, end_ts, symbol, interval),
+                )
+            return int(removed)
+
     # ── writes ───────────────────────────────────────────────────────────────
 
     def upsert_bars(self, symbol: str, interval: str, bars: list[Bar], source: str | None = None) -> int:
