@@ -68,9 +68,17 @@ SOURCE_LABEL = "coinmetrics"
 # as a usable dataset.
 _MIN_PRICED_ROWS = 60
 
-# Preferred price columns, in priority order. ReferenceRateUSD is Coin Metrics'
-# flagship cleaned reference price; PriceUSD is the legacy equivalent.
-_PRICE_COLUMNS = ("ReferenceRateUSD", "PriceUSD")
+# PriceUSD is the only close column we read.
+#
+# The file also carries ReferenceRateUSD, which looks like the better choice
+# (Coin Metrics' cleaned reference rate) but is published one day behind:
+# ReferenceRateUSD[t] == PriceUSD[t-1], verified exactly on every overlapping
+# row of btc/eth/ltc/doge/aave. It is also only populated for the last handful
+# of days, so preferring it spliced a lagged series onto the end of an aligned
+# one — shifting the final week a day late and inventing one extra close.
+# Never add it as a fallback either: the only rows it would cover are exactly
+# the ones where the lag applies.
+_PRICE_COLUMNS = ("PriceUSD",)
 _VOLUME_COLUMNS = ("volume_reported_spot_usd_1d",)
 
 
@@ -159,6 +167,15 @@ def load_real_daily(symbol: str, *, interval: str = "1d") -> dict:
         )
     bars = _build_daily_bars(points)
     written = bar_storage.upsert_bars(symbol.upper(), interval, bars, source=SOURCE_LABEL)
+    # This import is the source's complete history, so anything cached outside
+    # it is a leftover from an earlier import — e.g. the extra trailing close a
+    # previous version produced by reading the lagged ReferenceRateUSD column.
+    # Without this the corrected import would sit next to the stale bar forever.
+    trimmed = bar_storage.trim_bars_outside(
+        symbol.upper(), interval, bars[0].ts, bars[-1].ts, SOURCE_LABEL,
+    )
+    if trimmed:
+        log.info("Trimmed %d stale cached bar(s) outside %s's imported range", trimmed, symbol)
     return {
         "symbol": symbol.upper(),
         "asset": asset,
