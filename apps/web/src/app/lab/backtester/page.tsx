@@ -1676,6 +1676,7 @@ function SingleResultsView({
             isSynthetic={result.data_is_synthetic}
             symbol={result.symbol}
             interval={result.interval}
+            latestTs={result.data_latest_ts}
           />
           <div className={`rounded-lg ${autoRunPending ? "ring-1 ring-cyan-500/50 animate-pulse" : ""}`}>
             <MetricsGrid result={result} />

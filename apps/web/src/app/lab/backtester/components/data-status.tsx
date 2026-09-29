@@ -4,7 +4,22 @@ import { useCallback, useEffect, useState } from "react";
 import { backtestApi, type CachedSeries, type CacheStatus } from "@/lib/backtest-api";
 import { isoDaysAgo } from "./shared";
 import { CorrelationHeatmap } from "./correlation-heatmap";
-import { SourceBadge } from "./data-source";
+import { SourceBadge, describeFreshness } from "./data-source";
+
+/** How current the newest *bar* is — distinct from when we last fetched.
+ *  A series can have been downloaded minutes ago and still end months back if
+ *  the upstream feed has stopped publishing; showing only fetch recency under
+ *  a "Freshness" heading made exactly that case read as up to date. */
+function DataAge({ latest }: { latest: string | null }) {
+  if (!latest) return <span className="text-zinc-600">–</span>;
+  const f = describeFreshness(Date.parse(`${latest}T00:00:00Z`) / 1000);
+  if (!f) return <span className="text-zinc-600">–</span>;
+  return (
+    <span className={f.isStale ? "text-amber-400 font-medium" : "text-zinc-400"}>
+      {f.isStale ? "⚠ " : ""}{f.ageLabel}
+    </span>
+  );
+}
 
 function formatFreshness(lastFetchedAt: number | null): string {
   if (lastFetchedAt === null) return "never";
@@ -372,7 +387,8 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
                   <th className="py-2 px-3 text-right">Bars</th>
                   <th className="py-2 px-3">From</th>
                   <th className="py-2 px-3">To</th>
-                  <th className="py-2 px-3">Freshness</th>
+                  <th className="py-2 px-3">Data age</th>
+                  <th className="py-2 px-3">Fetched</th>
                   <th className="py-2 px-3">Source</th>
                   <th className="py-2 px-3 text-right">Actions</th>
                 </tr>
@@ -400,7 +416,10 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
                       <td className="py-2 px-3 text-zinc-500 text-xs tabular-nums">
                         {s.latest ?? "–"}
                       </td>
-                      <td className="py-2 px-3 text-zinc-400 text-xs">
+                      <td className="py-2 px-3 text-xs">
+                        <DataAge latest={s.latest} />
+                      </td>
+                      <td className="py-2 px-3 text-zinc-500 text-xs">
                         {formatFreshness(s.last_fetched_at)}
                       </td>
                       <td className="py-2 px-3 text-xs">

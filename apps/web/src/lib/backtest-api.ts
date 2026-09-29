@@ -308,6 +308,7 @@ export type BacktestResult = {
   // Data provenance for the series this result was computed on
   data_source?: string | null;
   data_is_synthetic?: boolean;
+  data_latest_ts?: number | null;  // newest bar in the whole series (unix seconds)
   benchmark?: BacktestResult | null;
 };
 

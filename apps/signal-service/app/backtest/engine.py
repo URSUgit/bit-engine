@@ -494,11 +494,19 @@ async def run_backtest(params: BacktestParams, progress_cb=None) -> BacktestResu
 
     # Data provenance for the loaded series — surfaced on the result so the UI
     # can flag backtests computed on synthetic demo bars.
+    #
+    # `data_latest_ts` is the newest bar the *series* holds, not the newest in
+    # the requested window. That distinction matters: a deliberate 2020
+    # backtest legitimately ends in 2020, but a feed whose newest bar is months
+    # old is stale no matter what range you ask for, and silently returns short.
     data_source: str | None = None
+    data_latest_ts: int | None = None
     try:
         from .storage import bar_storage
         meta = bar_storage.get_meta(params.symbol.upper(), params.interval)
-        data_source = meta.get("source") if meta else None
+        if meta:
+            data_source = meta.get("source")
+            data_latest_ts = meta.get("latest_ts")
     except Exception as e:
         log.debug("Could not resolve data provenance: %s", e)
 
@@ -629,6 +637,7 @@ async def run_backtest(params: BacktestParams, progress_cb=None) -> BacktestResu
         short_trades=sum(1 for t in trades if t.side == "short"),
         data_source=data_source,
         data_is_synthetic=data_source == "synthetic_gbm",
+        data_latest_ts=data_latest_ts,
     )
 
     try:
