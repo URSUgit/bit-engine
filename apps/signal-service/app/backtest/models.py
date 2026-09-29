@@ -195,6 +195,9 @@ class BacktestResult(BaseModel):
     # on, so the UI can clearly flag results built on synthetic demo data.
     data_source: Optional[str] = None          # "coinmetrics", "binance", "synthetic_gbm", ...
     data_is_synthetic: bool = False
+    # Newest bar in the whole cached series (not just the requested window), so
+    # the UI can tell a stale feed from a deliberately historical backtest.
+    data_latest_ts: Optional[int] = None
 
 
 class StrategyInfo(BaseModel):

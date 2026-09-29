@@ -24,6 +24,31 @@ const SOURCE_LABELS: Record<string, string> = {
   synthetic_gbm: "Synthetic (GBM)",
 };
 
+// A feed more than this many days behind is reported as stale. Crypto trades
+// continuously, so a daily series should never be more than a day or two back;
+// three days allows for a late publish without crying wolf.
+export const STALE_AFTER_DAYS = 3;
+
+export type Freshness = {
+  ageDays: number;
+  isStale: boolean;
+  latestDate: string;   // YYYY-MM-DD of the newest bar
+  ageLabel: string;     // "today" | "yesterday" | "N days ago"
+};
+
+/** How current the newest bar is. `latestTs` is unix *seconds*. */
+export function describeFreshness(latestTs: number | null | undefined): Freshness | null {
+  if (!latestTs) return null;
+  const latest = new Date(latestTs * 1000);
+  const ageDays = Math.floor((Date.now() - latest.getTime()) / 86_400_000);
+  return {
+    ageDays,
+    isStale: ageDays > STALE_AFTER_DAYS,
+    latestDate: latest.toISOString().slice(0, 10),
+    ageLabel: ageDays <= 0 ? "today" : ageDays === 1 ? "yesterday" : `${ageDays} days ago`,
+  };
+}
+
 export function describeSource(source: string | null | undefined): Provenance {
   if (!source) {
     return { label: "Unknown", isReal: false, isSynthetic: false, tone: "unknown" };
@@ -62,12 +87,16 @@ export function DataProvenanceBanner({
   isSynthetic,
   symbol,
   interval,
+  latestTs,
 }: {
   source: string | null | undefined;
   isSynthetic: boolean | undefined;
   symbol: string;
   interval: string;
+  latestTs?: number | null;
 }) {
+  const freshness = describeFreshness(latestTs);
+
   if (isSynthetic) {
     return (
       <div className="mb-3 bg-amber-950/40 border border-amber-700/60 rounded-lg px-4 py-2.5 flex items-start gap-3">
@@ -81,11 +110,34 @@ export function DataProvenanceBanner({
       </div>
     );
   }
+  // Real data, but the feed has stopped updating. Worth a loud warning rather
+  // than a quiet chip: the REAL badge actively vouches for the numbers, so a
+  // feed that silently ended months ago misleads more than synthetic data does.
+  // Anything the user asked for after `latestDate` simply isn't in the result.
+  if (source && freshness?.isStale) {
+    return (
+      <div className="mb-3 bg-amber-950/40 border border-amber-700/60 rounded-lg px-4 py-2.5 flex items-start gap-3">
+        <span className="text-amber-400 text-base leading-none mt-0.5">⚠</span>
+        <div className="text-xs text-amber-200/90 leading-relaxed">
+          <strong className="text-amber-300">Stale data feed.</strong> This is real{" "}
+          {describeSource(source).label} data, but its newest bar for{" "}
+          <span className="font-mono">{symbol} {interval}</span> is{" "}
+          <span className="font-mono">{freshness.latestDate}</span> — {freshness.ageLabel}. Any period
+          you asked for after that date is missing from this result, so recent performance is not
+          covered.
+        </div>
+      </div>
+    );
+  }
+
   if (source) {
     return (
       <div className="mb-3 flex items-center gap-2 text-[11px] text-zinc-500">
         <SourceBadge source={source} />
-        <span>backtest computed on {describeSource(source).label} data</span>
+        <span>
+          backtest computed on {describeSource(source).label} data
+          {freshness ? ` · latest bar ${freshness.latestDate} (${freshness.ageLabel})` : ""}
+        </span>
       </div>
     );
   }
