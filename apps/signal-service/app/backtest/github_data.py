@@ -68,9 +68,17 @@ SOURCE_LABEL = "coinmetrics"
 # as a usable dataset.
 _MIN_PRICED_ROWS = 60
 
-# Preferred price columns, in priority order. ReferenceRateUSD is Coin Metrics'
-# flagship cleaned reference price; PriceUSD is the legacy equivalent.
-_PRICE_COLUMNS = ("ReferenceRateUSD", "PriceUSD")
+# PriceUSD is the only close column we read.
+#
+# The file also carries ReferenceRateUSD, which looks like the better choice
+# (Coin Metrics' cleaned reference rate) but is published one day behind:
+# ReferenceRateUSD[t] == PriceUSD[t-1], verified exactly on every overlapping
+# row of btc/eth/ltc/doge/aave. It is also only populated for the last handful
+# of days, so preferring it spliced a lagged series onto the end of an aligned
+# one — shifting the final week a day late and inventing one extra close.
+# Never add it as a fallback either: the only rows it would cover are exactly
+# the ones where the lag applies.
+_PRICE_COLUMNS = ("PriceUSD",)
 _VOLUME_COLUMNS = ("volume_reported_spot_usd_1d",)
 
 
@@ -138,7 +146,7 @@ def fetch_coinmetrics_asset(asset: str, *, timeout: float = 60.0) -> list[tuple[
         return _parse_coinmetrics_csv(resp.text)
 
 
-def load_real_daily(symbol: str, *, interval: str = "1d") -> dict:
+def load_real_daily(symbol: str, *, interval: str = "1d", replace_other_source: bool = False) -> dict:
     """Fetch real daily data for ``symbol`` and upsert it into the bar cache.
 
     Returns a summary dict. Raises ValueError for unsupported symbols and
@@ -158,7 +166,10 @@ def load_real_daily(symbol: str, *, interval: str = "1d") -> dict:
             f"this free tier — use a symbol with deeper coverage."
         )
     bars = _build_daily_bars(points)
-    written = bar_storage.upsert_bars(symbol.upper(), interval, bars, source=SOURCE_LABEL)
+    written = bar_storage.upsert_bars(
+        symbol.upper(), interval, bars, source=SOURCE_LABEL,
+        full_history=True, replace_other_source=replace_other_source,
+    )
     return {
         "symbol": symbol.upper(),
         "asset": asset,

@@ -607,7 +607,7 @@ class ImportRealRequest(BaseModel):
         "BTCUSDT", "ETHUSDT", "LTCUSDT", "BCHUSDT", "DOGEUSDT",
         "ADAUSDT", "XRPUSDT", "LINKUSDT", "DOTUSDT", "UNIUSDT", "AAVEUSDT",
     ]
-    clear_existing: bool = True
+    clear_existing: bool = False
 
 
 @router.get("/data/real/sources")
@@ -639,9 +639,9 @@ async def import_real_data(req: ImportRealRequest):
     total_bars = 0
     for symbol in req.symbols:
         try:
-            if req.clear_existing:
-                await asyncio.to_thread(bar_storage.delete_bars, symbol, "1d")
-            result = await asyncio.to_thread(load_real_daily, symbol)
+            result = await asyncio.to_thread(
+                load_real_daily, symbol, replace_other_source=req.clear_existing,
+            )
             imported.append(result)
             total_bars += result["bars_written"]
         except Exception as e:  # surface per-symbol failures (e.g. 403, unmapped)
