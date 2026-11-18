@@ -164,17 +164,17 @@ export function DataStatusTab({ onSymbolAdded }: { onSymbolAdded: (symbol: strin
       const chosen = Array.from(selectedReal);
       const r = await backtestApi.importRealData({
         symbols: chosen.length > 0 ? chosen : undefined,
-        clear_existing: true,
+        clear_existing: false,
       });
       if (r.imported.length > 0) {
         const parts = r.imported.map((d) => `${d.symbol} (${d.bars_written.toLocaleString()} bars, ${d.earliest}→${d.latest})`);
         const errSuffix = r.errors.length > 0 ? ` · skipped: ${r.errors.map((e) => e.symbol).join(", ")}` : "";
         setRealResult(`Imported real daily data from ${r.source}: ${parts.join(", ")}${errSuffix}`);
         if (r.imported[0]) onSymbolAdded(r.imported[0].symbol);
+        await fetchCache();
       } else {
         setError(`Real-data import failed: ${r.errors.map((e) => `${e.symbol}: ${e.error}`).join("; ") || "no data returned"}`);
       }
-      await fetchCache();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

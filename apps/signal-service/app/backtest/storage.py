@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import threading
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -262,7 +262,23 @@ class BarStorage:
 
     # ── writes ───────────────────────────────────────────────────────────────
 
-    def upsert_bars(self, symbol: str, interval: str, bars: list[Bar], source: str | None = None) -> int:
+    @contextmanager
+    def _transaction(self):
+        self._con.execute("BEGIN TRANSACTION")
+        try:
+            yield
+            self._con.execute("COMMIT")
+        except BaseException:
+            self._con.execute("ROLLBACK")
+            raise
+
+    def upsert_bars(
+        self, symbol: str, interval: str, bars: list[Bar], source: str | None = None,
+        *, full_history: bool = False, replace_other_source: bool = False,
+    ) -> int:
+        """Write bars, optionally replacing a validated complete series atomically."""
+        if full_history and not source:
+            raise ValueError("A full-history import requires a data source")
         if not bars:
             return 0
         # Dedupe within the batch (last occurrence wins) — even INSERT OR
@@ -283,7 +299,7 @@ class BarStorage:
             "close":    np.array([b.close for b in bars], dtype=np.float64),
             "volume":   np.array([b.volume for b in bars], dtype=np.float64),
         }
-        with self._lock:
+        with self._lock, (self._transaction() if full_history else nullcontext()):
             # If real data is arriving where only synthetic demo bars were
             # cached, wipe the whole synthetic series first. Synthetic bars
             # aren't guaranteed to share exact timestamps with real ones (old
@@ -302,28 +318,59 @@ class BarStorage:
                 and existing_source is not None
                 and existing_source[0] == "synthetic_gbm"
             )
-            if wiped_synthetic:
+            if full_history and not replace_other_source:
+                if existing_source is None:
+                    owner = None
+                    populated = self._con.execute(
+                        "SELECT 1 FROM bars WHERE symbol=? AND interval=? LIMIT 1", (symbol, interval),
+                    ).fetchone() is not None
+                else:
+                    owner = existing_source[0]
+                    populated = True
+                if populated and owner not in (source, "synthetic_gbm"):
+                    raise ValueError(f"{symbol} {interval} already has {owner or 'unknown-source'} prices; kept existing data")
+            if wiped_synthetic and not full_history:
                 self._con.execute(
                     "DELETE FROM bars WHERE symbol=? AND interval=?", (symbol, interval)
                 )
-            # Delete existing rows for these timestamps, then bulk-insert.
-            # This is ~1000x faster than executemany INSERT OR REPLACE.
             self._con.register("_tmp_bars", data)
-            self._con.execute(
-                "DELETE FROM bars WHERE symbol=? AND interval=? AND ts IN (SELECT ts FROM _tmp_bars)",
-                (symbol, interval),
-            )
-            # OR REPLACE tolerates duplicate ts within the batch and rows
-            # written by a concurrent process between our DELETE and INSERT.
-            self._con.execute("INSERT OR REPLACE INTO bars SELECT * FROM _tmp_bars")
-            self._con.unregister("_tmp_bars")
+            try:
+                if full_history and existing_source == (source,):
+                    missing = self._con.execute(
+                        "SELECT ts, close, volume FROM bars WHERE symbol=? AND interval=? "
+                        "AND ts NOT IN (SELECT ts FROM _tmp_bars) LIMIT 2",
+                        (symbol, interval),
+                    ).fetchall()
+                    # Coin Metrics' old parser could fabricate one trailing bar
+                    # by repeating the final aligned close on the following day.
+                    known_lagged_close = (
+                        source == "coinmetrics" and interval == "1d"
+                        and missing == [(new_max + 86_400, by_ts[new_max].close, 0.0)]
+                    )
+                    if missing and not known_lagged_close:
+                        raise ValueError(f"{symbol} {interval} snapshot is incomplete; kept existing data")
+                if not full_history:
+                    self._con.execute(
+                        "DELETE FROM bars WHERE symbol=? AND interval=? AND ts IN (SELECT ts FROM _tmp_bars)",
+                        (symbol, interval),
+                    )
+                self._con.execute("INSERT OR REPLACE INTO bars SELECT * FROM _tmp_bars")
+                if full_history:
+                    # Retain incoming keys; deleting and reinserting the same key
+                    # inside one DuckDB transaction can lose the replacement row.
+                    self._con.execute(
+                        "DELETE FROM bars WHERE symbol=? AND interval=? AND ts NOT IN (SELECT ts FROM _tmp_bars)",
+                        (symbol, interval),
+                    )
+            finally:
+                self._con.unregister("_tmp_bars")
             # Update meta range (and provenance). Preserve an existing source
             # when this call doesn't specify one (e.g. an incremental top-up).
             existing = self._con.execute(
                 "SELECT earliest_ts, latest_ts, source FROM meta WHERE symbol=? AND interval=?",
                 (symbol, interval),
             ).fetchone()
-            if existing and existing[0] is not None and not wiped_synthetic:
+            if existing and existing[0] is not None and not (full_history or wiped_synthetic):
                 earliest = min(existing[0], new_min)
                 latest = max(existing[1], new_max)
                 resolved_source = source if source is not None else existing[2]

@@ -146,7 +146,7 @@ def fetch_coinmetrics_asset(asset: str, *, timeout: float = 60.0) -> list[tuple[
         return _parse_coinmetrics_csv(resp.text)
 
 
-def load_real_daily(symbol: str, *, interval: str = "1d") -> dict:
+def load_real_daily(symbol: str, *, interval: str = "1d", replace_other_source: bool = False) -> dict:
     """Fetch real daily data for ``symbol`` and upsert it into the bar cache.
 
     Returns a summary dict. Raises ValueError for unsupported symbols and
@@ -166,16 +166,10 @@ def load_real_daily(symbol: str, *, interval: str = "1d") -> dict:
             f"this free tier — use a symbol with deeper coverage."
         )
     bars = _build_daily_bars(points)
-    written = bar_storage.upsert_bars(symbol.upper(), interval, bars, source=SOURCE_LABEL)
-    # This import is the source's complete history, so anything cached outside
-    # it is a leftover from an earlier import — e.g. the extra trailing close a
-    # previous version produced by reading the lagged ReferenceRateUSD column.
-    # Without this the corrected import would sit next to the stale bar forever.
-    trimmed = bar_storage.trim_bars_outside(
-        symbol.upper(), interval, bars[0].ts, bars[-1].ts, SOURCE_LABEL,
+    written = bar_storage.upsert_bars(
+        symbol.upper(), interval, bars, source=SOURCE_LABEL,
+        full_history=True, replace_other_source=replace_other_source,
     )
-    if trimmed:
-        log.info("Trimmed %d stale cached bar(s) outside %s's imported range", trimmed, symbol)
     return {
         "symbol": symbol.upper(),
         "asset": asset,

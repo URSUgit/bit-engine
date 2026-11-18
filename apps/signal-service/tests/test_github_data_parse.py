@@ -70,3 +70,81 @@ def test_volume_is_read_and_missing_volume_is_zero():
     points = _parse_coinmetrics_csv(CSV)
 
     assert [p[2] for p in points] == [1000.0, 1100.0, 1200.0, 1300.0]
+
+
+def _configure_import(monkeypatch):
+    from app.backtest import github_data
+    from app.backtest.storage import BarStorage
+
+    store = BarStorage(":memory:")
+    points = _parse_coinmetrics_csv(CSV)
+    monkeypatch.setattr(github_data, "bar_storage", store)
+    monkeypatch.setattr(github_data, "_MIN_PRICED_ROWS", len(points))
+    monkeypatch.setattr(github_data, "fetch_coinmetrics_asset", lambda asset: points)
+    return github_data, store, points
+
+
+def _prices(bars):
+    return [(b.open, b.high, b.low, b.close, b.volume) for b in bars]
+
+
+def test_import_preserves_another_providers_data_by_default(monkeypatch):
+    import pytest
+
+    loader, store, points = _configure_import(monkeypatch)
+    bars = _build_daily_bars(points)
+    store.upsert_bars("BTCUSDT", "1d", bars, "binance")
+    with pytest.raises(ValueError, match="binance"):
+        loader.load_real_daily("BTCUSDT")
+    assert store.get_meta("BTCUSDT", "1d")["source"] == "binance"
+    assert _prices(store.get_bars("BTCUSDT", "1d", 0, 2**33)) == _prices(bars)
+
+
+def test_explicit_provider_switch_never_leaves_mixed_bars(monkeypatch):
+    from datetime import timedelta
+
+    loader, store, points = _configure_import(monkeypatch)
+    extra = (points[-1][0] + timedelta(days=1), 999.0, 1.0)
+    store.upsert_bars("BTCUSDT", "1d", _build_daily_bars(points + [extra]), "binance")
+    loader.load_real_daily("BTCUSDT", replace_other_source=True)
+    assert store.get_meta("BTCUSDT", "1d")["source"] == loader.SOURCE_LABEL
+    assert _prices(store.get_bars("BTCUSDT", "1d", 0, 2**33)) == _prices(_build_daily_bars(points))
+
+
+def test_failed_explicit_import_keeps_existing_prices(monkeypatch):
+    import asyncio
+    from app.routers import backtest
+
+    loader, store, points = _configure_import(monkeypatch)
+    bars = _build_daily_bars(points)
+    store.upsert_bars("BTCUSDT", "1d", bars, "binance")
+    monkeypatch.setattr(backtest, "bar_storage", store)
+    monkeypatch.setattr(loader, "fetch_coinmetrics_asset", lambda asset: [])
+    result = asyncio.run(backtest.import_real_data(backtest.ImportRealRequest(
+        symbols=["BTCUSDT"], clear_existing=True,
+    )))
+    assert result["errors"] and not result["imported"]
+    assert _prices(store.get_bars("BTCUSDT", "1d", 0, 2**33)) == _prices(bars)
+
+
+def test_partial_same_source_refresh_preserves_cached_history(monkeypatch):
+    import pytest
+    from datetime import timedelta
+
+    loader, store, points = _configure_import(monkeypatch)
+    old = (points[0][0] - timedelta(days=1), 90.0, 1.0)
+    original = _build_daily_bars([old] + points)
+    store.upsert_bars("BTCUSDT", "1d", original, loader.SOURCE_LABEL)
+    with pytest.raises(ValueError, match="incomplete"):
+        loader.load_real_daily("BTCUSDT")
+    assert _prices(store.get_bars("BTCUSDT", "1d", 0, 2**33)) == _prices(original)
+
+
+def test_same_source_refresh_removes_invalid_trailing_bar(monkeypatch):
+    from datetime import timedelta
+
+    loader, store, points = _configure_import(monkeypatch)
+    extra = (points[-1][0] + timedelta(days=1), points[-1][1], 0.0)
+    store.upsert_bars("BTCUSDT", "1d", _build_daily_bars(points + [extra]), loader.SOURCE_LABEL)
+    loader.load_real_daily("BTCUSDT")
+    assert _prices(store.get_bars("BTCUSDT", "1d", 0, 2**33)) == _prices(_build_daily_bars(points))
