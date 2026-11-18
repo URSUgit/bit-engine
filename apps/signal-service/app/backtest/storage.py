@@ -308,10 +308,12 @@ class BarStorage:
             # below isn't enough — leftover synthetic rows would otherwise
             # sit alongside real ones forever and corrupt every backtest that
             # reads this (symbol, interval).
-            existing_source = self._con.execute(
+            source_rows = self._con.execute(
                 "SELECT source FROM meta WHERE symbol=? AND interval=?",
                 (symbol, interval),
-            ).fetchone()
+            ).fetchall()
+            # Drain the result before registering the bulk input on DuckDB 2.
+            existing_source = source_rows[0] if source_rows else None
             wiped_synthetic = (
                 source is not None
                 and source != "synthetic_gbm"
@@ -321,9 +323,9 @@ class BarStorage:
             if full_history and not replace_other_source:
                 if existing_source is None:
                     owner = None
-                    populated = self._con.execute(
+                    populated = bool(self._con.execute(
                         "SELECT 1 FROM bars WHERE symbol=? AND interval=? LIMIT 1", (symbol, interval),
-                    ).fetchone() is not None
+                    ).fetchall())
                 else:
                     owner = existing_source[0]
                     populated = True
