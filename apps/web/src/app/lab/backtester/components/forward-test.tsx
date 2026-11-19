@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
+import { PaperForward } from "./paper-forward";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ReferenceLine, ResponsiveContainer, Dot,
@@ -176,7 +177,25 @@ function EquityChart({
 
 // ── Main ForwardTest component ────────────────────────────────────────────────
 
-export function ForwardTest({
+export function ForwardTest(props: ForwardTestProps) {
+  const breakout = props.strategy === "studio_breakout";
+  return (
+    <div className="space-y-5">
+      <PaperForward initialOffset={breakout ? props.strategyParams.entry_offset_bps ?? 50 : 50} />
+      {!breakout && (
+        <section aria-labelledby="synthetic-demo-heading" className="space-y-3">
+          <div>
+            <h3 id="synthetic-demo-heading" className="font-semibold text-zinc-100">Synthetic demo</h3>
+            <p className="text-sm text-zinc-400">Accelerated practice with generated prices, not the live market.</p>
+          </div>
+          <SyntheticDemo {...props} />
+        </section>
+      )}
+    </div>
+  );
+}
+
+function SyntheticDemo({
   symbol,
   strategy,
   strategyParams,
@@ -517,13 +536,13 @@ export function ForwardTest({
           </div>
         )}
 
-        {/* Live equity chart */}
+        {/* Synthetic demo equity chart */}
         {equityData.length > 1 ? (
           <EquityChart data={equityData} initialCapital={initialCapital} />
         ) : (
           <div className="h-60 flex items-center justify-center text-zinc-600 text-sm">
             {status === "idle"
-              ? "Press Start to begin the forward simulation"
+              ? "Press Start to begin the synthetic demo"
               : "Waiting for bars…"}
           </div>
         )}

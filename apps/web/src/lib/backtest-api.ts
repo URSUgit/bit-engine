@@ -300,6 +300,14 @@ export type BacktestResult = {
   equity_curve: EquityPoint[];
   bars_processed: number;
   runtime_ms: number;
+  run_evidence?: {
+    source: "binance";
+    candle_sha256: string;
+    candle_hash_format: "utc-seconds-ohlcv-be-v1";
+    first_candle_utc: string;
+    last_candle_utc: string;
+    inputs: BacktestParams;
+  } | null;
   entry_analysis: EntryAnalysis | null;
   // Realism additions
   friction_breakdown: FrictionBreakdown | null;

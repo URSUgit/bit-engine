@@ -119,6 +119,16 @@ type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "ano
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
 
+type ArchiveCoverage = {
+  venue: string;
+  candles: number;
+  missing: string[];
+  start_date: string;
+  end_exclusive: string;
+  strict_start_date: string;
+  strict_end_exclusive: string;
+};
+
 export default function BacktesterPage() {
   const isPro = usePro();
   const [mode, setMode] = useState<Mode>("single");
@@ -129,6 +139,9 @@ export default function BacktesterPage() {
   const [strategies, setStrategies] = useState<StrategyInfo[]>([]);
   const [strategyName, setStrategyName] = useState("rsi");
   const [periodDays, setPeriodDays] = useState(365);
+  const [archive, setArchive] = useState<ArchiveCoverage | null>(null);
+  const [archiveStart, setArchiveStart] = useState("");
+  const [archiveEnd, setArchiveEnd] = useState("");
   const [interval, setIntervalValue] = useState("1d");
   const [initialCapital, setInitialCapital] = useState(10000);
   const [commissionPct, setCommissionPct] = useState(0.1);
@@ -204,11 +217,28 @@ export default function BacktesterPage() {
     backtestApi.intervals().then((d) => setIntervalInfos(d.intervals)).catch(console.error);
     backtestApi.strategies().then((s) => {
       setStrategies(s);
-      if (s.length > 0) setStrategyName(s[0].name);
+      if (s.length > 0) setStrategyName((previous) => previous === "studio_breakout" ? previous : s[0].name);
     }).catch(console.error);
   }, []);
 
   // Reset strategy params when strategy changes
+  useEffect(() => {
+    let active = true;
+    fetch("/api/v1/backtest/archive-coverage", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() as Promise<ArchiveCoverage> : null)
+      .then((coverage) => {
+        if (!active || !coverage) return;
+        setArchive(coverage);
+        setArchiveStart(coverage.strict_start_date);
+        setArchiveEnd(coverage.strict_end_exclusive);
+        setStrategyName("studio_breakout");
+        setSingleSymbol("BTCUSDT");
+        setIntervalValue("1h");
+        setAutoRun(false);
+      }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+
   useEffect(() => {
     const strat = strategies.find((s) => s.name === strategyName);
     if (!strat) return;
@@ -283,7 +313,7 @@ export default function BacktesterPage() {
 
   // Auto-run debounce — fires runSingle() 450ms after params change when autoRun is enabled
   useEffect(() => {
-    if (!autoRun || mode !== "single" || running) return;
+    if (!autoRun || mode !== "single" || running || strategyName === "studio_breakout") return;
     setAutoRunPending(true);
     if (autoRunTimer.current) clearTimeout(autoRunTimer.current);
     autoRunTimer.current = setTimeout(() => {
@@ -291,7 +321,7 @@ export default function BacktesterPage() {
       runSingle();
     }, 450);
     return () => { if (autoRunTimer.current) clearTimeout(autoRunTimer.current); };
-  }, [strategyParams, interval, periodDays, autoRun, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [strategyParams, interval, periodDays, autoRun, mode, strategyName]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Run handlers ──────────────────────────────────────────────────────
 
@@ -306,26 +336,30 @@ export default function BacktesterPage() {
   }, [running]);
 
   async function runSingle() {
+    if (archive && (!archiveStart || !archiveEnd || archiveStart >= archiveEnd)) {
+      setError("Choose a start date before the exclusive UTC end date.");
+      return;
+    }
     setRunning(true);
     setError(null);
     setSingleResult(null);
     setProgress(null);
     try {
       const params: BacktestParams = {
-        symbol: singleSymbol, strategy: strategyName,
-        start_date: isoDaysAgo(periodDays),
-        end_date: isoDaysAgo(0),
-        interval,
+        symbol: archive ? "BTCUSDT" : singleSymbol, strategy: archive ? "studio_breakout" : strategyName,
+        start_date: archive ? archiveStart : isoDaysAgo(periodDays),
+        end_date: archive ? archiveEnd : isoDaysAgo(0),
+        interval: archive ? "1h" : interval,
         initial_capital: initialCapital,
         commission_pct: commissionPct / 100,
         slippage_pct: slippagePct / 100,
         position_size_pct: positionPct / 100,
-        strategy_params: strategyParams,
+        strategy_params: archive ? { entry_offset_bps: strategyParams.entry_offset_bps ?? 50 } : strategyParams,
         spread_bps: spreadBps,
         enable_market_impact: enableMarketImpact,
         execution_latency_ms: latencyMs,
-        use_funding_rates: useFundingRates,
-        leverage,
+        use_funding_rates: archive ? false : useFundingRates,
+        leverage: archive ? 1 : leverage,
         run_anomaly_scan: runAnomalyScan,
       };
       for await (const event of runBacktestStream(params)) {
@@ -530,7 +564,7 @@ export default function BacktesterPage() {
           <div>
             <h1 className="text-3xl font-semibold">Backtester</h1>
             <p className="text-zinc-400 text-sm mt-1">
-              {symbols.length} pairs · {strategies.length} strategies · 10+ years of daily data · second-granular for crypto
+              {archive ? "Local research · Binance BTCUSDT spot · Hourly candles · No real orders" : `${symbols.length} pairs · ${strategies.length} strategies`}
             </p>
           </div>
           <button
@@ -545,7 +579,7 @@ export default function BacktesterPage() {
           </button>
         </header>
 
-        <ModeTabs mode={mode} onChange={setMode} />
+        <ModeTabs mode={mode} onChange={setMode} research={archive !== null} />
 
         {mode === "history" ? (
           <HistoryView
@@ -553,6 +587,14 @@ export default function BacktesterPage() {
             onOpen={openHistoryRun}
             onDelete={deleteHistoryRun}
           />
+        ) : mode === "data" && archive ? (
+          <section className="rounded-lg border border-zinc-800 p-4 space-y-2">
+            <h2 className="font-semibold">Verified archive · {archive.venue}</h2>
+            <p>{archive.candles.toLocaleString()} real hourly candles · {archive.start_date} to {archive.end_exclusive} (exclusive, UTC)</p>
+            <p>{archive.missing.length} missing hourly slots. Strict runs cannot cross a gap.</p>
+            <p>Default gap-free range: {archive.strict_start_date} to {archive.strict_end_exclusive} (exclusive, UTC).</p>
+            <details><summary>Missing timestamps (UTC)</summary><ul>{archive.missing.map((gap) => <li key={gap}>{gap}</li>)}</ul></details>
+          </section>
         ) : mode === "data" ? (
           <DataStatusTab
             onSymbolAdded={(sym) => {
@@ -811,7 +853,7 @@ export default function BacktesterPage() {
           <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
             {/* ─── Control panel ─── */}
             <aside className="space-y-4 bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
-              {mode === "single" && (
+              {mode === "single" && !archive && (
                 <SymbolPicker
                   symbols={visibleSymbols}
                   allCategories={categories}
@@ -852,12 +894,19 @@ export default function BacktesterPage() {
                 />
               )}
 
-              {mode === "single" && (
+              {mode === "single" && !archive && (
                 <RegimeBadge
                   symbol={singleSymbol}
                   onSelectStrategy={setStrategyName}
                 />
               )}
+              {archive ? (
+                <div className="space-y-2 text-sm">
+                  <div className="font-medium">Previous-day breakout · 1h</div>
+                  <label className="block">Start date (UTC)<input className="block w-full rounded border border-zinc-700 bg-zinc-950 p-1" type="date" value={archiveStart} onChange={(e) => setArchiveStart(e.target.value)} /></label>
+                  <label className="block">End date (exclusive, UTC)<input className="block w-full rounded border border-zinc-700 bg-zinc-950 p-1" type="date" value={archiveEnd} onChange={(e) => setArchiveEnd(e.target.value)} /></label>
+                </div>
+              ) : <>
               <PeriodPicker periodDays={periodDays} onChange={setPeriodDays} />
               <IntervalPicker
                 interval={interval}
@@ -870,8 +919,35 @@ export default function BacktesterPage() {
                 selected={strategyName}
                 onSelect={setStrategyName}
               />
+              </>}
 
-              {mode !== "optimize" && currentStrategy && (
+              {mode === "single" && (
+                <div className="space-y-2">
+                  {!archive && <button type="button" aria-pressed={strategyName === "studio_breakout"} className="rounded border border-amber-500/40 px-3 py-1 text-sm text-amber-300"
+                    onClick={() => {
+                      setStrategyName("studio_breakout");
+                      setSingleSymbol("BTCUSDT");
+                      setIntervalValue("1h");
+                      setAutoRun(false);
+                      setLeverage(1);
+                      setUseFundingRates(false);
+                      setStrategyParams({ entry_offset_bps: 50 });
+                    }}>
+                    Previous-day breakout
+                  </button>}
+                  {(archive || strategyName === "studio_breakout") && (
+                    <label className="block text-sm text-zinc-300">
+                      Breakout offset (basis points; 50 = 0.50%)
+                      <input type="number" min={0} max={400} step={1} className="ml-2 w-20 rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
+                        value={strategyParams.entry_offset_bps ?? 50}
+                        onChange={(e) => setStrategyParams({ entry_offset_bps: Math.min(400, Math.max(0, Math.round(Number(e.target.value)))) })} />
+                      <span className="block text-xs text-zinc-400">Uses existing hourly Binance BTCUSDT prices only.</span>
+                    </label>
+                  )}
+                </div>
+              )}
+
+              {!archive && mode !== "optimize" && currentStrategy && (
                 <StrategyParamsForm
                   strategy={currentStrategy}
                   values={strategyParams}
@@ -964,7 +1040,7 @@ export default function BacktesterPage() {
                 )}
               </div>
 
-              {mode === "single" && (
+              {mode === "single" && !archive && (
                 <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer select-none">
                   <div
                     onClick={() => setAutoRun(a => !a)}
@@ -1003,7 +1079,7 @@ export default function BacktesterPage() {
                 )}
               </div>
 
-              {mode === "single" && (
+              {mode === "single" && !archive && (
                 <button
                   onClick={runCompareAllStrategies}
                   disabled={running || stratCompareRunning}
@@ -1031,7 +1107,7 @@ export default function BacktesterPage() {
               )}
 
               {/* Presets — only show in single mode */}
-              {mode === "single" && (
+              {mode === "single" && !archive && (
                 <ConfigPresets
                   current={{
                     symbol: singleSymbol,
@@ -1087,7 +1163,7 @@ export default function BacktesterPage() {
                 onRemove={autoRemove}
                 onClear={autoClear}
               />
-              <ExtractedStrategies
+              {!archive && <ExtractedStrategies
                 onLoad={({ symbol, strategy, positionPct, leverage }) => {
                   setSingleSymbol(symbol);
                   setStrategyName(strategy);
@@ -1095,8 +1171,8 @@ export default function BacktesterPage() {
                   if (leverage != null) setLeverage(leverage);
                   setMode("single");
                 }}
-              />
-              <Watchlist onSelectSymbol={(sym) => setSingleSymbol(sym)} />
+              />}
+              {!archive && <Watchlist onSelectSymbol={(sym) => setSingleSymbol(sym)} />}
             </aside>
 
             {/* ─── Results pane ─── */}
@@ -1115,6 +1191,7 @@ export default function BacktesterPage() {
                     strategy={strategyName}
                     strategies={strategies}
                     strategyParams={strategyParams}
+                    onBreakoutOffset={(entry_offset_bps) => setStrategyParams({ entry_offset_bps })}
                     periodDays={periodDays}
                     interval={interval}
                     initialCapital={initialCapital}
@@ -1133,7 +1210,7 @@ export default function BacktesterPage() {
                       }}
                     />
                   )}
-                  <BacktesterChat
+                  {!archive && <BacktesterChat
                     symbol={singleSymbol}
                     strategy={strategyName}
                     strategyParams={strategyParams}
@@ -1148,7 +1225,7 @@ export default function BacktesterPage() {
                       if (p.interval) setIntervalValue(p.interval);
                       if (p.strategyParams) setStrategyParams(p.strategyParams);
                     }}
-                  />
+                  />}
                 </>
               )}
               {mode === "compare" && (
@@ -1284,14 +1361,14 @@ function ProgressDisplay({
 
 // ─── Mode tabs ────────────────────────────────────────────────────────────────
 
-function ModeTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
+function ModeTabs({ mode, onChange, research }: { mode: Mode; onChange: (m: Mode) => void; research: boolean }) {
   const tabs: { value: Mode; label: string; hint: string }[] = [
     { value: "single", label: "Single", hint: "One pair, full charts" },
     { value: "compare", label: "Compare", hint: "Up to 20 pairs side-by-side" },
     { value: "optimize", label: "Optimize", hint: "Find best parameters" },
     { value: "scan", label: "Scan", hint: "Best strategy finder" },
     { value: "signals", label: "Signals", hint: "Live signal feed" },
-    { value: "forward", label: "Forward", hint: "Live simulation" },
+    { value: "forward", label: "Forward", hint: "Paper test · demo" },
     { value: "history", label: "History", hint: "Past runs" },
     { value: "data", label: "Data", hint: "Cache · Custom symbols" },
     { value: "custom", label: "Editor", hint: "Write your own strategy" },
@@ -1300,7 +1377,7 @@ function ModeTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void 
   ];
   return (
     <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
-      {tabs.map((t) => (
+      {tabs.filter((t) => !research || ["single", "data", "forward"].includes(t.value)).map((t) => (
         <button
           key={t.value}
           onClick={() => onChange(t.value)}
@@ -1613,7 +1690,7 @@ function ExportMenu({ result }: { result: BacktestResult }) {
 function SingleResultsView({
   symbol, result, running, progress, elapsedMs,
   resultTab, setResultTab, autoRunPending,
-  strategy, strategies, strategyParams, periodDays, interval,
+  strategy, strategies, strategyParams, onBreakoutOffset, periodDays, interval,
   initialCapital, commissionPct, slippagePct, positionPct,
 }: {
   symbol: string;
@@ -1627,6 +1704,7 @@ function SingleResultsView({
   strategy: string;
   strategies: StrategyInfo[];
   strategyParams: Record<string, number>;
+  onBreakoutOffset: (bps: number) => void;
   periodDays: number;
   interval: string;
   initialCapital: number;
@@ -1699,7 +1777,11 @@ function SingleResultsView({
           </div>
           {resultTab === "charts" && (
             <>
-              <PriceChart result={result} />
+              <PriceChart result={result} breakoutDraft={
+                result.strategy === "studio_breakout" && strategy === "studio_breakout" && !running
+                  ? { bps: strategyParams.entry_offset_bps ?? 50, onChange: onBreakoutOffset }
+                  : undefined
+              } />
               <EquityChart result={result} />
               <StrategyRadar result={result} />
             </>

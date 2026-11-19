@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { FlaskConical } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { usePro, useUIModeStore } from "@/store";
@@ -8,6 +9,11 @@ import { usePro, useUIModeStore } from "@/store";
 export default function Layout({ children }: { children: React.ReactNode }) {
   const isPro = usePro();
   const setMode = useUIModeStore((s) => s.setMode);
+  const path = usePathname();
+
+  if (process.env.NEXT_PUBLIC_BITENGINE_RESEARCH === "1" && path === "/lab/backtester") {
+    return <main>{children}</main>;
+  }
 
   if (!isPro) {
     return (

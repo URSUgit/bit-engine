@@ -173,8 +173,13 @@ async def lifespan(app: FastAPI):
 
     forecast_task = asyncio.create_task(forecast_service.run())
     scout_task = asyncio.create_task(scout_service.run())
+    paper_forward_task = asyncio.create_task(paper.run_forward_loop())
 
-    yield
+    try:
+        yield
+    finally:
+        paper_forward_task.cancel()
+        await asyncio.gather(paper_forward_task, return_exceptions=True)
     log.info("shutdown: stopping signal engine")
     signal_engine.stop()
     forecast_service.stop()

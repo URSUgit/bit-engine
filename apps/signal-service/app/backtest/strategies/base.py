@@ -35,6 +35,9 @@ class Strategy(ABC):
     name: str = "abstract"
     description: str = "abstract strategy"
     params_schema: dict = {}
+    # Opt-in: fill only on the following candle's open. Never force a fill at
+    # the end of the sample. Legacy strategies keep their existing behavior.
+    strict_next_open: bool = False
 
     def __init__(self, **params) -> None:
         # Merge user-provided params with schema defaults

@@ -171,6 +171,17 @@ class EntryAnalysis(BaseModel):
     feature_stats: list[FeatureStats]
 
 
+class BacktestRunEvidence(BaseModel):
+    """Reproduction inputs archived with a verified-cache breakout run."""
+
+    source: Literal["binance"] = "binance"
+    candle_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    candle_hash_format: Literal["utc-seconds-ohlcv-be-v1"] = "utc-seconds-ohlcv-be-v1"
+    first_candle_utc: datetime
+    last_candle_utc: datetime
+    inputs: BacktestParams
+
+
 class BacktestResult(BaseModel):
     id: str
     symbol: str
@@ -185,6 +196,7 @@ class BacktestResult(BaseModel):
     equity_curve: list[EquityPoint]
     bars_processed: int
     runtime_ms: float
+    run_evidence: Optional[BacktestRunEvidence] = None
     entry_analysis: Optional[EntryAnalysis] = None
     # Realism additions
     friction_breakdown: Optional[dict] = None  # commission/slippage/spread/funding breakdown

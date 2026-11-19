@@ -12,8 +12,10 @@ Realism features (all configurable via BacktestParams):
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
+import struct
 import time
 import uuid
 from datetime import datetime
@@ -23,7 +25,7 @@ from .data import HistoricalDataLoader, SYMBOL_CATALOG, binance_symbol
 from .history import backtest_history
 from .metrics import build_equity_curve, compute_metrics
 from .models import (
-    Bar, BacktestParams, BacktestResult, Position, Signal,
+    Bar, BacktestParams, BacktestResult, BacktestRunEvidence, Position, Signal,
     Trade, TradeRecord,
 )
 from .strategies import STRATEGIES
@@ -367,6 +369,17 @@ class Backtest:
             # Rolling avg daily volume for market impact
             avg_dvol = _avg_daily_volume(bars[max(0, i - 20): i + 1])
 
+            if strategy.strict_next_open:
+                # Fill yesterday's decision before evaluating this candle. Use
+                # only completed candles to estimate impact at the open.
+                open_dvol = _avg_daily_volume(bars[max(0, i - 20):i])
+                if pending_signal == "buy" and self.position is None:
+                    self._enter_position("long", symbol, bar.open, bar, i, open_dvol)
+                elif pending_signal == "short" and self.position is None:
+                    self._enter_position("short", symbol, bar.open, bar, i, open_dvol)
+                elif pending_signal in ("sell", "close") and self.position is not None:
+                    self._exit_position(bar.open, bar, i, open_dvol)
+
             # Apply funding for perpetuals
             self._apply_funding(i, interval, bar)
 
@@ -390,7 +403,9 @@ class Backtest:
             signal: Signal = strategy.on_bar(ctx)
 
             # Execute fills
-            if fill_next:
+            if strategy.strict_next_open:
+                pending_signal = signal
+            elif fill_next:
                 # Execute the PREVIOUS bar's signal at this bar's open
                 if pending_signal is not None:
                     fill_raw = bar.open
@@ -420,8 +435,8 @@ class Backtest:
 
             self.equity.append((bar.timestamp, self._mark_to_market(bar)))
 
-        # End-of-data: force close any open position
-        if self.position is not None:
+        # Legacy mode force-closes; strict mode leaves an unfilled exit open.
+        if self.position is not None and not strategy.strict_next_open:
             last_bar = bars[-1]
             avg_dvol = _avg_daily_volume(bars[-20:])
             self._exit_position(last_bar.close, last_bar, len(bars) - 1, avg_dvol, reason="end_of_data")
@@ -466,23 +481,67 @@ if not hasattr(_SC, "properties"):
 
 # ── High-level orchestrator ───────────────────────────────────────────────────
 
+def _breakout_run_evidence(params: BacktestParams, strategy: Strategy, bars: list[Bar]) -> BacktestRunEvidence:
+    digest = hashlib.sha256()
+    # Format v1: chronological UTC epoch seconds (int64), then O/H/L/C/V
+    # (IEEE-754 double), all big-endian. Hash the actual bars passed to the engine.
+    row = struct.Struct(">q5d")
+    for bar in bars:
+        digest.update(row.pack(bar.ts, bar.open, bar.high, bar.low, bar.close, bar.volume))
+    return BacktestRunEvidence(
+        candle_sha256=digest.hexdigest(),
+        first_candle_utc=bars[0].timestamp,
+        last_candle_utc=bars[-1].timestamp,
+        inputs=params.model_copy(update={"symbol": "BTCUSDT", "strategy_params": dict(strategy.params)}),
+    )
+
+
 async def run_backtest(params: BacktestParams, progress_cb=None) -> BacktestResult:
     """End-to-end: load data, instantiate strategy, run, compute metrics."""
     t0 = time.perf_counter()
 
-    if params.strategy not in STRATEGIES:
+    from .strategies.studio_breakout import StudioBreakout
+
+    studio = params.strategy == StudioBreakout.name
+    if not studio and params.strategy not in STRATEGIES:
         raise ValueError(f"Unknown strategy '{params.strategy}'. Available: {list(STRATEGIES)}")
+    if studio and (params.symbol.upper() != "BTCUSDT" or params.interval != "1h"):
+        raise ValueError("Previous-day breakout currently requires BTCUSDT and the 1 hour interval")
+    if studio and (params.leverage != 1 or params.use_funding_rates):
+        raise ValueError("Previous-day breakout requires spot settings: 1× leverage and no funding fees")
 
     if progress_cb:
         progress_cb("loading", 0, 1)
 
     loader = HistoricalDataLoader()
-    bars = await loader.load(
-        symbol=params.symbol,
-        start_date=params.start_date,
-        end_date=params.end_date,
-        interval=params.interval,
-    )
+    if studio:
+        from datetime import timezone
+        from dataclasses import replace
+
+        # Use the existing cache without refreshing or replacing the user's data.
+        # The cache stores this exchange pair under its canonical symbol.
+        start = datetime.fromisoformat(params.start_date).replace(tzinfo=timezone.utc)
+        end = (datetime.fromisoformat(params.end_date).replace(tzinfo=timezone.utc)
+               if params.end_date else datetime.now(timezone.utc))
+        meta = loader.storage.get_meta("BTCUSDT", "1h")
+        if not meta or meta.get("source") != "binance":
+            raise ValueError("Load real Binance BTCUSDT hourly candles in Data before running this strategy.")
+        bars = [replace(bar, timestamp=datetime.fromtimestamp(bar.ts, timezone.utc))
+                for bar in loader.storage.get_bars("BTCUSDT", "1h", int(start.timestamp()), int(end.timestamp()) - 3600)]
+        start_ts, end_ts = int(start.timestamp()), int(end.timestamp())
+        if end_ts > int(datetime.now(timezone.utc).timestamp()):
+            raise ValueError("Previous-day breakout requires a range of completed UTC candles.")
+        if not bars or bars[0].ts != start_ts or bars[-1].ts != end_ts - 3600:
+            raise ValueError("Binance BTCUSDT hourly data does not cover the requested UTC range. Choose dates inside the verified archive.")
+        if len(bars) < 25:
+            raise ValueError("The selected dates need at least 25 completed hourly candles, including one full UTC day.")
+    else:
+        bars = await loader.load(
+            symbol=params.symbol,
+            start_date=params.start_date,
+            end_date=params.end_date,
+            interval=params.interval,
+        )
     if len(bars) < 20:
         raise ValueError(
             f"Insufficient historical data for {params.symbol} ({params.interval}). "
@@ -532,8 +591,10 @@ async def run_backtest(params: BacktestParams, progress_cb=None) -> BacktestResu
         except Exception as e:
             log.debug("Could not load funding rates: %s", e)
 
-    strategy_cls = STRATEGIES[params.strategy]
-    strategy = strategy_cls(**params.strategy_params)
+    if studio:
+        strategy = StudioBreakout(entry_offset_bps=params.strategy_params.get("entry_offset_bps", 50))
+    else:
+        strategy = STRATEGIES[params.strategy](**params.strategy_params)
 
     bt = Backtest(
         initial_capital=params.initial_capital,
@@ -631,6 +692,7 @@ async def run_backtest(params: BacktestParams, progress_cb=None) -> BacktestResu
         equity_curve=build_equity_curve(equity),
         bars_processed=len(bars),
         runtime_ms=round(runtime_ms, 1),
+        run_evidence=_breakout_run_evidence(params, strategy, bars) if studio else None,
         entry_analysis=entry_analysis,
         friction_breakdown=friction,
         anomalies=anomaly_dicts,
