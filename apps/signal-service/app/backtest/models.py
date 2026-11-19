@@ -5,7 +5,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from .video_strategy import VideoOrigin
 
 Side = Literal["long", "short"]
 Signal = Literal["buy", "sell", "close", "hold"]
@@ -85,6 +87,17 @@ class BacktestParams(BaseModel):
     use_funding_rates: bool = Field(False, description="Fetch & deduct perpetual funding every 8h")
     leverage: float = Field(1.0, ge=1.0, le=125.0, description="Position leverage (1=spot/no leverage)")
     run_anomaly_scan: bool = Field(False, description="Scan for market anomalies and attach to result")
+    video_origin: VideoOrigin | None = None
+
+    @model_validator(mode="after")
+    def validate_video_origin(self):
+        if self.video_origin is not None and (
+            self.video_origin.draft.status != "compatible" or self.strategy != "studio_breakout"
+            or self.symbol.upper() != "BTCUSDT" or self.interval != "1h"
+            or self.leverage != 1 or self.use_funding_rates
+        ):
+            raise ValueError("Only loadable BTCUSDT hourly breakout drafts can be attached to research runs.")
+        return self
 
 
 class EquityPoint(BaseModel):

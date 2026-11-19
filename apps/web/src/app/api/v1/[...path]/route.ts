@@ -7,6 +7,16 @@ import { NextRequest } from "next/server";
 const SIG = process.env.SIGNAL_SERVICE_URL ?? "http://localhost:8001";
 
 async function proxy(req: NextRequest, path: string[]) {
+  const route = path.join("/");
+  const localAction = route === "paper/bots" || route.startsWith("paper/bots/") ||
+    ["backtest/video-strategy/analyze", "backtest/video-strategy/search"].includes(route);
+  if (req.method === "POST" && localAction) {
+    const site = req.headers.get("sec-fetch-site");
+    const origin = req.headers.get("origin");
+    if ((site && site !== "same-origin" && site !== "none") || (origin && origin !== req.nextUrl.origin)) {
+      return Response.json({ detail: "This action is only available from the local Backtester." }, { status: 403 });
+    }
+  }
   const search = req.nextUrl.search;
   const upstream = `${SIG}/api/v1/${path.join("/")}${search}`;
 

@@ -101,6 +101,40 @@ class PaperStore:
                 )
             """)
 
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS video_paper_bots (
+                    id TEXT PRIMARY KEY, state TEXT NOT NULL
+                )
+            """)
+
+    def create_bot(self, state):
+        with self._conn() as con:
+            con.execute("INSERT INTO video_paper_bots VALUES (?, ?)", (state['id'], json.dumps(state, allow_nan=False)))
+        return state
+
+    def list_bots(self):
+        with self._conn() as con:
+            return [json.loads(row[0]) for row in con.execute("SELECT state FROM video_paper_bots ORDER BY rowid DESC")]
+
+    def get_bot(self, bot_id):
+        with self._conn() as con:
+            row = con.execute("SELECT state FROM video_paper_bots WHERE id = ?", (bot_id,)).fetchone()
+            return json.loads(row[0]) if row else None
+
+    def running_bot_ids(self):
+        with self._conn() as con:
+            return [row[0] for row in con.execute("SELECT id FROM video_paper_bots WHERE json_extract(state, '$.status') = 'running'")]
+
+    def update_bot(self, bot_id, change):
+        with self._conn() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute("SELECT state FROM video_paper_bots WHERE id = ?", (bot_id,)).fetchone()
+            previous = json.loads(row[0]) if row else None
+            state = change(previous)
+            if state is not None and state != previous:
+                con.execute("UPDATE video_paper_bots SET state = ? WHERE id = ?", (json.dumps(state, allow_nan=False), bot_id))
+            return state
+
     def forward_state(self):
         with self._conn() as con:
             row = con.execute("SELECT state FROM breakout_forward WHERE slot = 1").fetchone()

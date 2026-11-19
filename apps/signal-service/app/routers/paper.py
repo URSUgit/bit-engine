@@ -5,12 +5,16 @@ import asyncio
 import json
 import logging
 from dataclasses import asdict
+from math import isfinite
 from typing import Optional
+from uuid import uuid4
 
 import httpx
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
+from app.backtest.history import backtest_history
+from app.backtest.models import BacktestRunEvidence
 from app.paper.store import PaperStore, PaperPosition, PaperTrade
 from app.paper.forward import advance, market_snapshot, new_run
 
@@ -209,9 +213,90 @@ def forward_stop():
     return _store.update_forward(stop)
 
 
+class PaperBotRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    backtest_id: str = Field(min_length=1, max_length=80)
+
+
+@router.get('/bots')
+def list_paper_bots():
+    return {'bots': _store.list_bots()}
+
+
+@router.post('/bots', status_code=201)
+def create_paper_bot(req: PaperBotRequest):
+    saved = backtest_history.get(req.backtest_id)
+    if not saved:
+        raise HTTPException(404, 'Saved backtest not found.')
+    try:
+        evidence = BacktestRunEvidence.model_validate(saved.get('run_evidence'))
+    except ValueError:
+        raise HTTPException(422, 'This saved run has no compatible backtest evidence.') from None
+    inputs = evidence.inputs
+    origin = inputs.video_origin
+    offset = inputs.strategy_params.get('entry_offset_bps')
+    if (origin is None or not origin.draft.trader_name or not origin.draft.strategy_name
+            or type(offset) is not int or not 0 <= offset <= 400 or saved.get('data_is_synthetic')):
+        raise HTTPException(422, 'Use a saved, named video strategy backtest on the Binance archive.')
+    if inputs.enable_market_impact or inputs.execution_latency_ms or not isfinite(inputs.initial_capital):
+        raise HTTPException(422, 'Paper bots require a backtest without market impact or extra execution latency.')
+    return _store.create_bot(dict(
+        id=uuid4().hex, status='ready', cash=inputs.initial_capital, offset_bps=offset,
+        name=f'{origin.draft.trader_name} · {origin.draft.strategy_name}',
+        trader_name=origin.draft.trader_name, strategy_name=origin.draft.strategy_name,
+        source=dict(backtest_id=req.backtest_id, video_origin=origin.model_dump(mode='json'),
+                    candle_sha256=evidence.candle_sha256, first_candle_utc=evidence.first_candle_utc.isoformat(),
+                    last_candle_utc=evidence.last_candle_utc.isoformat()),
+        cost_model=dict(initial_capital=inputs.initial_capital, position_size_pct=inputs.position_size_pct,
+                        commission_pct=inputs.commission_pct, slippage_pct=inputs.slippage_pct,
+                        spread_bps=inputs.spread_bps),
+        position=None, events=[], last_bar=None, observed_ms=None, feed_error=None,
+    ))
+
+
+def _require_bot(bot):
+    if bot is None:
+        raise HTTPException(404, 'Paper bot not found.')
+    return bot
+
+
+def _require_ready_bot(bot):
+    bot = _require_bot(bot)
+    if bot['status'] != 'ready':
+        raise HTTPException(409, 'Only a ready bot can start. Create a new bot for a fresh paper test.')
+    return bot
+
+
+@router.post('/bots/{bot_id}/start')
+async def start_paper_bot(bot_id: str):
+    _require_ready_bot(await asyncio.to_thread(_store.get_bot, bot_id))
+    try:
+        bars, _, observed = await market_snapshot()
+    except (httpx.HTTPError, ValueError, KeyError, TypeError, OverflowError, OSError):
+        raise HTTPException(503, 'Fresh Binance hourly data is unavailable. The bot was not started.') from None
+
+    def start(state):
+        bot = _require_ready_bot(state)
+        return {**bot, 'status': 'running', 'last_bar': bars[-1].ts, 'observed_ms': observed}
+
+    return await asyncio.to_thread(_store.update_bot, bot_id, start)
+
+
+@router.post('/bots/{bot_id}/stop')
+def stop_paper_bot(bot_id: str):
+    def stop(state):
+        bot = _require_bot(state)
+        if bot['status'] == 'ready':
+            raise HTTPException(409, 'This bot has not started.')
+        return {**bot, 'status': 'stopped', 'feed_error': None}
+
+    return _store.update_bot(bot_id, stop)
+
+
 async def tick_forward():
-    run = await asyncio.to_thread(_store.forward_state)
-    if not run or run['status'] != 'running':
+    run, bot_ids = await asyncio.gather(asyncio.to_thread(_store.forward_state), asyncio.to_thread(_store.running_bot_ids))
+    run_id = run['id'] if run and run['status'] == 'running' else None
+    if run_id is None and not bot_ids:
         return
     try:
         snapshot = await market_snapshot()
@@ -219,14 +304,17 @@ async def tick_forward():
         log.warning('Paper forward feed unavailable: %s', exc)
         snapshot = None
 
-    def update(state):
-        if not state or state['id'] != run['id'] or state['status'] != 'running':
+    def update(state, expected_id):
+        if not state or state['id'] != expected_id or state['status'] != 'running':
             return state
         if snapshot is None:
             return {**state, 'feed_error': 'Fresh Binance hourly data is unavailable; no fills recorded.'}
         return advance(state, snapshot)
 
-    await asyncio.to_thread(_store.update_forward, update)
+    if run_id is not None:
+        await asyncio.to_thread(_store.update_forward, lambda state: update(state, run_id))
+    for bot_id in bot_ids:
+        await asyncio.to_thread(_store.update_bot, bot_id, lambda state, expected_id=bot_id: update(state, expected_id))
 
 
 async def run_forward_loop(interval: float = 25):
