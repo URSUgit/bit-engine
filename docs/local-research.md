@@ -23,4 +23,6 @@ The app opens at `http://127.0.0.1:3000/lab/backtester`. The **Data** tab shows 
 
 Use **History → Open** to reopen a saved backtest, even after refreshing the browser. Opening a run does not change the current draft or start another test. History is read-only in research mode.
 
+For new breakout runs, select **Trades → Why this trade?** to see the signal candle, breakout threshold, fill prices, and fees. The JSON export includes these details. Older runs did not record them and still open normally.
+
 The project tests use handmade candle fixtures. They are not evidence of trading performance or a prop-evaluation pass.

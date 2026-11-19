@@ -141,6 +141,48 @@ def test_result_evidence_repeats_and_tracks_exact_input(sample, tmp_path, monkey
     assert changed['inputs'] == evidence['inputs']
 
 
+def test_trade_explanation_records_decision_before_fill_and_survives_history(sample, tmp_path, monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from app.backtest import engine
+    from app.backtest.history import BacktestHistory
+    from app.backtest.models import BacktestParams, BacktestResult
+    from app.backtest.storage import BarStorage
+
+    cache = BarStorage(':memory:')
+    cache.upsert_bars('BTCUSDT', '1h', sample, 'binance')
+    history = BacktestHistory(str(tmp_path / 'runs.sqlite'))
+    monkeypatch.setattr(engine, 'HistoricalDataLoader', lambda: SimpleNamespace(storage=cache))
+    monkeypatch.setattr(engine, 'backtest_history', history)
+    result = asyncio.run(engine.run_backtest(BacktestParams.model_validate({
+        'symbol': 'BTCUSDT', 'strategy': 'studio_breakout', 'interval': '1h',
+        'start_date': '2024-01-09', 'end_date': '2024-01-13', 'slippage_pct': 0.001,
+    })))
+    trade, = result.trades
+    why = trade.explanation
+    assert why is not None
+    assert why.entry_signal.rule == 'previous_day_high_cross'
+    assert why.entry_signal.candle_open_utc == sample[62].timestamp
+    assert why.entry_signal.close_price == 101.0
+    assert why.entry_signal.previous_close == 100.0
+    assert why.entry_signal.previous_day_high == 100.0
+    assert why.entry_signal.trigger_price == 100.50
+    assert why.entry_signal.offset_bps == 50
+    assert datetime.fromisoformat(trade.entry_time) == sample[63].timestamp
+    assert why.entry_reference_price == 101.0 and trade.entry_price > 101.0
+    assert why.exit_reason == 'signal' and why.exit_signal is not None
+    assert why.exit_signal.rule == 'utc_day_close'
+    assert why.exit_signal.candle_open_utc == sample[71].timestamp
+    assert datetime.fromisoformat(trade.exit_time) == sample[72].timestamp
+    assert why.exit_reference_price == 98.0 and trade.exit_price < 98.0
+    assert why.entry_fee == pytest.approx(trade.entry_price * trade.size * 0.001)
+    assert why.exit_fee == pytest.approx(trade.exit_price * trade.size * 0.001)
+    assert BacktestResult.model_validate(history.get(result.id)).trades[0].explanation == why
+    old = result.model_dump()
+    del old['trades'][0]['explanation']
+    assert BacktestResult.model_validate(old).trades[0].explanation is None
+
+
 def test_final_open_position_marks_equity_and_exposure_without_a_fake_exit(sample, tmp_path, monkeypatch):
     import asyncio
     from dataclasses import replace

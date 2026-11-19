@@ -4,7 +4,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-from ..models import Bar, Position, Signal
+from ..models import Bar, Position, Signal, TradeSignalEvidence
 
 
 @dataclass
@@ -62,6 +62,10 @@ class Strategy(ABC):
     def on_bar(self, ctx: StrategyContext) -> Signal:
         """Return 'buy', 'sell', 'close', or 'hold'."""
         ...
+
+    def decision_with_evidence(self, ctx: StrategyContext) -> tuple[Signal, TradeSignalEvidence | None]:
+        """Optional decision evidence, using only candles visible at signal time."""
+        return self.on_bar(ctx), None
 
     def info(self) -> dict:
         return {

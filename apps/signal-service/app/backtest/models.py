@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 Side = Literal["long", "short"]
 Signal = Literal["buy", "sell", "close", "hold"]
+ExitReason = Literal["signal", "liquidation", "end_of_data"]
 
 
 # ── Internal dataclasses (engine state) ───────────────────────────────────────
@@ -57,6 +58,7 @@ class Trade:
     duration_bars: int
     entry_fee: float = 0.0
     exit_fee: float = 0.0
+    explanation: TradeExplanation | None = None
 
     @property
     def is_win(self) -> bool:
@@ -91,6 +93,26 @@ class EquityPoint(BaseModel):
     drawdown_pct: float
 
 
+class TradeSignalEvidence(BaseModel):
+    rule: Literal["previous_day_high_cross", "utc_day_close"]
+    candle_open_utc: datetime
+    close_price: float
+    previous_close: float | None = None
+    previous_day_high: float | None = None
+    trigger_price: float | None = None
+    offset_bps: int | None = None
+
+
+class TradeExplanation(BaseModel):
+    entry_signal: TradeSignalEvidence
+    exit_signal: TradeSignalEvidence | None = None
+    exit_reason: ExitReason
+    entry_reference_price: float
+    exit_reference_price: float
+    entry_fee: float
+    exit_fee: float
+
+
 class TradeRecord(BaseModel):
     side: Side
     entry_time: str
@@ -101,6 +123,7 @@ class TradeRecord(BaseModel):
     pnl: float
     pnl_pct: float
     duration_bars: int
+    explanation: TradeExplanation | None = None
 
 
 class PerformanceMetrics(BaseModel):

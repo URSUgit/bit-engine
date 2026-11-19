@@ -5,7 +5,7 @@ import {
   createChart, ColorType, CrosshairMode,
   type IChartApi, type SeriesMarker, type Time,
 } from "lightweight-charts";
-import { backtestApi, type BacktestResult, type EntryAnalysis, type FeatureStats, type Bar } from "@/lib/backtest-api";
+import { backtestApi, type BacktestResult, type EntryAnalysis, type FeatureStats, type Bar, type Trade, type TradeExplanation } from "@/lib/backtest-api";
 import { downloadBlob, todayIso } from "@/lib/export-utils";
 import { paperApi } from "@/lib/paper-api";
 
@@ -1261,6 +1261,36 @@ function PnLHistogram({ trades }: { trades: BacktestResult["trades"] }) {
   );
 }
 
+function TradeDetails({ trade, explanation }: { trade: Trade; explanation: TradeExplanation }) {
+  const entry = explanation.entry_signal;
+  const exit = explanation.exit_signal;
+  const utc = (value: string) => new Date(value).toISOString().slice(0, 16).replace("T", " ") + " UTC";
+  const price = (value: number) => value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+  const exitReason = explanation.exit_reason === "liquidation" ? "Simulated liquidation" : "End of data";
+
+  return (
+    <details className="text-xs text-zinc-300">
+      <summary className="cursor-pointer whitespace-nowrap rounded px-1 py-1 text-cyan-300 focus-visible:outline focus-visible:outline-1">Why this trade?</summary>
+      <div className="mt-2 w-64 space-y-2 pb-2 leading-relaxed sm:w-72">
+        <p><strong>Entry signal:</strong> Candle starting {utc(entry.candle_open_utc)} closed at {price(entry.close_price)} USDT.
+          {entry.trigger_price != null && entry.previous_close != null && entry.previous_day_high != null && entry.offset_bps != null && (
+            <> The close crossed above {price(entry.trigger_price)} USDT from {price(entry.previous_close)}. Threshold: prior UTC day high {price(entry.previous_day_high)} plus {entry.offset_bps} bps.</>
+          )}
+        </p>
+        <p><strong>Entry fill:</strong> {utc(trade.entry_time)}. Next open {price(explanation.entry_reference_price)} → simulated fill {price(trade.entry_price)} USDT.</p>
+        {exit ? (
+          <p><strong>Exit signal:</strong> Last candle of the UTC day, starting {utc(exit.candle_open_utc)}, closed at {price(exit.close_price)} USDT.</p>
+        ) : (
+          <p><strong>Exit reason:</strong> {explanation.exit_reason === "signal" ? "Strategy signal" : exitReason}.</p>
+        )}
+        <p><strong>Exit fill:</strong> {exit ? utc(trade.exit_time) : `Candle starting ${utc(trade.exit_time)}`}.
+          {" "}{exit ? "Next open" : "Reference price"} {price(explanation.exit_reference_price)} → simulated fill {price(trade.exit_price)} USDT.</p>
+        <p><strong>Fees:</strong> {price(explanation.entry_fee)} entry + {price(explanation.exit_fee)} exit (USDT).</p>
+      </div>
+    </details>
+  );
+}
+
 export function TradesTable({
   trades,
   symbol = "export",
@@ -1307,6 +1337,7 @@ export function TradesTable({
   const wins   = trades.filter((t) => t.pnl >= 0);
   const losses = trades.filter((t) => t.pnl < 0);
   const maxAbsPnlPct = Math.max(...trades.map((t) => Math.abs(t.pnl_pct)), 1);
+  const hasExplanations = trades.some((t) => t.explanation != null);
 
   function SortTh({ col, label, right }: { col: TradeSortKey; label: string; right?: boolean }) {
     const active = sortKey === col;
@@ -1375,6 +1406,7 @@ export function TradesTable({
               <SortTh col="bars" label="Bars" right />
               <SortTh col="pnl" label="P&L $" right />
               <SortTh col="pnl_pct" label="P&L %" right />
+              {hasExplanations && <th className="py-2 pl-3">Explanation</th>}
             </tr>
           </thead>
           <tbody>
@@ -1382,7 +1414,7 @@ export function TradesTable({
               const win = t.pnl >= 0;
               const barPct = Math.min(Math.abs(t.pnl_pct) / maxAbsPnlPct * 45, 45);
               return (
-                <tr key={i} className="border-b border-zinc-800/60 hover:bg-zinc-800/20 transition">
+                <tr key={`${t.entry_time}:${t.exit_time}:${t.side}`} className="border-b border-zinc-800/60 hover:bg-zinc-800/20 transition">
                   <td className="py-2 pr-3 text-zinc-500">{i + 1}</td>
                   <td className="py-2 pr-3 text-zinc-300">{t.entry_time.slice(0, 10)}</td>
                   <td className="py-2 pr-3 text-zinc-300">{t.exit_time.slice(0, 10)}</td>
@@ -1403,6 +1435,11 @@ export function TradesTable({
                       </span>
                     </div>
                   </td>
+                  {hasExplanations && (
+                    <td className="py-2 pl-3 align-top">
+                      {t.explanation ? <TradeDetails trade={t} explanation={t.explanation} /> : "—"}
+                    </td>
+                  )}
                 </tr>
               );
             })}

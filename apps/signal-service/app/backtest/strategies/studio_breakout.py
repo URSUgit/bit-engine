@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_CEILING
 from math import isfinite
 
-from ..models import Bar, Signal
+from ..models import Bar, Signal, TradeSignalEvidence
 from .base import Strategy, StrategyContext
 
 
@@ -39,17 +39,30 @@ class StudioBreakout(Strategy):
             previous = timestamp
 
     def on_bar(self, ctx: StrategyContext) -> Signal:
+        return self.decision_with_evidence(ctx)[0]
+
+    def decision_with_evidence(self, ctx: StrategyContext) -> tuple[Signal, TradeSignalEvidence | None]:
         timestamp = _utc(ctx.current_bar.timestamp)
+        close = ctx.current_bar.close
         if ctx.position is not None:
-            return 'close' if timestamp.hour == 23 else 'hold'
+            if timestamp.hour == 23:
+                return 'close', TradeSignalEvidence(rule='utc_day_close', candle_open_utc=timestamp, close_price=close)
+            return 'hold', None
         # Locate a complete previous UTC day using only candles visible at signal time.
         end = len(ctx.history) - timestamp.hour - 1
         if end < 24:
-            return 'hold'
+            return 'hold', None
         previous_day = ctx.history[end - 24:end]
         prior_high = max(Decimal(str(bar.high)) for bar in previous_day)
         prior_high_cents = (prior_high * 100).to_integral_value()
         bps = self.params['entry_offset_bps']
         threshold_cents = (prior_high_cents * (10000 + bps) / 10000).to_integral_value(rounding=ROUND_CEILING)
         threshold = float(threshold_cents / 100)
-        return 'buy' if ctx.history[-2].close <= threshold < ctx.current_bar.close else 'hold'
+        previous_close = ctx.history[-2].close
+        if previous_close <= threshold < close:
+            return 'buy', TradeSignalEvidence(
+                rule='previous_day_high_cross', candle_open_utc=timestamp, close_price=close,
+                previous_close=previous_close, previous_day_high=float(prior_high),
+                trigger_price=threshold, offset_bps=bps,
+            )
+        return 'hold', None

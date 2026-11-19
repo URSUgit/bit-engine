@@ -25,8 +25,8 @@ from .data import HistoricalDataLoader, SYMBOL_CATALOG, binance_symbol
 from .history import backtest_history
 from .metrics import build_equity_curve, compute_metrics
 from .models import (
-    Bar, BacktestOpenPosition, BacktestParams, BacktestResult, BacktestRunEvidence, Position, Signal,
-    Trade, TradeRecord,
+    Bar, BacktestOpenPosition, BacktestParams, BacktestResult, BacktestRunEvidence, ExitReason, Position, Signal,
+    Trade, TradeExplanation, TradeRecord, TradeSignalEvidence,
 )
 from .strategies import STRATEGIES
 from .strategies.base import Strategy, StrategyContext
@@ -113,6 +113,8 @@ class Backtest:
         self.equity: list[tuple[datetime, float]] = []
         self._entry_bar_index: int = -1
         self._entry_fee: float = 0.0
+        self._entry_signal: TradeSignalEvidence | None = None
+        self._entry_reference_price = 0.0
         self._entry_slippage: float = 0.0
         self._entry_spread: float = 0.0
         self._last_funding_bar: int = 0
@@ -181,6 +183,8 @@ class Backtest:
         bar: Bar,
         bar_index: int,
         avg_daily_vol: float,
+        *,
+        signal_evidence: TradeSignalEvidence | None = None,
     ) -> None:
         if self.position is not None or self.cash <= 0:
             return
@@ -218,6 +222,8 @@ class Backtest:
         )
         self._entry_bar_index = bar_index
         self._entry_fee = fee
+        self._entry_signal = signal_evidence
+        self._entry_reference_price = raw_price
         self._entry_slippage = slip_usd
         self._entry_spread = spread_usd
 
@@ -227,7 +233,9 @@ class Backtest:
         bar: Bar,
         bar_index: int,
         avg_daily_vol: float,
-        reason: str = "signal",
+        reason: ExitReason = "signal",
+        *,
+        signal_evidence: TradeSignalEvidence | None = None,
     ) -> None:
         if self.position is None:
             return
@@ -254,6 +262,13 @@ class Backtest:
         self.total_slippage += slip_usd
         self.total_spread += spread_usd
 
+        explanation = None
+        if self._entry_signal is not None:
+            explanation = TradeExplanation(
+                entry_signal=self._entry_signal, exit_signal=signal_evidence, exit_reason=reason,
+                entry_reference_price=self._entry_reference_price, exit_reference_price=raw_price,
+                entry_fee=self._entry_fee, exit_fee=fee,
+            )
         self.trades.append(Trade(
             symbol=pos.symbol,
             side=pos.side,
@@ -267,9 +282,11 @@ class Backtest:
             duration_bars=bar_index - self._entry_bar_index,
             entry_fee=self._entry_fee,
             exit_fee=fee,
+            explanation=explanation,
         ))
         self.position = None
         self._entry_bar_index = -1
+        self._entry_signal = None
 
     # ── liquidation ───────────────────────────────────────────────────────────
 
@@ -360,6 +377,7 @@ class Backtest:
 
         # Pending order buffer for latency simulation
         pending_signal: Signal | None = None
+        pending_evidence: TradeSignalEvidence | None = None
         pending_bar_index: int = -1
 
         for i, bar in enumerate(bars):
@@ -370,15 +388,15 @@ class Backtest:
             avg_dvol = _avg_daily_volume(bars[max(0, i - 20): i + 1])
 
             if strategy.strict_next_open:
-                # Fill yesterday's decision before evaluating this candle. Use
+                # Fill the previous candle's decision before evaluating this candle. Use
                 # only completed candles to estimate impact at the open.
                 open_dvol = _avg_daily_volume(bars[max(0, i - 20):i])
                 if pending_signal == "buy" and self.position is None:
-                    self._enter_position("long", symbol, bar.open, bar, i, open_dvol)
+                    self._enter_position("long", symbol, bar.open, bar, i, open_dvol, signal_evidence=pending_evidence)
                 elif pending_signal == "short" and self.position is None:
-                    self._enter_position("short", symbol, bar.open, bar, i, open_dvol)
+                    self._enter_position("short", symbol, bar.open, bar, i, open_dvol, signal_evidence=pending_evidence)
                 elif pending_signal in ("sell", "close") and self.position is not None:
-                    self._exit_position(bar.open, bar, i, open_dvol)
+                    self._exit_position(bar.open, bar, i, open_dvol, signal_evidence=pending_evidence)
 
             # Apply funding for perpetuals
             self._apply_funding(i, interval, bar)
@@ -400,12 +418,14 @@ class Backtest:
                 position=self.position,
                 properties={"funding_rate": funding_rate},
             )
-            signal: Signal = strategy.on_bar(ctx)
-
             # Execute fills
             if strategy.strict_next_open:
-                pending_signal = signal
-            elif fill_next:
+                pending_signal, pending_evidence = strategy.decision_with_evidence(ctx)
+                self.equity.append((bar.timestamp, self._mark_to_market(bar)))
+                continue
+
+            signal = strategy.on_bar(ctx)
+            if fill_next:
                 # Execute the PREVIOUS bar's signal at this bar's open
                 if pending_signal is not None:
                     fill_raw = bar.open
@@ -701,6 +721,7 @@ async def run_backtest(params: BacktestParams, progress_cb=None) -> BacktestResu
                 pnl=round(t.pnl, 2),
                 pnl_pct=round(t.pnl_pct, 2),
                 duration_bars=t.duration_bars,
+                explanation=t.explanation,
             )
             for t in trades
         ],
