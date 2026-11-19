@@ -12,6 +12,7 @@ from pathlib import Path
 _TMP = Path(tempfile.mkdtemp(prefix="sigsvc-tests-"))
 os.environ["BACKTEST_DUCKDB_PATH"] = str(_TMP / "bars.duckdb")
 os.environ["BACKTEST_DB_PATH"] = str(_TMP / "legacy.db")
+os.environ["PAPER_DB_PATH"] = str(_TMP / "paper.db")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -19,6 +20,23 @@ import random
 from datetime import datetime, timedelta, timezone
 
 import pytest
+
+
+@pytest.fixture(name="sample")
+def breakout_sample():
+    """Handmade prices: breakout at hour 62, next-open fill, then a day-boundary exit.
+
+    Not market data. Keep downloaded historical candles out of the repository.
+    """
+    from app.backtest.models import Bar
+
+    start = datetime(2024, 1, 9, tzinfo=timezone.utc)
+    prices = [100.0] * 62 + [101.0] * 10 + [98.0] * 24
+    return [
+        Bar(start + timedelta(hours=i), 100.0 if i == 62 else p, p,
+            100.0 if i == 62 else p, p, 0.0)
+        for i, p in enumerate(prices)
+    ]
 
 
 def make_bars(

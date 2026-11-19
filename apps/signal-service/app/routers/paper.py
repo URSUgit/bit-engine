@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.paper.store import PaperStore, PaperPosition, PaperTrade
+from app.paper.forward import advance, market_snapshot, new_run
 
 log = logging.getLogger("signal_service.paper")
 router = APIRouter()
@@ -166,3 +167,72 @@ def list_trades(limit: int = 50):
 @router.get("/summary")
 def get_summary():
     return _store.get_summary()
+
+
+class ForwardRequest(BaseModel):
+    offset_bps: int = Field(default=50, strict=True, ge=0, le=400)
+
+
+def _check_can_start(state):
+    if state and state['status'] in ('running', 'paused'):
+        raise HTTPException(409, 'Stop the current paper run before starting a new one')
+
+
+@router.get('/forward')
+def forward_status():
+    return _store.forward_state()
+
+
+@router.post('/forward/start', status_code=201)
+async def forward_start(req: ForwardRequest):
+    _check_can_start(await asyncio.to_thread(_store.forward_state))
+    try:
+        snapshot = await market_snapshot()
+    except (httpx.HTTPError, ValueError, KeyError, TypeError, OverflowError, OSError) as exc:
+        log.warning('Paper forward feed unavailable: %s', exc)
+        raise HTTPException(503, 'Fresh Binance hourly data is unavailable. No paper run was started.') from exc
+
+    def start(state):
+        _check_can_start(state)
+        return new_run(req.offset_bps, snapshot)
+
+    return await asyncio.to_thread(_store.update_forward, start)
+
+
+@router.post('/forward/stop')
+def forward_stop():
+    def stop(state):
+        if state is None:
+            raise HTTPException(404, 'There is no paper run to stop')
+        return {**state, 'status': 'stopped', 'feed_error': None}
+
+    return _store.update_forward(stop)
+
+
+async def tick_forward():
+    run = await asyncio.to_thread(_store.forward_state)
+    if not run or run['status'] != 'running':
+        return
+    try:
+        snapshot = await market_snapshot()
+    except (httpx.HTTPError, ValueError, KeyError, TypeError, OverflowError, OSError) as exc:
+        log.warning('Paper forward feed unavailable: %s', exc)
+        snapshot = None
+
+    def update(state):
+        if not state or state['id'] != run['id'] or state['status'] != 'running':
+            return state
+        if snapshot is None:
+            return {**state, 'feed_error': 'Fresh Binance hourly data is unavailable; no fills recorded.'}
+        return advance(state, snapshot)
+
+    await asyncio.to_thread(_store.update_forward, update)
+
+
+async def run_forward_loop(interval: float = 25):
+    while True:
+        try:
+            await tick_forward()
+        except Exception:
+            log.exception('Paper forward tick failed')
+        await asyncio.sleep(interval)

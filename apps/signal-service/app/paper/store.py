@@ -1,4 +1,6 @@
 """SQLite-backed paper trading wallet."""
+import json
+import os
 import sqlite3
 import threading
 import time
@@ -8,7 +10,7 @@ from pathlib import Path
 from dataclasses import dataclass, asdict
 from typing import Optional, List
 
-PAPER_DB = str(Path.home() / ".bitprivat" / "paper_trading.db")
+PAPER_DB = os.environ.get("PAPER_DB_PATH", str(Path.home() / ".bitprivat" / "paper_trading.db"))
 
 
 @dataclass
@@ -91,6 +93,30 @@ class PaperStore:
                     notes       TEXT NOT NULL DEFAULT ''
                 )
             """)
+
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS breakout_forward (
+                    slot INTEGER PRIMARY KEY CHECK (slot = 1),
+                    state TEXT NOT NULL
+                )
+            """)
+
+    def forward_state(self):
+        with self._conn() as con:
+            row = con.execute("SELECT state FROM breakout_forward WHERE slot = 1").fetchone()
+            return json.loads(row[0]) if row else None
+
+    def update_forward(self, change):
+        """Read, update and persist together; competing polls can't double-fill."""
+        with self._conn() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute("SELECT state FROM breakout_forward WHERE slot = 1").fetchone()
+            previous = json.loads(row[0]) if row else None
+            state = change(previous)
+            if state is not None and previous != state:
+                con.execute("INSERT OR REPLACE INTO breakout_forward VALUES (1, ?)",
+                            (json.dumps(state, allow_nan=False),))
+            return state
 
     def open_position(
         self,

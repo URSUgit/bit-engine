@@ -12,6 +12,7 @@ build/
 
 # ─── Next.js ─────────────────────────────────────────────────────────────────
 apps/web/.next/
+apps/web/.next-research/
 apps/web/out/
 apps/web/.vercel/
 

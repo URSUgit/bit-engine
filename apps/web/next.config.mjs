@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  ...(process.env.NEXT_PUBLIC_BITENGINE_RESEARCH === "1" ? { distDir: ".next-research" } : {}),
   transpilePackages: ["@bitprivat/ui", "@bitprivat/shared-types"],
   images: {
     remotePatterns: [

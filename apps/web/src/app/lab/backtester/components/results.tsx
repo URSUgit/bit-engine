@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart, ColorType, CrosshairMode,
   type IChartApi, type SeriesMarker, type Time,
 } from "lightweight-charts";
-import { backtestApi, type BacktestResult, type EntryAnalysis, type FeatureStats, type Bar } from "@/lib/backtest-api";
+import { backtestApi, type BacktestResult, type EntryAnalysis, type FeatureStats, type Bar, type Trade, type TradeExplanation } from "@/lib/backtest-api";
 import { downloadBlob, todayIso } from "@/lib/export-utils";
 import { paperApi } from "@/lib/paper-api";
 
@@ -260,7 +260,7 @@ export function MetricsGrid({ result }: { result: BacktestResult }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {result.trades && result.trades.length > 0 && (
+          {process.env.NEXT_PUBLIC_BITENGINE_RESEARCH !== "1" && result.trades && result.trades.length > 0 && (
             <button
               onClick={handlePaperTrade}
               disabled={paperStatus === "loading"}
@@ -282,6 +282,27 @@ export function MetricsGrid({ result }: { result: BacktestResult }) {
           )}
         </div>
       </div>
+      {result.run_evidence && (
+        <details className="mb-4 rounded-md border border-zinc-800 px-3 py-2 text-xs text-zinc-300">
+          <summary className="cursor-pointer py-1 font-medium">Run evidence · Binance BTCUSDT spot</summary>
+          <dl className="mt-2 space-y-1">
+            <div><dt className="inline font-medium">Candles (UTC): </dt><dd className="inline">{result.run_evidence.first_candle_utc} → {result.run_evidence.last_candle_utc}</dd></div>
+            <div><dt className="inline font-medium">Fees / slippage: </dt><dd className="inline">{(result.run_evidence.inputs.commission_pct * 100).toFixed(3)}% / {(result.run_evidence.inputs.slippage_pct * 100).toFixed(3)}%</dd></div>
+            <div><dt className="inline font-medium">Candle fingerprint (SHA-256): </dt><dd className="inline break-all font-mono">{result.run_evidence.candle_sha256}</dd></div>
+          </dl>
+          <p className="mt-2 text-zinc-400">Export JSON to keep the fingerprint and all run settings. These describe a historical simulation.</p>
+        </details>
+      )}
+      {result.open_position_at_end && (
+        <div className="mb-4 rounded-md border border-zinc-700 px-3 py-2 text-xs text-zinc-300">
+          <p className="font-medium">Position still open at the end of this backtest</p>
+          <p className="mt-1">
+            Final equity uses the last close ({result.open_position_at_end.last_close.toFixed(2)} USDT).
+            Unrealized P&amp;L: {result.open_position_at_end.unrealized_pnl.toFixed(2)} USDT.
+            No exit was simulated; closed-trade statistics exclude this position.
+          </p>
+        </div>
+      )}
       {/* Primary metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <MetricCard
@@ -301,7 +322,7 @@ export function MetricsGrid({ result }: { result: BacktestResult }) {
         <MetricCard label="Calmar" value={m.calmar_ratio.toFixed(2)} positive={m.calmar_ratio >= 1} />
         <MetricCard label="Win rate" value={`${m.win_rate_pct.toFixed(1)}%`} positive={m.win_rate_pct >= 50} />
         <MetricCard label="Profit factor" value={m.profit_factor.toFixed(2)} positive={m.profit_factor >= 1} />
-        <MetricCard label="Trades" value={`${m.total_trades}`} positive />
+        <MetricCard label={result.open_position_at_end ? "Closed trades" : "Trades"} value={`${m.total_trades}`} positive />
         <MetricCard label="Wins / Losses" value={`${m.winning_trades} / ${m.losing_trades}`} positive />
         <MetricCard label="Avg trade" value={fmtPct(m.avg_trade_pnl_pct)} positive={m.avg_trade_pnl_pct >= 0} />
         <MetricCard label="Final equity" value={`$${m.final_equity.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} positive={m.final_equity > m.initial_capital} />
@@ -371,7 +392,12 @@ function MetricCard({ label, value, positive, muted, tooltip }: {
   );
 }
 
-export function PriceChart({ result }: { result: BacktestResult }) {
+type BreakoutDraft = { bps: number; onChange: (bps: number) => void };
+const HOUR = 3600;
+const DAY = 24 * HOUR;
+const clampOffset = (bps: number) => Math.max(0, Math.min(400, Math.round(bps)));
+
+export function PriceChart({ result, breakoutDraft }: { result: BacktestResult; breakoutDraft?: BreakoutDraft }) {
   const priceRef   = useRef<HTMLDivElement | null>(null);
   const volumeRef  = useRef<HTMLDivElement | null>(null);
   const atrRef     = useRef<HTMLDivElement | null>(null);
@@ -388,6 +414,45 @@ export function PriceChart({ result }: { result: BacktestResult }) {
 
   const [bars, setBars]       = useState<Bar[] | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [dragBps, setDragBps] = useState<number | null>(null);
+  const drag = useRef<{ pointer: number; bps: number } | null>(null);
+  const projection = useRef<{ y: (price: number) => number | null; price: (y: number) => number | null } | null>(null);
+  const handleRef = useRef<HTMLDivElement>(null);
+  const anchor = useMemo(() => {
+    if (result.strategy !== "studio_breakout" || !bars?.length) return null;
+    const day = Math.floor(bars[bars.length - 1].t / DAY) * DAY - DAY;
+    const previous = bars.filter((b) => b.t >= day && b.t < day + DAY);
+    if (previous.length !== 24 || !previous.every((b, i) => b.t === day + i * HOUR)) return null;
+    const cents = Math.round(Math.max(...previous.map((b) => b.h)) * 100);
+    return cents > 0 ? { cents, date: new Date(day * 1000).toISOString().slice(0, 10) } : null;
+  }, [bars, result.strategy]);
+  const executedBps = result.params_used?.entry_offset_bps ?? 50;
+  const shownBps = dragBps ?? breakoutDraft?.bps ?? executedBps;
+  const previewPrice = anchor ? Math.ceil(anchor.cents * (10000 + shownBps) / 10000) / 100 : null;
+
+  // The price scale can move independently of React (zoom, pan and autoscale).
+  useEffect(() => {
+    if (previewPrice === null) return;
+    let frame = 0;
+    function align() {
+      const el = handleRef.current;
+      const y = projection.current?.y(previewPrice!);
+      if (el) {
+        const visible = y != null && y >= 10 && y <= 389;
+        const visibility = visible ? "visible" : "hidden";
+        if (el.style.visibility !== visibility) el.style.visibility = visibility;
+        if (visible && el.style.top !== `${y}px`) el.style.top = `${y}px`;
+      }
+      frame = requestAnimationFrame(align);
+    }
+    align();
+    return () => cancelAnimationFrame(frame);
+  }, [previewPrice]);
+  // Intraday runs report date-only labels; use their exact first/last bar times.
+  const breakoutFirst = result.strategy === "studio_breakout" ? result.equity_curve[0]?.t : undefined;
+  const breakoutLast = result.strategy === "studio_breakout" ? result.equity_curve.at(-1)?.t : undefined;
+  const chartStart = breakoutFirst === undefined ? result.start_date : new Date(breakoutFirst * 1000).toISOString();
+  const chartEnd = breakoutLast === undefined ? result.end_date : new Date(breakoutLast * 1000).toISOString();
   const [active, setActive]   = useState<Set<IndicatorKey>>(
     new Set(["ema9", "ema21", "volume", "rsi"] as IndicatorKey[]),
   );
@@ -406,11 +471,18 @@ export function PriceChart({ result }: { result: BacktestResult }) {
     setLoadErr(null);
     setBars(null); // clear stale bars so a failed fetch can't show the prior symbol's chart
     backtestApi
-      .data(result.symbol, result.start_date, result.end_date, result.interval)
-      .then((d) => { if (!cancelled) setBars(d.bars); })
+      .data(result.symbol, chartStart, chartEnd, result.interval)
+      .then((d) => {
+        if (cancelled) return;
+        if (breakoutLast !== undefined && d.source !== "binance") {
+          setLoadErr("The Binance candles for this breakout run are no longer in the cache.");
+          return;
+        }
+        setBars(d.bars);
+      })
       .catch((e) => { if (!cancelled) setLoadErr(String(e)); });
     return () => { cancelled = true; };
-  }, [result.symbol, result.start_date, result.end_date, result.interval]);
+  }, [result.symbol, chartStart, chartEnd, result.interval, breakoutLast]);
 
   // Build + sync charts
   useEffect(() => {
@@ -453,6 +525,7 @@ export function PriceChart({ result }: { result: BacktestResult }) {
       wickUpColor: "#10b981", wickDownColor: "#ef4444",
     });
     candles.setData(bars.map((b) => ({ time: b.t as Time, open: b.o, high: b.h, low: b.l, close: b.c })));
+    projection.current = { y: (p) => candles.priceToCoordinate(p), price: (y) => candles.coordinateToPrice(y) };
 
     // Moving averages
     if (active.has("sma20")) {
@@ -626,6 +699,7 @@ export function PriceChart({ result }: { result: BacktestResult }) {
 
     return () => {
       window.removeEventListener("resize", onResize);
+      projection.current = null;
       charts.forEach((c) => c.remove());
     };
   }, [bars, active, result.trades]);
@@ -687,7 +761,55 @@ export function PriceChart({ result }: { result: BacktestResult }) {
       </div>
 
       {/* Price chart (always present) */}
-      <div ref={priceRef} className="w-full" />
+      {anchor && previewPrice !== null && (
+        <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
+          <span>Reference: {anchor.date} UTC high ${(anchor.cents / 100).toFixed(2)}</span>
+          <span className="text-amber-300">{breakoutDraft ? "Draft" : "Run"}: {shownBps} bps · ${previewPrice.toFixed(2)}</span>
+          {breakoutDraft && <span>Drag the line or use the offset input. Results stay at {executedBps} bps until you run again.</span>}
+          {breakoutDraft && breakoutDraft.bps !== executedBps && (
+            <button type="button" className="text-cyan-400" onClick={() => breakoutDraft.onChange(executedBps)}>Reset to last run</button>
+          )}
+        </div>
+      )}
+      <div className="relative">
+        <div ref={priceRef} className="w-full" />
+        {anchor && (
+          <div ref={handleRef} className="pointer-events-none invisible absolute left-0 right-16 z-10 -translate-y-1/2 border-t border-dashed border-amber-400">
+            {breakoutDraft && (
+              <button type="button" role="slider" aria-label="Drag breakout threshold"
+                aria-valuemin={0} aria-valuemax={400} aria-valuenow={shownBps} aria-valuetext={`${shownBps} basis points`}
+                className="pointer-events-auto absolute right-2 top-0 -translate-y-1/2 touch-none cursor-ns-resize rounded bg-amber-300 px-2 py-1 text-[11px] font-semibold text-zinc-950"
+                onPointerDown={(e) => {
+                  if (!e.isPrimary || e.button !== 0) return;
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                  drag.current = { pointer: e.pointerId, bps: breakoutDraft.bps };
+                }}
+                onPointerMove={(e) => {
+                  if (drag.current?.pointer !== e.pointerId || !priceRef.current) return;
+                  const price = projection.current?.price(e.clientY - priceRef.current.getBoundingClientRect().top);
+                  if (price == null || !Number.isFinite(price)) return;
+                  const bps = clampOffset((price * 100 / anchor.cents - 1) * 10000);
+                  drag.current.bps = bps;
+                  setDragBps(bps);
+                }}
+                onPointerUp={(e) => {
+                  if (drag.current?.pointer !== e.pointerId) return;
+                  breakoutDraft.onChange(drag.current.bps);
+                  drag.current = null;
+                  setDragBps(null);
+                }}
+                onLostPointerCapture={() => { drag.current = null; setDragBps(null); }}
+                onKeyDown={(e) => {
+                  const delta = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1, PageUp: 10, PageDown: -10 }[e.key];
+                  if (delta === undefined && e.key !== "Home" && e.key !== "End") return;
+                  e.preventDefault();
+                  breakoutDraft.onChange(e.key === "Home" ? 0 : e.key === "End" ? 400 : clampOffset(breakoutDraft.bps + (delta ?? 0)));
+                }}
+              >{shownBps} bps ↕</button>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Sub-panels rendered conditionally; callback refs update before effects fire */}
       {active.has("volume") && (
@@ -1139,6 +1261,36 @@ function PnLHistogram({ trades }: { trades: BacktestResult["trades"] }) {
   );
 }
 
+function TradeDetails({ trade, explanation }: { trade: Trade; explanation: TradeExplanation }) {
+  const entry = explanation.entry_signal;
+  const exit = explanation.exit_signal;
+  const utc = (value: string) => new Date(value).toISOString().slice(0, 16).replace("T", " ") + " UTC";
+  const price = (value: number) => value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+  const exitReason = explanation.exit_reason === "liquidation" ? "Simulated liquidation" : "End of data";
+
+  return (
+    <details className="text-xs text-zinc-300">
+      <summary className="cursor-pointer whitespace-nowrap rounded px-1 py-1 text-cyan-300 focus-visible:outline focus-visible:outline-1">Why this trade?</summary>
+      <div className="mt-2 w-64 space-y-2 pb-2 leading-relaxed sm:w-72">
+        <p><strong>Entry signal:</strong> Candle starting {utc(entry.candle_open_utc)} closed at {price(entry.close_price)} USDT.
+          {entry.trigger_price != null && entry.previous_close != null && entry.previous_day_high != null && entry.offset_bps != null && (
+            <> The close crossed above {price(entry.trigger_price)} USDT from {price(entry.previous_close)}. Threshold: prior UTC day high {price(entry.previous_day_high)} plus {entry.offset_bps} bps.</>
+          )}
+        </p>
+        <p><strong>Entry fill:</strong> {utc(trade.entry_time)}. Next open {price(explanation.entry_reference_price)} → simulated fill {price(trade.entry_price)} USDT.</p>
+        {exit ? (
+          <p><strong>Exit signal:</strong> Last candle of the UTC day, starting {utc(exit.candle_open_utc)}, closed at {price(exit.close_price)} USDT.</p>
+        ) : (
+          <p><strong>Exit reason:</strong> {explanation.exit_reason === "signal" ? "Strategy signal" : exitReason}.</p>
+        )}
+        <p><strong>Exit fill:</strong> {exit ? utc(trade.exit_time) : `Candle starting ${utc(trade.exit_time)}`}.
+          {" "}{exit ? "Next open" : "Reference price"} {price(explanation.exit_reference_price)} → simulated fill {price(trade.exit_price)} USDT.</p>
+        <p><strong>Fees:</strong> {price(explanation.entry_fee)} entry + {price(explanation.exit_fee)} exit (USDT).</p>
+      </div>
+    </details>
+  );
+}
+
 export function TradesTable({
   trades,
   symbol = "export",
@@ -1185,6 +1337,7 @@ export function TradesTable({
   const wins   = trades.filter((t) => t.pnl >= 0);
   const losses = trades.filter((t) => t.pnl < 0);
   const maxAbsPnlPct = Math.max(...trades.map((t) => Math.abs(t.pnl_pct)), 1);
+  const hasExplanations = trades.some((t) => t.explanation != null);
 
   function SortTh({ col, label, right }: { col: TradeSortKey; label: string; right?: boolean }) {
     const active = sortKey === col;
@@ -1253,6 +1406,7 @@ export function TradesTable({
               <SortTh col="bars" label="Bars" right />
               <SortTh col="pnl" label="P&L $" right />
               <SortTh col="pnl_pct" label="P&L %" right />
+              {hasExplanations && <th className="py-2 pl-3">Explanation</th>}
             </tr>
           </thead>
           <tbody>
@@ -1260,7 +1414,7 @@ export function TradesTable({
               const win = t.pnl >= 0;
               const barPct = Math.min(Math.abs(t.pnl_pct) / maxAbsPnlPct * 45, 45);
               return (
-                <tr key={i} className="border-b border-zinc-800/60 hover:bg-zinc-800/20 transition">
+                <tr key={`${t.entry_time}:${t.exit_time}:${t.side}`} className="border-b border-zinc-800/60 hover:bg-zinc-800/20 transition">
                   <td className="py-2 pr-3 text-zinc-500">{i + 1}</td>
                   <td className="py-2 pr-3 text-zinc-300">{t.entry_time.slice(0, 10)}</td>
                   <td className="py-2 pr-3 text-zinc-300">{t.exit_time.slice(0, 10)}</td>
@@ -1281,6 +1435,11 @@ export function TradesTable({
                       </span>
                     </div>
                   </td>
+                  {hasExplanations && (
+                    <td className="py-2 pl-3 align-top">
+                      {t.explanation ? <TradeDetails trade={t} explanation={t.explanation} /> : "—"}
+                    </td>
+                  )}
                 </tr>
               );
             })}

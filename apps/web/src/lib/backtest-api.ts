@@ -65,6 +65,26 @@ export type BacktestParams = {
   run_anomaly_scan?: boolean;
 };
 
+type TradeSignalEvidence = {
+  rule: "previous_day_high_cross" | "utc_day_close";
+  candle_open_utc: string;
+  close_price: number;
+  previous_close: number | null;
+  previous_day_high: number | null;
+  trigger_price: number | null;
+  offset_bps: number | null;
+};
+
+export type TradeExplanation = {
+  entry_signal: TradeSignalEvidence;
+  exit_signal: TradeSignalEvidence | null;
+  exit_reason: "signal" | "liquidation" | "end_of_data";
+  entry_reference_price: number;
+  exit_reference_price: number;
+  entry_fee: number;
+  exit_fee: number;
+};
+
 export type Trade = {
   side: "long" | "short";
   entry_time: string;
@@ -75,6 +95,7 @@ export type Trade = {
   pnl: number;
   pnl_pct: number;
   duration_bars: number;
+  explanation?: TradeExplanation | null;
 };
 
 export type EquityPoint = { t: number; equity: number; drawdown_pct: number };
@@ -300,6 +321,20 @@ export type BacktestResult = {
   equity_curve: EquityPoint[];
   bars_processed: number;
   runtime_ms: number;
+  run_evidence?: {
+    source: "binance";
+    candle_sha256: string;
+    candle_hash_format: "utc-seconds-ohlcv-be-v1";
+    first_candle_utc: string;
+    last_candle_utc: string;
+    inputs: BacktestParams;
+  } | null;
+  open_position_at_end?: {
+    entry_time: string;
+    entry_price: number;
+    last_close: number;
+    unrealized_pnl: number;
+  } | null;
   entry_analysis: EntryAnalysis | null;
   // Realism additions
   friction_breakdown: FrictionBreakdown | null;

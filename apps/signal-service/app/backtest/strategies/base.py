@@ -4,7 +4,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-from ..models import Bar, Position, Signal
+from ..models import Bar, Position, Signal, TradeSignalEvidence
 
 
 @dataclass
@@ -35,6 +35,9 @@ class Strategy(ABC):
     name: str = "abstract"
     description: str = "abstract strategy"
     params_schema: dict = {}
+    # Opt-in: fill only on the following candle's open. Never force a fill at
+    # the end of the sample. Legacy strategies keep their existing behavior.
+    strict_next_open: bool = False
 
     def __init__(self, **params) -> None:
         # Merge user-provided params with schema defaults
@@ -59,6 +62,10 @@ class Strategy(ABC):
     def on_bar(self, ctx: StrategyContext) -> Signal:
         """Return 'buy', 'sell', 'close', or 'hold'."""
         ...
+
+    def decision_with_evidence(self, ctx: StrategyContext) -> tuple[Signal, TradeSignalEvidence | None]:
+        """Optional decision evidence, using only candles visible at signal time."""
+        return self.on_bar(ctx), None
 
     def info(self) -> dict:
         return {
