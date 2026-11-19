@@ -33,18 +33,21 @@ app = FastAPI(title='Bit Engine Research', lifespan=lifespan)
 app.state.limiter = limiter
 
 
-def include_research_routes(source, prefix, paths):
+def include_research_routes(source, prefix, routes):
     selected = APIRouter()
     selected.routes.extend(route for route in source.routes
-                           if isinstance(route, APIRoute) and route.path in paths)
+                           if isinstance(route, APIRoute)
+                           and all((method, route.path) in routes for method in route.methods))
     app.include_router(selected, prefix=prefix)
 
 
 include_research_routes(backtest.router, '/api/v1/backtest', {
-    '/symbols', '/strategies', '/intervals', '/metadata/{symbol}',
-    '/history', '/history/{run_id}', '/cache', '/forward_test_stream',
+    ('GET', '/symbols'), ('GET', '/strategies'), ('GET', '/intervals'), ('GET', '/metadata/{symbol}'),
+    ('GET', '/history'), ('GET', '/history/{run_id}'), ('GET', '/cache'), ('GET', '/forward_test_stream'),
 })
-include_research_routes(paper.router, '/api/v1/paper', {'/forward', '/forward/start', '/forward/stop'})
+include_research_routes(paper.router, '/api/v1/paper', {
+    ('GET', '/forward'), ('POST', '/forward/start'), ('POST', '/forward/stop'),
+})
 
 
 @app.get('/health')

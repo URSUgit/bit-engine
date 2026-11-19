@@ -168,6 +168,9 @@ export default function BacktesterPage() {
   const [compareProgress, setCompareProgress] = useState<{ completed: number; total: number } | null>(null);
   const [optimizeResult, setOptimizeResult] = useState<OptimizeResult | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [openedHistoryRunId, setOpenedHistoryRunId] = useState<string | null>(null);
 
   // Strategy comparison (all strategies for one symbol)
   const [stratCompareResults, setStratCompareResults] = useState<{ strategy: string; result: BacktestResult | null; error: string | null }[] | null>(null);
@@ -251,9 +254,15 @@ export default function BacktesterPage() {
 
   // Refresh history list when entering History tab
   useEffect(() => {
-    if (mode === "history") {
-      backtestApi.history(100).then((d) => setHistory(d.runs)).catch(console.error);
-    }
+    if (mode !== "history") return;
+    let active = true;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    backtestApi.history(100)
+      .then((d) => { if (active) setHistory(d.runs); })
+      .catch(() => { if (active) setHistoryError("Could not load saved backtests. Leave History and reopen it to retry."); })
+      .finally(() => { if (active) setHistoryLoading(false); });
+    return () => { active = false; };
   }, [mode]);
 
   // Drop a stale result when the selected symbol no longer matches it, so the
@@ -367,7 +376,7 @@ export default function BacktesterPage() {
           setProgress(event);
         } else if (event.type === "result") {
           setSingleResult(event.data);
-          if (event.data) autoSave(event.data);
+          if (event.data && !archive) autoSave(event.data);
         } else if (event.type === "error") {
           setError(event.message);
         }
@@ -499,12 +508,15 @@ export default function BacktesterPage() {
   async function openHistoryRun(id: string) {
     setRunning(true);
     setError(null);
+    setHistoryError(null);
     try {
       const r = await backtestApi.getHistoryRun(id);
       setSingleResult(r);
+      if (archive) setOpenedHistoryRunId(r.id);
+      setResultTab("charts");
       setMode("single");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setHistoryError("Could not open that saved backtest. Try again.");
     } finally { setRunning(false); }
   }
 
@@ -557,6 +569,8 @@ export default function BacktesterPage() {
     else if (mode === "signals") fetchLiveSignals();
   };
 
+  const viewingSavedRun = archive !== null && singleResult !== null && singleResult.id === openedHistoryRunId;
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-50 p-6">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -582,11 +596,17 @@ export default function BacktesterPage() {
         <ModeTabs mode={mode} onChange={setMode} research={archive !== null} />
 
         {mode === "history" ? (
-          <HistoryView
-            rows={history}
-            onOpen={openHistoryRun}
-            onDelete={deleteHistoryRun}
-          />
+          <div className="space-y-3">
+            {historyError && <p role="alert" className="text-sm text-red-300">{historyError}</p>}
+            {historyLoading ? <p role="status" className="text-sm text-zinc-400">Loading saved backtests…</p> : (
+              (!historyError || history.length > 0) && <HistoryView
+                rows={history}
+                onOpen={openHistoryRun}
+                onDelete={archive ? undefined : deleteHistoryRun}
+                opening={running}
+              />
+            )}
+          </div>
         ) : mode === "data" && archive ? (
           <section className="rounded-lg border border-zinc-800 p-4 space-y-2">
             <h2 className="font-semibold">Verified archive · {archive.venue}</h2>
@@ -1152,7 +1172,7 @@ export default function BacktesterPage() {
                 avgWinPct={singleResult?.metrics.avg_win_pct}
                 avgLossPct={singleResult ? Math.abs(singleResult.metrics.avg_loss_pct ?? singleResult.metrics.avg_win_pct ?? 2) : undefined}
               />
-              <RecentHistory
+              {!archive && <RecentHistory
                 history={autoHistory}
                 onLoad={(result) => {
                   setSingleResult(result);
@@ -1162,7 +1182,7 @@ export default function BacktesterPage() {
                 }}
                 onRemove={autoRemove}
                 onClear={autoClear}
-              />
+              />}
               {!archive && <ExtractedStrategies
                 onLoad={({ symbol, strategy, positionPct, leverage }) => {
                   setSingleSymbol(symbol);
@@ -1179,6 +1199,11 @@ export default function BacktesterPage() {
             <main className="space-y-6">
               {mode === "single" && (
                 <>
+                  {viewingSavedRun && (
+                    <p className="rounded-lg border border-zinc-800 px-3 py-2 text-sm text-zinc-300">
+                      Viewing a saved run. Backtest controls are still your current draft.
+                    </p>
+                  )}
                   <SingleResultsView
                     symbol={singleSymbol}
                     result={singleResult}
@@ -1191,7 +1216,7 @@ export default function BacktesterPage() {
                     strategy={strategyName}
                     strategies={strategies}
                     strategyParams={strategyParams}
-                    onBreakoutOffset={(entry_offset_bps) => setStrategyParams({ entry_offset_bps })}
+                    onBreakoutOffset={viewingSavedRun ? undefined : (entry_offset_bps) => setStrategyParams({ entry_offset_bps })}
                     periodDays={periodDays}
                     interval={interval}
                     initialCapital={initialCapital}
@@ -1377,7 +1402,7 @@ function ModeTabs({ mode, onChange, research }: { mode: Mode; onChange: (m: Mode
   ];
   return (
     <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
-      {tabs.filter((t) => !research || ["single", "data", "forward"].includes(t.value)).map((t) => (
+      {tabs.filter((t) => !research || ["single", "history", "data", "forward"].includes(t.value)).map((t) => (
         <button
           key={t.value}
           onClick={() => onChange(t.value)}
@@ -1704,7 +1729,7 @@ function SingleResultsView({
   strategy: string;
   strategies: StrategyInfo[];
   strategyParams: Record<string, number>;
-  onBreakoutOffset: (bps: number) => void;
+  onBreakoutOffset?: (bps: number) => void;
   periodDays: number;
   interval: string;
   initialCapital: number;
@@ -1778,7 +1803,7 @@ function SingleResultsView({
           {resultTab === "charts" && (
             <>
               <PriceChart result={result} breakoutDraft={
-                result.strategy === "studio_breakout" && strategy === "studio_breakout" && !running
+                result.strategy === "studio_breakout" && strategy === "studio_breakout" && !running && onBreakoutOffset
                   ? { bps: strategyParams.entry_offset_bps ?? 50, onChange: onBreakoutOffset }
                   : undefined
               } />
@@ -2334,8 +2359,8 @@ function LiveSignalsView({
 }
 
 function HistoryView({
-  rows, onOpen, onDelete,
-}: { rows: HistoryRow[]; onOpen: (id: string) => void; onDelete: (id: string) => void }) {
+  rows, onOpen, onDelete, opening,
+}: { rows: HistoryRow[]; onOpen: (id: string) => void; onDelete?: (id: string) => void; opening: boolean }) {
   if (rows.length === 0) {
     return (
       <div className="bg-zinc-900/30 border border-dashed border-zinc-800 rounded-lg p-12 text-center">
@@ -2351,7 +2376,8 @@ function HistoryView({
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-zinc-500 uppercase tracking-wide border-b border-zinc-800">
-              <th className="py-2 pr-3">Date</th>
+              <th className="py-2 pr-3">Saved</th>
+              <th className="py-2 pr-3">Test period</th>
               <th className="py-2 pr-3">Symbol</th>
               <th className="py-2 pr-3">Strategy</th>
               <th className="py-2 pr-3">Interval</th>
@@ -2364,10 +2390,11 @@ function HistoryView({
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.id} className="border-b border-zinc-800/60 hover:bg-zinc-800/30 cursor-pointer">
+              <tr key={r.id} className="border-b border-zinc-800/60 hover:bg-zinc-800/30">
                 <td className="py-2 pr-3 text-zinc-400 text-xs">
                   {new Date(r.created_at * 1000).toLocaleString()}
                 </td>
+                <td className="py-2 pr-3 text-zinc-400 text-xs whitespace-nowrap">{r.start_date} → {r.end_date}</td>
                 <td className="py-2 pr-3 text-zinc-200 font-medium">{r.symbol}</td>
                 <td className="py-2 pr-3 text-zinc-300">{r.strategy}</td>
                 <td className="py-2 pr-3 text-zinc-500 text-xs">{r.interval}</td>
@@ -2380,16 +2407,17 @@ function HistoryView({
                 <td className="py-2 text-right">
                   <button
                     onClick={() => onOpen(r.id)}
-                    className="text-cyan-400 hover:text-cyan-300 text-xs mr-3"
+                    disabled={opening}
+                    className="text-cyan-400 hover:text-cyan-300 text-xs mr-3 disabled:opacity-50"
                   >
                     Open
                   </button>
-                  <button
+                  {onDelete && <button
                     onClick={() => onDelete(r.id)}
                     className="text-zinc-500 hover:text-red-400 text-xs"
                   >
                     Delete
-                  </button>
+                  </button>}
                 </td>
               </tr>
             ))}

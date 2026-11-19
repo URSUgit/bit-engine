@@ -21,4 +21,6 @@ py -3.11 scripts/install-research-history.py --audit C:\path\to\local-audit.json
 
 The app opens at `http://127.0.0.1:3000/lab/backtester`. The **Data** tab shows exact coverage and missing hours. Strict breakout runs require a fully covered UTC date range; the end date is exclusive. Expand **Run evidence** or export the result as JSON to save the input candle fingerprint and resolved run settings. **Forward** simulates fills without placing orders. The research cache, results and paper state are stored separately under `%LOCALAPPDATA%\BitEngine\research`.
 
+Use **History → Open** to reopen a saved backtest, even after refreshing the browser. Opening a run does not change the current draft or start another test. History is read-only in research mode.
+
 The project tests use handmade candle fixtures. They are not evidence of trading performance or a prop-evaluation pass.

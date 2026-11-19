@@ -15,6 +15,36 @@ def test_research_release_serves_history_without_live_or_custom_routes():
     assert client.post('/api/v1/backtest/seed-demo', json={}).status_code == 404
 
 
+def test_research_can_reopen_saved_runs_but_cannot_delete_them(sample, tmp_path, monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from app.backtest import engine
+    from app.backtest.history import BacktestHistory
+    from app.backtest.models import BacktestParams
+    from app.backtest.storage import BarStorage
+    from research import app, backtest
+
+    cache = BarStorage(':memory:')
+    cache.upsert_bars('BTCUSDT', '1h', sample, 'binance')
+    history = BacktestHistory(str(tmp_path / 'runs.sqlite'))
+    monkeypatch.setattr(engine, 'HistoricalDataLoader', lambda: SimpleNamespace(storage=cache))
+    monkeypatch.setattr(engine, 'backtest_history', history)
+    monkeypatch.setattr(backtest, 'backtest_history', history)
+    result = asyncio.run(engine.run_backtest(BacktestParams.model_validate({
+        'symbol': 'BTCUSDT', 'strategy': 'studio_breakout', 'interval': '1h',
+        'start_date': '2024-01-09', 'end_date': '2024-01-12',
+    })))
+    client = TestClient(app)
+    url = '/api/v1/backtest/history'
+    assert [row['id'] for row in client.get(url).json()['runs']] == [result.id]
+    assert client.delete(f'{url}/{result.id}').status_code == 405
+    saved = client.get(f'{url}/{result.id}')
+    assert saved.status_code == 200
+    expected = result.model_dump(mode='json')
+    assert saved.json()['run_evidence'] == expected['run_evidence']
+    assert saved.json()['open_position_at_end'] == expected['open_position_at_end']
+
+
 def test_research_chart_uses_cache_only_and_preserves_source(seeded_storage):
     from research import app
 
