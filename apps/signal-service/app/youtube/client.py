@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 import time
+from html import unescape
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -161,6 +162,40 @@ async def search_videos(query: str, page_token: str | None = None, max_results: 
     if page_token is None:
         _search_cache[cache_key] = (time.time(), result)
     return result
+
+
+async def search_public_videos(query: str, page_token: str | None, key: str) -> dict:
+    """Public video discovery for research mode; never reads OAuth tokens."""
+    params: dict[str, str | int] = {'part': 'snippet', 'type': 'video', 'order': 'relevance',
+                                   'q': query, 'maxResults': 12}
+    if page_token:
+        params['pageToken'] = page_token
+    async with httpx.AsyncClient(timeout=12, follow_redirects=False) as http:
+        response = await http.get(f'{API_BASE}/search', params=params, headers={'x-goog-api-key': key})
+    if response.status_code == 429 or (response.status_code == 403 and 'quota' in response.text.lower()):
+        raise QuotaExceeded('YouTube search quota was reached. Open YouTube search instead.')
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict) or not isinstance(data.get('items'), list):
+        raise ValueError('Unexpected YouTube response')
+    videos = []
+    for item in data['items'][:12]:
+        if not isinstance(item, dict) or not isinstance(item.get('id'), dict) or not isinstance(item.get('snippet'), dict):
+            continue
+        video_id = item['id'].get('videoId')
+        if not isinstance(video_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{11}', video_id):
+            continue
+        video = _video_from_item(item)
+        thumb = video['thumbnail']
+        videos.append({
+            'video_id': video_id,
+            'title': unescape(str(video['title']))[:250] or 'Untitled video',
+            'channel': unescape(str(video['channel']))[:200],
+            'thumbnail': thumb if isinstance(thumb, str) and thumb.startswith('https://i.ytimg.com/') else None,
+            'url': video['url'],
+        })
+    token = data.get('nextPageToken')
+    return {'videos': videos, 'next_page_token': token if isinstance(token, str) and 0 < len(token) <= 512 else None}
 
 
 async def list_subscription_feed(max_channels: int = 20) -> list[dict]:

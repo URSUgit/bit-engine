@@ -99,8 +99,10 @@ class BacktestHistory:
                     """
                     SELECT id, created_at, symbol, strategy, interval,
                            start_date, end_date, total_return_pct, sharpe,
-                           max_drawdown_pct, total_trades
-                    FROM backtest_runs
+                           max_drawdown_pct, total_trades,
+                                                      json_extract(result_json, '$.run_evidence.inputs.video_origin.draft.trader_name'),
+                                                      json_extract(result_json, '$.run_evidence.inputs.video_origin.draft.strategy_name')
+                                               FROM backtest_runs
                     WHERE symbol = ?
                     ORDER BY created_at DESC
                     LIMIT ?
@@ -112,8 +114,10 @@ class BacktestHistory:
                     """
                     SELECT id, created_at, symbol, strategy, interval,
                            start_date, end_date, total_return_pct, sharpe,
-                           max_drawdown_pct, total_trades
-                    FROM backtest_runs
+                           max_drawdown_pct, total_trades,
+                                                      json_extract(result_json, '$.run_evidence.inputs.video_origin.draft.trader_name'),
+                                                      json_extract(result_json, '$.run_evidence.inputs.video_origin.draft.strategy_name')
+                                               FROM backtest_runs
                     ORDER BY created_at DESC
                     LIMIT ?
                     """,
@@ -125,6 +129,7 @@ class BacktestHistory:
                     "interval": r[4], "start_date": r[5], "end_date": r[6],
                     "total_return_pct": r[7], "sharpe": r[8],
                     "max_drawdown_pct": r[9], "total_trades": r[10],
+                    **({"trader_name": r[11], "strategy_name": r[12]} if r[11] and r[12] else {}),
                 }
                 for r in cur.fetchall()
             ]

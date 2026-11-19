@@ -105,10 +105,12 @@ def advance(state: dict, snapshot: Snapshot) -> dict:
     if opening is None or opening.ts != expected or not 0 <= age <= FILL_WINDOW_MS:
         events.append({**event, 'kind': 'missed_open'})
         return {**updated, 'status': 'paused'}
-    price = opening.open
-    fee = .001
+    cost_model = state.get('cost_model', {})
+    fee = cost_model.get('commission_pct', .001)
+    friction = cost_model.get('slippage_pct', 0) + cost_model.get('spread_bps', 0) / 20_000
+    price = opening.open * (1 + friction if action == 'buy' else 1 - friction)
     if action == 'buy':
-        allocation = state['cash'] * .25
+        allocation = state['cash'] * cost_model.get('position_size_pct', .25)
         size = allocation / (price * (1 + fee))
         updated['position'] = dict(symbol='BTCUSDT', side='long', entry_price=price,
                                    entry_time=expected, size=size, cost=allocation)

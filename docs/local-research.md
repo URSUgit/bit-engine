@@ -25,4 +25,20 @@ Use **History → Open** to reopen a saved backtest, even after refreshing the b
 
 For new breakout runs, select **Trades → Why this trade?** to see the signal candle, breakout threshold, fill prices, and fees. The JSON export includes these details. Older runs did not record them and still open normally.
 
+### Import a strategy from a public YouTube video
+
+Under **Video strategy → Find a YouTube video**, search by keyword, open a result with **Watch**, or click **Select video** to fill the URL. Selection does not analyze the video or begin a backtest. In-app search uses a server-side `YOUTUBE_API_KEY` for the YouTube Data API v3 and does not need an OAuth connection or a Gemini key. Searches and additional result pages use your YouTube project quota. If the key is missing, use **Open YouTube search** and paste the link from the video you choose.
+
+Open **Video strategy** in the research Backtester and enter one public video URL. If `GEMINI_API_KEY` is set in the environment of the local launcher, **Analyze with Gemini** sends the public link directly to the Gemini Interactions API as video input. No YouTube Data API key, account connection, or transcript download is needed for analysis. The default is Gemini 3.8 Flash (`gemini-3.8-flash`); use a free-tier project to stay within [Google's free-tier limits](https://aistudio.google.com/docs/pricing#gemini-3.8-flash). The app does not fall back to another model on quota errors. `BITENGINE_GEMINI_MODEL` overrides the default. Keep the key server-side and out of source control, browser fields, exports and chat. Do not expose this loopback feature over a network.
+
+Without a key, copy the prompt, use it with the video in Gemini, and use **Paste Gemini JSON → Validate draft**. Bit Engine makes no Gemini API request in that mode. Check the linked timestamps before confirming the draft. Only the existing BTCUSDT hourly, long-only previous-day breakout is runnable; unsupported or ambiguous rules stay as notes requiring review. The importer does not execute generated code, place orders, or start a backtest. After loading a draft, explicitly run the test; **Run evidence** records the source and the difference between the proposed and tested offset.
+
+**Windows first-time setup:** Create a key for a free-tier project in [Google AI Studio](https://aistudio.google.com/apikey). Search Start for **Edit environment variables for your account** and add `GEMINI_API_KEY` as a **user** variable. Stop Bit Engine and reopen the desktop shortcut so the backend receives the new value. Do not paste the key into Bit Engine, chat, or Git. Under **Video strategy**, paste a public YouTube link and click **Analyze with Gemini**. Browse YouTube directly if you do not want to configure a separate search key.
+
+### Create a named paper bot from a backtest
+
+Confirm or enter the trader and strategy names while reviewing a compatible draft. They follow the strategy into the tester, run evidence, History and each paper bot. Run the backtest and choose **Create paper bot** on the result, or reopen the saved result in **History** first. The bot uses the tested breakout offset, starting capital, allocation, commission, slippage and spread; it does not copy an open historical position or use the current unsaved editor settings. Backtests with market impact or extra execution latency cannot be promoted because those options are not supported by the paper simulator.
+
+In **Paper bots**, the new bot is **ready**. Click **Start bot** to begin a simulated forward test with its own cash and positions. The simulator observes fresh Binance hourly candles while the backend is running. If it misses a candle or eligible opening price, it pauses rather than backdating a fill. **Stop bot** freezes the test. Create a new bot from the saved run to start again. No exchange account or real orders are involved.
+
 The project tests use handmade candle fixtures. They are not evidence of trading performance or a prop-evaluation pass.

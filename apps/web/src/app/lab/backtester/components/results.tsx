@@ -289,6 +289,17 @@ export function MetricsGrid({ result }: { result: BacktestResult }) {
             <div><dt className="inline font-medium">Candles (UTC): </dt><dd className="inline">{result.run_evidence.first_candle_utc} → {result.run_evidence.last_candle_utc}</dd></div>
             <div><dt className="inline font-medium">Fees / slippage: </dt><dd className="inline">{(result.run_evidence.inputs.commission_pct * 100).toFixed(3)}% / {(result.run_evidence.inputs.slippage_pct * 100).toFixed(3)}%</dd></div>
             <div><dt className="inline font-medium">Candle fingerprint (SHA-256): </dt><dd className="inline break-all font-mono">{result.run_evidence.candle_sha256}</dd></div>
+            {result.run_evidence.inputs.video_origin && (
+              <div>
+                <dt className="inline font-medium">Video draft: </dt>
+                <dd className="inline">
+                  <a className="text-cyan-300 underline" href={result.run_evidence.inputs.video_origin.url} target="_blank" rel="noreferrer">YouTube source</a>
+                  {result.run_evidence.inputs.video_origin.draft.trader_name && <> · {result.run_evidence.inputs.video_origin.draft.trader_name} · {result.run_evidence.inputs.video_origin.draft.strategy_name}</>}
+                  {" · "}{result.run_evidence.inputs.video_origin.model ?? "Pasted JSON (not verified by Gemini API)"}
+                  {" · Proposed "}{result.run_evidence.inputs.video_origin.draft.entry_offset_bps}{" bps · Tested "}{result.params_used.entry_offset_bps}{" bps"}
+                </dd>
+              </div>
+            )}
           </dl>
           <p className="mt-2 text-zinc-400">Export JSON to keep the fingerprint and all run settings. These describe a historical simulation.</p>
         </details>

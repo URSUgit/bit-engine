@@ -62,6 +62,9 @@ import { ParamTuner } from "./components/param-tuner";
 import { useAutoSaveResults } from "@/lib/use-auto-save-results";
 import { RecentHistory } from "./components/recent-history";
 import { ExtractedStrategies } from "./components/extracted-strategies";
+import { VideoStrategyPanel } from "./components/video-strategy-panel";
+import { CreateVideoPaperBot, VideoPaperBots } from "./components/video-paper-bots";
+import type { VideoStrategyOrigin } from "@/lib/backtest-api";
 import { RegimeBadge } from "./components/regime-badge";
 const RobustnessTest = dynamic(() => import("./components/robustness-test").then((m) => m.RobustnessTest), { ssr: false, loading: () => <TabSkeleton /> });
 import { PositionSizer } from "./components/position-sizer";
@@ -114,7 +117,7 @@ function TabSkeleton() {
   );
 }
 
-type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix";
+type Mode = "single" | "compare" | "optimize" | "scan" | "history" | "data" | "signals" | "forward" | "custom" | "portfolio" | "matrix" | "video";
 type ResultTab = "charts" | "editor" | "trades" | "analysis" | "friction" | "anomalies" | "monthly" | "montecarlo" | "walk_forward" | "rolling" | "calendar" | "sensitivity" | "regime" | "risk" | "attribution" | "drawdown" | "journal" | "multi_tf" | "robustness" | "factor" | "timing" | "report" | "pnl_sim" | "mkt_corr" | "streaks" | "dist" | "benchmark" | "heatmap" | "quality" | "perf_track" | "scenarios" | "autocorr" | "mae_mfe" | "pine" | "breakeven" | "significance" | "strategy_advisor" | "seasonality" | "risk_of_ruin" | "ev_explorer" | "replay" | "long_short" | "sizing_wizard" | "sharpe_contribution" | "exit_analysis" | "streak_dist" | "cost_sensitivity" | "perf_decay" | "dynamic_sizing" | "cluster" | "cap_efficiency" | "stop_target" | "benford";
 
 const MODE_ORDER: Mode[] = ["single", "compare", "optimize", "scan", "signals", "history", "data", "custom", "portfolio", "matrix"];
@@ -142,6 +145,7 @@ export default function BacktesterPage() {
   const [archive, setArchive] = useState<ArchiveCoverage | null>(null);
   const [archiveStart, setArchiveStart] = useState("");
   const [archiveEnd, setArchiveEnd] = useState("");
+  const [videoOrigin, setVideoOrigin] = useState<VideoStrategyOrigin | null>(null);
   const [interval, setIntervalValue] = useState("1d");
   const [initialCapital, setInitialCapital] = useState(10000);
   const [commissionPct, setCommissionPct] = useState(0.1);
@@ -370,6 +374,7 @@ export default function BacktesterPage() {
         use_funding_rates: archive ? false : useFundingRates,
         leverage: archive ? 1 : leverage,
         run_anomaly_scan: runAnomalyScan,
+        ...(archive && videoOrigin ? { video_origin: videoOrigin } : {}),
       };
       for await (const event of runBacktestStream(params)) {
         if (event.type === "progress") {
@@ -570,6 +575,8 @@ export default function BacktesterPage() {
   };
 
   const viewingSavedRun = archive !== null && singleResult !== null && singleResult.id === openedHistoryRunId;
+  const paperInputs = singleResult?.run_evidence?.inputs;
+  const paperDraft = paperInputs?.video_origin?.draft;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-50 p-6">
@@ -595,7 +602,16 @@ export default function BacktesterPage() {
 
         <ModeTabs mode={mode} onChange={setMode} research={archive !== null} />
 
-        {mode === "history" ? (
+        {mode === "video" && archive ? (
+          <VideoStrategyPanel loadingRun={running} onLoad={(origin) => {
+            const offset = origin.draft.entry_offset_bps;
+            if (origin.draft.status !== "compatible" || offset === null) return;
+            setAutoRun(false);
+            setStrategyParams({ entry_offset_bps: offset });
+            setVideoOrigin(origin);
+            setMode("single");
+          }} />
+        ) : mode === "history" ? (
           <div className="space-y-3">
             {historyError && <p role="alert" className="text-sm text-red-300">{historyError}</p>}
             {historyLoading ? <p role="status" className="text-sm text-zinc-400">Loading saved backtests…</p> : (
@@ -738,7 +754,8 @@ export default function BacktesterPage() {
             </main>
           </div>
         ) : mode === "forward" ? (
-          <div className="max-w-4xl mx-auto">
+          <div className="max-w-4xl mx-auto space-y-4">
+            {archive && <VideoPaperBots onOpenBacktest={(id) => void openHistoryRun(id)} />}
             <ForwardTest
               symbol={singleSymbol}
               strategy={strategyName}
@@ -925,6 +942,12 @@ export default function BacktesterPage() {
                   <div className="font-medium">Previous-day breakout · 1h</div>
                   <label className="block">Start date (UTC)<input className="block w-full rounded border border-zinc-700 bg-zinc-950 p-1" type="date" value={archiveStart} onChange={(e) => setArchiveStart(e.target.value)} /></label>
                   <label className="block">End date (exclusive, UTC)<input className="block w-full rounded border border-zinc-700 bg-zinc-950 p-1" type="date" value={archiveEnd} onChange={(e) => setArchiveEnd(e.target.value)} /></label>
+                  {videoOrigin && (
+                    <div className="space-y-1 rounded border border-zinc-700 p-2 text-xs text-zinc-300">
+                      <p>{videoOrigin.draft.trader_name} · {videoOrigin.draft.strategy_name} · proposed {videoOrigin.draft.entry_offset_bps} bps. The offset below is what the backtest uses.</p>
+                      <button type="button" className="text-cyan-300 underline" onClick={() => setVideoOrigin(null)}>Detach video source</button>
+                    </div>
+                  )}
                 </div>
               ) : <>
               <PeriodPicker periodDays={periodDays} onChange={setPeriodDays} />
@@ -1204,6 +1227,12 @@ export default function BacktesterPage() {
                       Viewing a saved run. Backtest controls are still your current draft.
                     </p>
                   )}
+                  {archive && singleResult && !running && paperDraft?.trader_name && paperDraft.strategy_name && (
+                    paperInputs?.enable_market_impact || paperInputs?.execution_latency_ms
+                      ? <p className="text-sm text-amber-300">To create a paper bot, backtest without market impact or extra execution latency.</p>
+                      : <CreateVideoPaperBot key={singleResult.id} backtestId={singleResult.id}
+                          name={`${paperDraft.trader_name} · ${paperDraft.strategy_name}`} onCreated={() => setMode("forward")} />
+                  )}
                   <SingleResultsView
                     symbol={singleSymbol}
                     result={singleResult}
@@ -1393,16 +1422,17 @@ function ModeTabs({ mode, onChange, research }: { mode: Mode; onChange: (m: Mode
     { value: "optimize", label: "Optimize", hint: "Find best parameters" },
     { value: "scan", label: "Scan", hint: "Best strategy finder" },
     { value: "signals", label: "Signals", hint: "Live signal feed" },
-    { value: "forward", label: "Forward", hint: "Paper test · demo" },
+    { value: "forward", label: research ? "Paper bots" : "Forward", hint: research ? "Simulated forward tests" : "Paper test · demo" },
     { value: "history", label: "History", hint: "Past runs" },
+    { value: "video", label: "Video strategy", hint: "YouTube · Gemini" },
     { value: "data", label: "Data", hint: "Cache · Custom symbols" },
     { value: "custom", label: "Editor", hint: "Write your own strategy" },
     { value: "portfolio", label: "Portfolio", hint: "Multi-strategy allocation" },
     { value: "matrix", label: "Matrix", hint: "All strategies × symbols" },
   ];
   return (
-    <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
-      {tabs.filter((t) => !research || ["single", "history", "data", "forward"].includes(t.value)).map((t) => (
+    <div className="flex flex-wrap gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1">
+      {tabs.filter((t) => research ? ["single", "history", "data", "forward", "video"].includes(t.value) : t.value !== "video").map((t) => (
         <button
           key={t.value}
           onClick={() => onChange(t.value)}
@@ -2396,7 +2426,7 @@ function HistoryView({
                 </td>
                 <td className="py-2 pr-3 text-zinc-400 text-xs whitespace-nowrap">{r.start_date} → {r.end_date}</td>
                 <td className="py-2 pr-3 text-zinc-200 font-medium">{r.symbol}</td>
-                <td className="py-2 pr-3 text-zinc-300">{r.strategy}</td>
+                <td className="py-2 pr-3 text-zinc-300">{r.strategy_name ?? r.strategy}{r.trader_name && <div className="text-xs text-zinc-400">{r.trader_name}</div>}</td>
                 <td className="py-2 pr-3 text-zinc-500 text-xs">{r.interval}</td>
                 <td className={`py-2 pr-3 text-right ${r.total_return_pct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                   {r.total_return_pct >= 0 ? "+" : ""}{r.total_return_pct.toFixed(2)}%

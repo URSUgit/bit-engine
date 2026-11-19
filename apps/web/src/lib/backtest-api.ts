@@ -45,6 +45,22 @@ export type HistoricalData = {
   is_synthetic?: boolean;       // true when the series is GBM demo data, not real market data
 };
 
+export type VideoStrategyOrigin = {
+  url: string;
+  provider: "gemini_api" | "pasted_gemini";
+  model: string | null;
+  draft: {
+    status: "compatible" | "needs_review";
+    summary: string;
+    entry_offset_bps: number | null;
+    entry_second: number | null;
+    exit_second: number | null;
+    blockers: string[];
+    trader_name?: string | null;
+    strategy_name?: string | null;
+  };
+};
+
 export type BacktestParams = {
   symbol: string;
   strategy: string;
@@ -63,6 +79,7 @@ export type BacktestParams = {
   use_funding_rates?: boolean;
   leverage?: number;
   run_anomaly_scan?: boolean;
+  video_origin?: VideoStrategyOrigin;
 };
 
 type TradeSignalEvidence = {
@@ -485,6 +502,8 @@ export type WalkForwardResult = {
 
 export type HistoryRow = {
   id: string;
+  trader_name?: string;
+  strategy_name?: string;
   created_at: number;
   symbol: string;
   strategy: string;
