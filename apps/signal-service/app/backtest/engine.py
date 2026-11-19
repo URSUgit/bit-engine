@@ -25,7 +25,7 @@ from .data import HistoricalDataLoader, SYMBOL_CATALOG, binance_symbol
 from .history import backtest_history
 from .metrics import build_equity_curve, compute_metrics
 from .models import (
-    Bar, BacktestParams, BacktestResult, BacktestRunEvidence, Position, Signal,
+    Bar, BacktestOpenPosition, BacktestParams, BacktestResult, BacktestRunEvidence, Position, Signal,
     Trade, TradeRecord,
 )
 from .strategies import STRATEGIES
@@ -618,6 +618,20 @@ async def run_backtest(params: BacktestParams, progress_cb=None) -> BacktestResu
     if progress_cb:
         progress_cb("metrics", 0, 1)
 
+    open_position_at_end = None
+    open_position_bars = 0
+    if strategy.strict_next_open and bt.position is not None:
+        position = bt.position
+        last_close = bars[-1].close
+        # Entered at a bar's open; the final mark includes that bar and the last close.
+        open_position_bars = len(bars) - bt._entry_bar_index
+        open_position_at_end = BacktestOpenPosition(
+            entry_time=position.entry_time,
+            entry_price=position.entry_price,
+            last_close=last_close,
+            unrealized_pnl=round(position.mtm_value(last_close) - position.cost, 2),
+        )
+
     asset_cls = _asset_class(params.symbol)
     metrics = compute_metrics(
         initial_capital=params.initial_capital,
@@ -625,6 +639,7 @@ async def run_backtest(params: BacktestParams, progress_cb=None) -> BacktestResu
         trades=trades,
         interval=params.interval,
         asset_class=asset_cls,
+        open_position_bars=open_position_bars,
     )
 
     # Benchmark: buy & hold
@@ -693,6 +708,7 @@ async def run_backtest(params: BacktestParams, progress_cb=None) -> BacktestResu
         bars_processed=len(bars),
         runtime_ms=round(runtime_ms, 1),
         run_evidence=_breakout_run_evidence(params, strategy, bars) if studio else None,
+        open_position_at_end=open_position_at_end,
         entry_analysis=entry_analysis,
         friction_breakdown=friction,
         anomalies=anomaly_dicts,

@@ -308,6 +308,12 @@ export type BacktestResult = {
     last_candle_utc: string;
     inputs: BacktestParams;
   } | null;
+  open_position_at_end?: {
+    entry_time: string;
+    entry_price: number;
+    last_close: number;
+    unrealized_pnl: number;
+  } | null;
   entry_analysis: EntryAnalysis | null;
   // Realism additions
   friction_breakdown: FrictionBreakdown | null;

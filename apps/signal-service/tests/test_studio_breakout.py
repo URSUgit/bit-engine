@@ -141,6 +141,42 @@ def test_result_evidence_repeats_and_tracks_exact_input(sample, tmp_path, monkey
     assert changed['inputs'] == evidence['inputs']
 
 
+def test_final_open_position_marks_equity_and_exposure_without_a_fake_exit(sample, tmp_path, monkeypatch):
+    import asyncio
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from app.backtest import engine
+    from app.backtest.history import BacktestHistory
+    from app.backtest.models import BacktestParams, BacktestResult
+    from app.backtest.storage import BarStorage
+
+    bars = sample[:72]
+    bars[-1] = replace(bars[-1], low=99, close=99)
+    cache = BarStorage(':memory:')
+    cache.upsert_bars('BTCUSDT', '1h', bars, 'binance')
+    history = BacktestHistory(str(tmp_path / 'runs.db'))
+    monkeypatch.setattr(engine, 'HistoricalDataLoader', lambda: SimpleNamespace(storage=cache))
+    monkeypatch.setattr(engine, 'backtest_history', history)
+    params = BacktestParams.model_validate(dict(symbol='BTCUSDT', interval='1h', strategy='studio_breakout',
+                                                start_date='2024-01-09', end_date='2024-01-12', slippage_pct=0))
+    result = asyncio.run(engine.run_backtest(params))
+    expected_mark = 2500 / (101 * 1.001) * 99
+    assert result.trades == [] and result.metrics.total_trades == 0
+    assert result.metrics.final_equity == result.equity_curve[-1].equity == round(7500 + expected_mark, 2)
+    assert result.metrics.total_return_pct == round((expected_mark - 2500) / 100, 2)
+    assert result.metrics.max_drawdown_pct == round((2500 - expected_mark) / 100, 2)
+    assert result.metrics.recovery_factor == -1.0  # equity return / drawdown, even with no closed trades
+    assert result.metrics.exposure_pct == result.metrics.time_in_market_pct == round(9 / 71 * 100, 2)
+    assert result.open_position_at_end is not None
+    assert result.open_position_at_end.entry_time == bars[63].timestamp
+    assert result.open_position_at_end.last_close == 99
+    assert result.open_position_at_end.unrealized_pnl == round(expected_mark - 2500, 2)
+    saved = BacktestResult.model_validate(history.get(result.id))
+    assert saved.open_position_at_end == result.open_position_at_end
+    old_payload = result.model_dump(exclude={'open_position_at_end'})
+    assert BacktestResult.model_validate(old_payload).open_position_at_end is None
+
+
 @pytest.mark.parametrize('invalid', [True, 0.5, -1, 401])
 def test_invalid_offset_rejected(invalid):
     with pytest.raises(ValueError, match='0.*400'):

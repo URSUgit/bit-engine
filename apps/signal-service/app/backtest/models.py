@@ -182,6 +182,15 @@ class BacktestRunEvidence(BaseModel):
     inputs: BacktestParams
 
 
+class BacktestOpenPosition(BaseModel):
+    """A mark at the end of a strict replay, not an executed exit."""
+
+    entry_time: datetime
+    entry_price: float
+    last_close: float
+    unrealized_pnl: float
+
+
 class BacktestResult(BaseModel):
     id: str
     symbol: str
@@ -197,6 +206,7 @@ class BacktestResult(BaseModel):
     bars_processed: int
     runtime_ms: float
     run_evidence: Optional[BacktestRunEvidence] = None
+    open_position_at_end: Optional[BacktestOpenPosition] = None
     entry_analysis: Optional[EntryAnalysis] = None
     # Realism additions
     friction_breakdown: Optional[dict] = None  # commission/slippage/spread/funding breakdown

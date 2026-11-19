@@ -293,6 +293,16 @@ export function MetricsGrid({ result }: { result: BacktestResult }) {
           <p className="mt-2 text-zinc-400">Export JSON to keep the fingerprint and all run settings. These describe a historical simulation.</p>
         </details>
       )}
+      {result.open_position_at_end && (
+        <div className="mb-4 rounded-md border border-zinc-700 px-3 py-2 text-xs text-zinc-300">
+          <p className="font-medium">Position still open at the end of this backtest</p>
+          <p className="mt-1">
+            Final equity uses the last close ({result.open_position_at_end.last_close.toFixed(2)} USDT).
+            Unrealized P&amp;L: {result.open_position_at_end.unrealized_pnl.toFixed(2)} USDT.
+            No exit was simulated; closed-trade statistics exclude this position.
+          </p>
+        </div>
+      )}
       {/* Primary metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <MetricCard
@@ -312,7 +322,7 @@ export function MetricsGrid({ result }: { result: BacktestResult }) {
         <MetricCard label="Calmar" value={m.calmar_ratio.toFixed(2)} positive={m.calmar_ratio >= 1} />
         <MetricCard label="Win rate" value={`${m.win_rate_pct.toFixed(1)}%`} positive={m.win_rate_pct >= 50} />
         <MetricCard label="Profit factor" value={m.profit_factor.toFixed(2)} positive={m.profit_factor >= 1} />
-        <MetricCard label="Trades" value={`${m.total_trades}`} positive />
+        <MetricCard label={result.open_position_at_end ? "Closed trades" : "Trades"} value={`${m.total_trades}`} positive />
         <MetricCard label="Wins / Losses" value={`${m.winning_trades} / ${m.losing_trades}`} positive />
         <MetricCard label="Avg trade" value={fmtPct(m.avg_trade_pnl_pct)} positive={m.avg_trade_pnl_pct >= 0} />
         <MetricCard label="Final equity" value={`$${m.final_equity.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} positive={m.final_equity > m.initial_capital} />

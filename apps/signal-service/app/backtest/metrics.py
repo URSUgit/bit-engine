@@ -149,6 +149,8 @@ def compute_metrics(
     trades: list[Trade],
     interval: str,
     asset_class: str = "stock",
+    *,
+    open_position_bars: int = 0,
 ) -> PerformanceMetrics:
     """Compile full performance metric suite from an equity curve + trade log."""
     if not equity:
@@ -174,6 +176,7 @@ def compute_metrics(
     sharpe = sharpe_ratio(returns, ppy)
     sortino = sortino_ratio(returns, ppy)
     calmar = (cagr_pct / max_dd_pct) if max_dd_pct > 0 else 0.0
+    recovery_factor = (total_return_pct / max_dd_pct) if max_dd_pct > 0 else 0.0
 
     # ── Risk analytics from equity curve ─────────────────────────────────────
     # Filter out non-finite returns
@@ -201,6 +204,11 @@ def compute_metrics(
         ulcer = pain = 0.0
         daily_ret_downsampled = []
 
+    # Completed trades drive trade statistics; exposure also counts still-open bars.
+    total_bars = max(len(equity) - 1, 1)
+    in_trade_bars = sum(t.duration_bars for t in trades) + open_position_bars
+    time_in_market = in_trade_bars / total_bars * 100
+
     # Trade-level
     if trades:
         wins = [t for t in trades if t.is_win]
@@ -215,9 +223,6 @@ def compute_metrics(
         best = max((t.pnl_pct for t in trades), default=0.0)
         worst = min((t.pnl_pct for t in trades), default=0.0)
         avg_duration = sum(t.duration_bars for t in trades) / len(trades)
-        # exposure: fraction of bars spent in a position
-        in_trade_bars = sum(t.duration_bars for t in trades)
-        exposure = in_trade_bars / max(len(equity) - 1, 1) * 100
 
         # Extended metrics
         avg_win_pct  = sum(t.pnl_pct for t in wins)   / len(wins)   if wins   else 0.0
@@ -234,8 +239,6 @@ def compute_metrics(
         else:
             sqn = 0.0
 
-        recovery_factor = (total_return_pct / max_dd_pct) if max_dd_pct > 0 else 0.0
-
         # Consecutive wins / losses
         max_consec_wins = max_consec_losses = 0
         cur_w = cur_l = 0
@@ -247,20 +250,15 @@ def compute_metrics(
                 cur_l += 1; cur_w = 0
                 max_consec_losses = max(max_consec_losses, cur_l)
 
-        # Time in market & avg bars between trades
-        total_bars = max(len(equity) - 1, 1)
-        time_in_market = in_trade_bars / total_bars * 100
-
         # Avg bars between trades: gap from one exit to next entry
         # Use duration_bars proxy: total_bars - in_trade_bars spread over (n-1) gaps
         out_of_market_bars = max(total_bars - in_trade_bars, 0)
         avg_bars_between = out_of_market_bars / max(len(trades) - 1, 1) if len(trades) > 1 else 0.0
     else:
-        win_rate = profit_factor = avg_pct = best = worst = avg_duration = exposure = 0.0
+        win_rate = profit_factor = avg_pct = best = worst = avg_duration = 0.0
         wins, losses = [], []
-        avg_win_pct = avg_loss_pct = avg_win_loss = sqn = recovery_factor = 0.0
+        avg_win_pct = avg_loss_pct = avg_win_loss = sqn = 0.0
         max_consec_wins = max_consec_losses = 0
-        time_in_market = 0.0
         avg_bars_between = 0.0
 
     return PerformanceMetrics(
@@ -279,7 +277,7 @@ def compute_metrics(
         best_trade_pct=round(best, 2),
         worst_trade_pct=round(worst, 2),
         avg_trade_duration_bars=round(avg_duration, 1),
-        exposure_pct=round(min(exposure, 100), 2),
+        exposure_pct=round(min(time_in_market, 100), 2),
         final_equity=round(final_equity, 2),
         initial_capital=round(initial_capital, 2),
         recovery_factor=round(recovery_factor, 2),
